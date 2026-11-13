@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "framedoubler"
+dynamic = ["version"]
+description = "RIFE frame interpolation for 30fps game captures: restores true motion and outputs real 60fps video."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+# torch is installed separately from the CUDA wheel index (see scripts/setup.ps1).
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+framedoubler = "framedoubler.cli:main"
+
+[tool.hatch.version]
+path = "src/framedoubler/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/framedoubler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
