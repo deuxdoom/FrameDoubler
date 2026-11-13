@@ -61,6 +61,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 ## 🎬 비교 영상
 
 <p align="center">
+  <b>◀ 원본 · 움직임 30fps</b>&emsp;&emsp;&emsp;&emsp;<b>FrameDoubler · 움직임 60fps ▶</b><br>
   <img src="docs/media/compare.gif" alt="왼쪽 원본은 같은 자세가 두 프레임씩 반복되고, 오른쪽 FrameDoubler 결과는 매 프레임 자세가 바뀝니다." width="800">
 </p>
 

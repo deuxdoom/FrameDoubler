@@ -12,6 +12,8 @@
 <meta name="theme-color" content="#14181B">
 <link rel="icon" href="img/icon.png">
 <link rel="preload" href="media/compare-poster.jpg" as="image">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 :root {
   --bg: #14181B; --surface: #1D2327; --raised: #252D32; --input: #111619;
@@ -24,7 +26,8 @@
 html { scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
-  font: 16px/1.65 "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  font: 16px/1.65 "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
+  font-feature-settings: "ss06", "tnum" 0; letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased; overflow-x: hidden;
   /* Korean breaks only between words, never inside one; long tokens may still wrap. */
   word-break: keep-all; overflow-wrap: break-word;
@@ -48,8 +51,10 @@ section:not(.hero) .wrap > :is(.eyebrow, h2, .lead, .note) { text-align: center;
    1. Every sentence (.s) starts on its own line; two sentences never share or split a line.
    2. A sentence that fits its column stays on one line. Only a sentence longer than the column
       wraps, at word boundaries (keep-all), with balanced line lengths so no word is left alone.
-   3. Centred section text may use the full content width; left-aligned text keeps its column. */
+   3. Centred section text may use the full content width; left-aligned text keeps its column.
+   4. Card and panel descriptions are not split by sentence; they flow as continuous text. */
 .s { display: block; }
+:is(.card, .steps li, .stat, .panel) .s { display: inline; }
 p, li, figcaption, .s { text-wrap: pretty; }
 section:not(.hero) .wrap > :is(.lead, .note), section:not(.hero) .wrap > :is(.lead, .note) .s,
 .slow figcaption, .slow figcaption .s { text-wrap: balance; max-width: 100%; }
@@ -60,9 +65,23 @@ header.top { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px);
 header.top .wrap { display: flex; align-items: center; gap: 12px; height: 60px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; text-decoration: none; margin-right: auto; }
 .brand img { width: 30px; height: 30px; }
+nav { display: flex; align-items: center; gap: 2px; }
 nav a { color: var(--muted); text-decoration: none; font-size: .92rem; padding: 8px 10px; border-radius: 8px; }
+.icon-link { display: inline-grid; place-items: center; color: var(--muted); }
+.icon-link:hover { color: var(--text); }
+.octicon { fill: currentColor; display: block; }
+.lang { position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: none; padding: 3px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--input); }
+.lang::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px);
+  border-radius: 999px; background: var(--accent); transition: transform .28s cubic-bezier(.2,.7,.2,1); }
+html[lang="en"] .lang::before { transform: translateX(100%); }
+.lang button { all: unset; position: relative; z-index: 1; cursor: pointer; min-width: 3.2em; padding: 4px 10px;
+  text-align: center; font-size: .8rem; font-weight: 700; color: var(--muted); border-radius: 999px; transition: color .2s; }
+.lang button[aria-pressed="true"] { color: var(--on-accent); }
+.lang button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
 nav a:hover { color: var(--text); background: var(--raised); }
 @media (max-width: 720px) { nav a.opt { display: none; } }
+@media (max-width: 480px) { nav a.opt-sm { display: none; } }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 22px; border-radius: 10px;
   font-weight: 700; text-decoration: none; border: 1px solid var(--border); background: var(--raised);
@@ -134,18 +153,21 @@ nav a:hover { color: var(--text); background: var(--raised); }
 .slow img { width: 100%; border-radius: 8px; image-rendering: auto; }
 .slow figcaption { color: var(--dim); font-size: .8rem; margin-top: 10px; text-align: center; }
 .slow h3 { text-align: center; }
+.gif { position: relative; }
+.gif .tag { top: 8px; left: 8px; font-size: .75rem; }
+.gif .tag.right { left: calc(50% + 8px); color: var(--accent); }
 
 /* steps */
-.steps { counter-reset: step; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); margin-top: 36px; padding: 0; list-style: none; }
+.steps { counter-reset: step; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin-top: 36px; padding: 0; list-style: none; }
 .steps li { counter-increment: step; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; position: relative; overflow: hidden; }
-.steps li::before { content: counter(step, decimal-leading-zero); font: 700 .8rem Consolas, monospace; color: var(--accent); letter-spacing: .1em; }
+.steps li::before { content: counter(step, decimal-leading-zero); font: 700 .8rem ui-monospace, Consolas, monospace; color: var(--accent); letter-spacing: .1em; }
 .steps li::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: linear-gradient(90deg, var(--accent), transparent); transform: scaleX(0); transform-origin: left; transition: transform .9s .2s; }
 .steps li.in::after { transform: scaleX(1); }
 .steps h3 { margin: 8px 0 6px; }
 .steps p { color: var(--muted); font-size: .93rem; }
 
 /* features */
-.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); margin-top: 36px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin-top: 36px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; transition: border-color .2s, transform .2s, background .2s; }
 .card:hover { border-color: var(--accent); transform: translateY(-3px); background: var(--raised); }
 .card svg { width: 26px; height: 26px; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -153,7 +175,7 @@ nav a:hover { color: var(--text); background: var(--raised); }
 .card p { color: var(--muted); font-size: .93rem; }
 
 /* numbers */
-.stats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); margin-top: 36px; }
+.stats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); margin-top: 36px; }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
 .stat .num { font-size: clamp(2rem, 4.4vw, 3rem); font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .stat .num small { font-size: .45em; font-weight: 600; color: var(--muted); margin-left: 4px; }
@@ -169,6 +191,7 @@ nav a:hover { color: var(--text); background: var(--raised); }
 
 /* download */
 .dl { display: grid; gap: 24px; grid-template-columns: 1fr; margin-top: 36px; }
+@media (min-width: 900px) { .dl { grid-template-columns: 1fr 1fr; } }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: clamp(20px, 3vw, 30px); }
 .panel ol, .panel ul { margin: 14px 0 0; padding-left: 1.2em; color: var(--muted); }
 .panel li { margin: 6px 0; }
@@ -180,6 +203,7 @@ pre b { color: var(--text); font-weight: 400; }
 footer { border-top: 1px solid var(--border); padding: 36px 0 56px; color: var(--dim); font-size: .88rem; }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
 footer a { color: var(--muted); }
+.footer-links { display: inline-flex; align-items: center; gap: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -194,12 +218,16 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <a class="brand" href="#top"><img src="img/symbol.svg" alt="">FrameDoubler</a>
     <nav>
-      <a class="opt" href="#why">왜 필요한가</a>
-      <a class="opt" href="#how">작동 방식</a>
-      <a class="opt" href="#features">기능</a>
-      <a href="#download">내려받기</a>
-      <a href="https://github.com/deuxdoom/FrameDoubler">GitHub</a>
+      <a class="opt" href="#why" data-i18n="nav.why">왜 필요한가</a>
+      <a class="opt" href="#how" data-i18n="nav.how">작동 방식</a>
+      <a class="opt" href="#features" data-i18n="nav.features">기능</a>
+      <a class="opt-sm" href="#download" data-i18n="nav.download">내려받기</a>
+      <a class="icon-link" href="https://github.com/deuxdoom/FrameDoubler" aria-label="GitHub" title="GitHub"><svg class="octicon" viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a>
     </nav>
+    <div class="lang" role="group" aria-label="언어 · Language">
+      <button type="button" data-lang="ko" lang="ko" aria-pressed="true">한국어</button>
+      <button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button>
+    </div>
   </div>
 </header>
 
@@ -208,58 +236,62 @@ footer a { color: var(--muted); }
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <p class="eyebrow">게임 녹화 영상을 위한 RIFE 프레임 보간 도구</p>
-      <h1><span>프레임 사이를,</span><span class="accent">움직임으로.</span></h1>
-      <p class="lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
+      <p class="eyebrow" data-i18n="hero.eyebrow">게임 녹화 영상을 위한 RIFE 프레임 보간 도구</p>
+      <h1><span data-i18n="hero.title1">프레임 사이를,</span><span class="accent" data-i18n="hero.title2">움직임으로.</span></h1>
+      <p class="lead" data-i18n="hero.lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
       <div class="cta">
-        <a class="btn primary" id="download-button" href="https://github.com/deuxdoom/FrameDoubler/releases/latest">내려받기 <small id="latest-version">Windows 11</small></a>
-        <a class="btn" href="#why">무엇이 다른가요</a>
+        <a class="btn primary" id="download-button" href="https://github.com/deuxdoom/FrameDoubler/releases/latest"><span data-i18n="hero.download">내려받기</span> <small id="latest-version">Windows 11</small></a>
+        <a class="btn" href="#why" data-i18n="hero.why">무엇이 다른가요</a>
       </div>
-      <div class="badges"><span>Windows 11 x64</span><span>Vulkan GPU · CPU 대체</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span>설치 없이 압축만 풀기</span><span>MIT 라이선스</span></div>
+      <div class="badges"><span>Windows 11 x64</span><span data-i18n="badge.gpu">Vulkan GPU · CPU 대체</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span data-i18n="badge.portable">설치 없이 압축만 풀기</span><span data-i18n="badge.license">MIT 라이선스</span></div>
     </div>
 
     <div class="demo">
       <div class="demo-head">
-        <strong>실제 녹화로 비교하기</strong>
-        <div class="toggle" role="group" aria-label="재생 속도">
-          <button type="button" data-rate="1" aria-pressed="true">실제 속도</button>
+        <strong data-i18n="demo.title">실제 녹화로 비교하기</strong>
+        <div class="toggle" role="group" aria-label="재생 속도" data-i18n-attr="aria-label:demo.speed">
+          <button type="button" data-rate="1" aria-pressed="true" data-i18n="demo.real">실제 속도</button>
           <button type="button" data-rate="0.5" aria-pressed="false">1/2</button>
           <button type="button" data-rate="0.25" aria-pressed="false">1/4</button>
         </div>
       </div>
       <div class="compare">
         <video id="compare" src="media/compare.mp4" poster="media/compare-poster.jpg" width="768" height="864"
-               muted loop playsinline preload="auto" aria-label="같은 구간의 원본 녹화와 FrameDoubler 결과를 위아래로 비교한 영상"></video>
-        <span class="tag top">원본 녹화<small>파일 60fps · 움직임 30fps</small></span>
-        <span class="tag bottom">FrameDoubler<small>파일 60fps · 움직임 60fps</small></span>
+               muted loop playsinline preload="auto" aria-label="같은 구간의 원본 녹화와 FrameDoubler 결과를 위아래로 비교한 영상" data-i18n-attr="aria-label:demo.video"></video>
+        <span class="tag top" data-i18n="tag.original">원본 녹화<small>파일 60fps · 움직임 30fps</small></span>
+        <span class="tag bottom" data-i18n="tag.output">FrameDoubler<small>파일 60fps · 움직임 60fps</small></span>
       </div>
-      <p class="note"><span class="s">파이어엠블렘 만자천홍 4K 녹화의 같은 구간입니다.</span> <span class="s">차이가 잘 보이지 않으면 느리게 재생해 보세요.</span> <span class="s">실제 속도의 차이는 60Hz 이상의 화면에서 보입니다.</span></p>
+      <p class="note" data-i18n="demo.note"><span class="s">파이어엠블렘 만자천홍 4K 녹화의 같은 구간입니다.</span> <span class="s">차이가 잘 보이지 않으면 느리게 재생해 보세요.</span> <span class="s">실제 속도의 차이는 60Hz 이상의 화면에서 보입니다.</span></p>
     </div>
   </div>
 </section>
 
 <section id="why">
   <div class="wrap">
-    <p class="eyebrow reveal">문제</p>
-    <h2 class="reveal">60fps 파일 안에는 같은 그림이 두 번씩 들어 있습니다</h2>
-    <p class="lead reveal" style="margin-top:16px"><span class="s">콘솔 게임이 30fps로 동작하면, 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다.</span> <span class="s">파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps입니다.</span> <span class="s">유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.</span></p>
+    <p class="eyebrow reveal" data-i18n="why.eyebrow">문제</p>
+    <h2 class="reveal" data-i18n="why.title">60fps 파일 안에는 같은 그림이 두 번씩 들어 있습니다</h2>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="why.lead1"><span class="s">콘솔 게임이 30fps로 동작하면, 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다.</span> <span class="s">파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps입니다.</span> <span class="s">유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.</span></p>
     <div class="strip-box reveal" id="strip">
       <div class="strip-row">
-        <span><b>녹화 원본</b>움직임 30fps</span>
+        <span data-i18n="strip.original"><b>녹화 원본</b>움직임 30fps</span>
         <div class="frames"><div class="f">A</div><div class="f dup">A</div><div class="f">B</div><div class="f dup">B</div><div class="f">C</div><div class="f dup">C</div><div class="f">D</div><div class="f dup">D</div></div>
       </div>
       <div class="strip-row">
-        <span><b>FrameDoubler</b>움직임 60fps</span>
+        <span data-i18n="strip.output"><b>FrameDoubler</b>움직임 60fps</span>
         <div class="frames"><div class="f">A</div><div class="f gen">A½</div><div class="f">B</div><div class="f gen">B½</div><div class="f">C</div><div class="f gen">C½</div><div class="f">D</div><div class="f gen">D½</div></div>
       </div>
     </div>
-    <p class="lead reveal" style="margin-top:20px"><span class="s">일반적인 보간 프로그램은 이 파일을 그대로 2배로 늘립니다.</span> <span class="s">그러면 <b>똑같은 두 프레임 사이</b>를 보간하게 되어 결과는 달라지지 않습니다.</span> <span class="s">FrameDoubler는 먼저 중복을 걷어 내고 진짜 움직임만 남긴 뒤에 보간합니다.</span></p>
+    <p class="lead reveal" style="margin-top:20px" data-i18n="why.lead2"><span class="s">일반적인 보간 프로그램은 이 파일을 그대로 2배로 늘립니다.</span> <span class="s">그러면 <b>똑같은 두 프레임 사이</b>를 보간하게 되어 결과는 달라지지 않습니다.</span> <span class="s">FrameDoubler는 먼저 중복을 걷어 내고 진짜 움직임만 남긴 뒤에 보간합니다.</span></p>
     <div class="slow reveal">
-      <h3>느린 재생으로 프레임 하나하나 보기</h3>
+      <h3 data-i18n="slow.title">느린 재생으로 프레임 하나하나 보기</h3>
       <figure>
-        <img src="media/compare.gif" width="800" height="225" loading="lazy" decoding="async"
-             alt="왼쪽 원본은 같은 자세가 두 프레임씩 반복되고, 오른쪽 FrameDoubler 결과는 매 프레임 자세가 바뀝니다.">
-        <figcaption><span class="s">파이어엠블렘 만자천홍 4K 녹화를 0.42배 속도(초당 25프레임)로 재생하여 60fps의 모든 프레임을 보여 줍니다.</span> <span class="s">왼쪽 원본은 같은 그림이 두 번씩 나오고, 오른쪽 결과는 프레임마다 움직입니다.</span></figcaption>
+        <div class="gif">
+          <img src="media/compare.gif" width="800" height="225" loading="lazy" decoding="async"
+               alt="왼쪽 원본은 같은 자세가 두 프레임씩 반복되고, 오른쪽 FrameDoubler 결과는 매 프레임 자세가 바뀝니다." data-i18n-attr="alt:slow.alt">
+          <span class="tag" data-i18n="slow.left">원본 · 움직임 30fps</span>
+          <span class="tag right" data-i18n="slow.right">FrameDoubler · 움직임 60fps</span>
+        </div>
+        <figcaption data-i18n="slow.caption"><span class="s">파이어엠블렘 만자천홍 4K 녹화를 0.42배 속도(초당 25프레임)로 재생하여 60fps의 모든 프레임을 보여 줍니다.</span> <span class="s">왼쪽 원본은 같은 그림이 두 번씩 나오고, 오른쪽 결과는 프레임마다 움직입니다.</span></figcaption>
       </figure>
     </div>
   </div>
@@ -267,94 +299,94 @@ footer a { color: var(--muted); }
 
 <section id="how">
   <div class="wrap">
-    <p class="eyebrow reveal">작동 방식</p>
-    <h2 class="reveal">분석부터 검증까지, 한 번에</h2>
+    <p class="eyebrow reveal" data-i18n="how.eyebrow">작동 방식</p>
+    <h2 class="reveal" data-i18n="how.title">분석부터 검증까지, 한 번에</h2>
     <ol class="steps">
-      <li class="reveal" style="--i:0"><h3>입력과 장치 분석</h3><p><span class="s">영상의 해상도, 코덱, 프레임레이트, 비트 심도, 색상 정보를 읽습니다.</span> <span class="s">이 PC에서 실제로 동작하는 GPU와 인코더를 시험하여 고릅니다.</span></p></li>
-      <li class="reveal" style="--i:1"><h3>실제 움직임 fps 추정</h3><p><span class="s">프레임을 서로 비교하여 파일의 fps와 실제 움직임의 fps를 구별합니다.</span> <span class="s">60fps 파일 속의 30fps 움직임을 찾아냅니다.</span></p></li>
-      <li class="reveal" style="--i:2"><h3>중복 프레임 처리</h3><p><span class="s">압축 때문에 조금씩 달라진 중복 프레임도 판정합니다.</span> <span class="s">프레임 드롭으로 3번, 4번 반복된 구간과 정지 화면도 구분합니다.</span></p></li>
-      <li class="reveal" style="--i:3"><h3>RIFE AI 보간</h3><p><span class="s">남은 프레임 사이의 정확한 시각에 새 프레임을 만듭니다.</span> <span class="s">ncnn과 Vulkan으로 제조사와 관계없이 GPU에서 실행합니다.</span> <span class="s">장면이 바뀌는 순간에는 두 화면을 섞지 않습니다.</span></p></li>
-      <li class="reveal" style="--i:4"><h3>인코딩</h3><p><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">H.264, HEVC, AV1로 만들고 길이와 오디오 싱크를 유지합니다.</span></p></li>
-      <li class="reveal" style="--i:5"><h3>출력 검증</h3><p><span class="s">결과 파일의 프레임레이트, 길이, 오디오 동기, 색상을 다시 검사합니다.</span> <span class="s">남은 중복 프레임의 비율도 함께 보고합니다.</span></p></li>
+      <li class="reveal" style="--i:0"><h3 data-i18n="step1.title">입력과 장치 분석</h3><p data-i18n="step1.text"><span class="s">영상의 해상도, 코덱, 프레임레이트, 비트 심도, 색상 정보를 읽습니다.</span> <span class="s">이 PC에서 실제로 동작하는 GPU와 인코더를 시험하여 고릅니다.</span></p></li>
+      <li class="reveal" style="--i:1"><h3 data-i18n="step2.title">실제 움직임 fps 추정</h3><p data-i18n="step2.text"><span class="s">프레임을 서로 비교하여 파일의 fps와 실제 움직임의 fps를 구별합니다.</span> <span class="s">60fps 파일 속의 30fps 움직임을 찾아냅니다.</span></p></li>
+      <li class="reveal" style="--i:2"><h3 data-i18n="step3.title">중복 프레임 처리</h3><p data-i18n="step3.text"><span class="s">압축 때문에 조금씩 달라진 중복 프레임도 판정합니다.</span> <span class="s">프레임 드롭으로 3번, 4번 반복된 구간과 정지 화면도 구분합니다.</span></p></li>
+      <li class="reveal" style="--i:3"><h3 data-i18n="step4.title">RIFE AI 보간</h3><p data-i18n="step4.text"><span class="s">남은 프레임 사이의 정확한 시각에 새 프레임을 만듭니다.</span> <span class="s">ncnn과 Vulkan으로 제조사와 관계없이 GPU에서 실행합니다.</span> <span class="s">장면이 바뀌는 순간에는 두 화면을 섞지 않습니다.</span></p></li>
+      <li class="reveal" style="--i:4"><h3 data-i18n="step5.title">인코딩</h3><p data-i18n="step5.text"><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">H.264, HEVC, AV1로 만들고 길이와 오디오 싱크를 유지합니다.</span></p></li>
+      <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증</h3><p data-i18n="step6.text"><span class="s">결과 파일의 프레임레이트, 길이, 오디오 동기, 색상을 다시 검사합니다.</span> <span class="s">남은 중복 프레임의 비율도 함께 보고합니다.</span></p></li>
     </ol>
   </div>
 </section>
 
 <section>
   <div class="wrap">
-    <p class="eyebrow reveal">측정 결과</p>
-    <h2 class="reveal">실제 4K 게임 녹화로 확인했습니다</h2>
+    <p class="eyebrow reveal" data-i18n="results.eyebrow">측정 결과</p>
+    <h2 class="reveal" data-i18n="results.title">실제 4K 게임 녹화로 확인했습니다</h2>
     <div class="stats">
-      <div class="stat reveal" style="--i:0"><div class="num"><span data-count="29.81" data-digits="2">29.81</span><small>fps</small></div><p><span class="s">추정한 실제 움직임입니다.</span> <span class="s">파일은 60fps지만 움직임은 30fps였습니다.</span></p></div>
-      <div class="stat reveal" style="--i:1"><div class="num accent"><span data-count="610">610</span><small>장</small></div><p><span class="s">새로 만든 사이의 프레임입니다.</span> <span class="s">전체 1,283프레임 가운데 중복 자리를 채웠습니다.</span></p></div>
-      <div class="stat reveal" style="--i:2"><div class="num"><span data-count="0.48" data-digits="2">0.48</span><small>%</small></div><p><span class="s">변환 뒤에 남은 움직임 중복의 비율입니다.</span> <span class="s">검증 기준(1%)을 통과했습니다.</span></p></div>
-      <div class="stat reveal" style="--i:3"><div class="num"><span>0</span><small>ms</small></div><p><span class="s">원본과의 영상 길이 차이입니다.</span> <span class="s">오디오 동기의 변화도 최대 6.83ms였습니다.</span></p></div>
+      <div class="stat reveal" style="--i:0"><div class="num"><span data-count="29.81" data-digits="2">29.81</span><small>fps</small></div><p data-i18n="stat1.text"><span class="s">추정한 실제 움직임입니다.</span> <span class="s">파일은 60fps지만 움직임은 30fps였습니다.</span></p></div>
+      <div class="stat reveal" style="--i:1"><div class="num accent"><span data-count="610">610</span><small data-i18n="stat2.unit">장</small></div><p data-i18n="stat2.text"><span class="s">새로 만든 사이의 프레임입니다.</span> <span class="s">전체 1,283프레임 가운데 중복 자리를 채웠습니다.</span></p></div>
+      <div class="stat reveal" style="--i:2"><div class="num"><span data-count="0.48" data-digits="2">0.48</span><small>%</small></div><p data-i18n="stat3.text"><span class="s">변환 뒤에 남은 움직임 중복의 비율입니다.</span> <span class="s">검증 기준(1%)을 통과했습니다.</span></p></div>
+      <div class="stat reveal" style="--i:3"><div class="num"><span>0</span><small>ms</small></div><p data-i18n="stat4.text"><span class="s">원본과의 영상 길이 차이입니다.</span> <span class="s">오디오 동기의 변화도 최대 6.83ms였습니다.</span></p></div>
     </div>
-    <p class="note reveal" style="margin-top:16px"><span class="s">파이어엠블렘 만자천홍을 3840×2160, 60fps로 약 21초 녹화한 샘플의 결과입니다.</span> <span class="s">개발 기준 PC에서 변환하고 검증했습니다.</span> <span class="s">영상의 내용과 장치에 따라 결과와 처리 속도는 달라집니다.</span></p>
+    <p class="note reveal" style="margin-top:16px" data-i18n="results.note"><span class="s">파이어엠블렘 만자천홍을 3840×2160, 60fps로 약 21초 녹화한 샘플의 결과입니다.</span> <span class="s">개발 기준 PC에서 변환하고 검증했습니다.</span> <span class="s">영상의 내용과 장치에 따라 결과와 처리 속도는 달라집니다.</span></p>
   </div>
 </section>
 
 <section id="features">
   <div class="wrap">
-    <p class="eyebrow reveal">기능</p>
-    <h2 class="reveal">영상을 끌어다 놓으면 끝납니다</h2>
+    <p class="eyebrow reveal" data-i18n="features.eyebrow">기능</p>
+    <h2 class="reveal" data-i18n="features.title">영상을 끌어다 놓으면 끝납니다</h2>
     <div class="grid">
-      <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3>자동 분석</h3><p><span class="s">파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">필요한 처리는 스스로 정합니다.</span></p></article>
-      <article class="card reveal" style="--i:1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="12" height="12" rx="2"/><rect x="9" y="8" width="12" height="12" rx="2"/></svg><h3>중복·정지 화면 구분</h3><p>프레임 드롭으로 생긴 반복과 일시 정지 메뉴 같은 정지 화면을 구별합니다.</p></article>
-      <article class="card reveal" style="--i:2"><svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M9 8l6 4-6 4z"/></svg><h3>장면 전환 보호</h3><p><span class="s">컷이 바뀌는 순간에는 보간하지 않습니다.</span> <span class="s">두 장면이 겹쳐 보이는 프레임이 생기지 않습니다.</span></p></article>
-      <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3>제조사와 관계없는 GPU 가속</h3><p><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU에서 동작합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
-      <article class="card reveal" style="--i:4"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg><h3>동작하는 인코더만 선택</h3><p><span class="s">NVENC, AMF, QSV와 소프트웨어 인코더로 짧게 인코딩해 봅니다.</span> <span class="s">성공한 코덱만 메뉴에 보여 줍니다.</span></p></article>
-      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3>YouTube 프리셋</h3><p>해상도와 fps에 맞는 권장 비트레이트의 MP4를 한 번에 만듭니다.</p></article>
-      <article class="card reveal" style="--i:6"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><h3>오디오 싱크와 색상 보존</h3><p><span class="s">영상 길이를 프레임 단위로 맞춥니다.</span> <span class="s">오디오의 시작 시각과 색상 정보도 원본 그대로 유지합니다.</span></p></article>
-      <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3>고정 HUD 보호</h3><p><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
-      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><path d="M12 3v5M12 21a8 8 0 1 1 6-13"/><path d="M12 13l4-3"/></svg><h3>119.88 · 120fps 출력</h3><p>보관용으로 더 높은 프레임레이트가 필요할 때 선택합니다.</p></article>
-      <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3>대기열과 명령줄</h3><p><span class="s">여러 영상을 순서대로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
-      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3>검증된 업데이트</h3><p><span class="s">새 버전이 나오면 알려 줍니다.</span> <span class="s">SHA-256과 모든 파일의 해시가 일치할 때만 설치합니다.</span> <span class="s">실패하면 이전 버전으로 되돌립니다.</span></p></article>
-      <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3>트레이와 한국어·영어</h3><p><span class="s">창을 최소화하면 트레이에서 계속 변환합니다.</span> <span class="s">화면은 한국어와 영어를 지원합니다.</span></p></article>
+      <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3 data-i18n="card1.title">자동 분석</h3><p data-i18n="card1.text"><span class="s">파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">필요한 처리는 스스로 정합니다.</span></p></article>
+      <article class="card reveal" style="--i:1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="12" height="12" rx="2"/><rect x="9" y="8" width="12" height="12" rx="2"/></svg><h3 data-i18n="card2.title">중복·정지 화면 구분</h3><p data-i18n="card2.text">프레임 드롭으로 생긴 반복과 일시 정지 메뉴 같은 정지 화면을 구별합니다.</p></article>
+      <article class="card reveal" style="--i:2"><svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M9 8l6 4-6 4z"/></svg><h3 data-i18n="card3.title">장면 전환 보호</h3><p data-i18n="card3.text"><span class="s">컷이 바뀌는 순간에는 보간하지 않습니다.</span> <span class="s">두 장면이 겹쳐 보이는 프레임이 생기지 않습니다.</span></p></article>
+      <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3 data-i18n="card4.title">제조사와 관계없는 GPU 가속</h3><p data-i18n="card4.text"><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU에서 동작합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
+      <article class="card reveal" style="--i:4"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg><h3 data-i18n="card5.title">동작하는 인코더만 선택</h3><p data-i18n="card5.text"><span class="s">NVENC, AMF, QSV와 소프트웨어 인코더로 짧게 인코딩해 봅니다.</span> <span class="s">성공한 코덱만 메뉴에 보여 줍니다.</span></p></article>
+      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">YouTube 프리셋</h3><p data-i18n="card6.text">해상도와 fps에 맞는 권장 비트레이트의 MP4를 한 번에 만듭니다.</p></article>
+      <article class="card reveal" style="--i:6"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><h3 data-i18n="card7.title">오디오 싱크와 색상 보존</h3><p data-i18n="card7.text"><span class="s">영상 길이를 프레임 단위로 맞춥니다.</span> <span class="s">오디오의 시작 시각과 색상 정보도 원본 그대로 유지합니다.</span></p></article>
+      <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3 data-i18n="card8.title">고정 HUD 보호</h3><p data-i18n="card8.text"><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
+      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><path d="M12 3v5M12 21a8 8 0 1 1 6-13"/><path d="M12 13l4-3"/></svg><h3 data-i18n="card9.title">119.88 · 120fps 출력</h3><p data-i18n="card9.text">보관용으로 더 높은 프레임레이트가 필요할 때 선택합니다.</p></article>
+      <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3 data-i18n="card10.title">대기열과 명령줄</h3><p data-i18n="card10.text"><span class="s">여러 영상을 순서대로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
+      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">검증된 업데이트</h3><p data-i18n="card11.text"><span class="s">새 버전이 나오면 알려 줍니다.</span> <span class="s">SHA-256과 모든 파일의 해시가 일치할 때만 설치합니다.</span> <span class="s">실패하면 이전 버전으로 되돌립니다.</span></p></article>
+      <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3 data-i18n="card12.title">트레이와 한국어·영어</h3><p data-i18n="card12.text"><span class="s">창을 최소화하면 트레이에서 계속 변환합니다.</span> <span class="s">화면은 한국어와 영어를 지원합니다.</span></p></article>
     </div>
   </div>
 </section>
 
 <section id="screens">
   <div class="wrap">
-    <p class="eyebrow reveal">실제 화면</p>
-    <h2 class="reveal">파일 fps와 움직임 fps를 한눈에</h2>
-    <p class="lead reveal" style="margin-top:16px"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 고급 설정에 접어 두었습니다.</span></p>
-    <img class="shot reveal" src="img/screenshot.png" width="1475" height="1000" loading="lazy"
-         alt="FrameDoubler 메인 화면: 파일 프레임레이트 60fps와 실제 움직임 29.81fps, 변환 완료와 검증 통과가 표시되어 있습니다.">
+    <p class="eyebrow reveal" data-i18n="screens.eyebrow">실제 화면</p>
+    <h2 class="reveal" data-i18n="screens.title">파일 fps와 움직임 fps를 한눈에</h2>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 고급 설정에 접어 두었습니다.</span></p>
+    <img class="shot reveal" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1475" height="1000" loading="lazy"
+         alt="FrameDoubler 메인 화면: 파일 프레임레이트 60fps와 실제 움직임 29.81fps, 변환 완료와 검증 통과가 표시되어 있습니다." data-i18n-attr="alt:screens.alt">
     <div class="gallery">
-      <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" width="1475" height="1000" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면"><figcaption>끌어 놓거나 클릭하여 영상을 추가합니다.</figcaption></figure>
-      <figure class="reveal" style="--i:1"><img src="img/screen-en.png" width="1475" height="1000" loading="lazy" alt="영어로 표시한 FrameDoubler 화면"><figcaption>한국어와 영어를 바로 전환합니다.</figcaption></figure>
-      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" width="900" height="675" loading="lazy" alt="새 버전의 변경 사항과 설치 버튼이 있는 업데이트 창"><figcaption>업데이트는 변경 사항을 확인한 뒤 설치합니다.</figcaption></figure>
+      <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" data-en-src="img/screen-en.png" width="1475" height="1000" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" data-i18n-attr="alt:gallery1.alt"><figcaption data-i18n="gallery1.caption">끌어 놓거나 클릭하여 영상을 추가합니다.</figcaption></figure>
+      <figure class="reveal" style="--i:1"><img src="img/screen-en.png" data-en-src="img/screen-empty.png" width="1475" height="1000" loading="lazy" alt="영어로 표시한 FrameDoubler 화면" data-i18n-attr="alt:gallery2.alt"><figcaption data-i18n="gallery2.caption">한국어와 영어를 바로 전환합니다.</figcaption></figure>
+      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" data-en-src="img/screen-update-en.png" width="900" height="675" loading="lazy" alt="새 버전의 변경 사항과 설치 버튼이 있는 업데이트 창" data-i18n-attr="alt:gallery3.alt"><figcaption data-i18n="gallery3.caption">업데이트는 변경 사항을 확인한 뒤 설치합니다.</figcaption></figure>
     </div>
   </div>
 </section>
 
 <section id="download">
   <div class="wrap">
-    <p class="eyebrow reveal">내려받기</p>
-    <h2 class="reveal">설치 없이, 압축만 풀면 됩니다</h2>
+    <p class="eyebrow reveal" data-i18n="download.eyebrow">내려받기</p>
+    <h2 class="reveal" data-i18n="download.title">설치 없이, 압축만 풀면 됩니다</h2>
     <div class="dl">
       <div class="panel reveal">
-        <h3>시작하기</h3>
+        <h3 data-i18n="start.title">시작하기</h3>
         <ol>
-          <li><a href="https://github.com/deuxdoom/FrameDoubler/releases/latest">최신 릴리스</a>에서 <b>FrameDoubler.zip</b>(약 208MB)을 내려받습니다.</li>
-          <li><span class="s">원하는 위치에 압축을 풉니다.</span> <span class="s">풀린 <code>FrameDoubler</code> 폴더는 통째로 유지합니다(약 460MB).</span></li>
-          <li><code>FrameDoubler.exe</code>를 실행하고 영상을 끌어다 놓습니다.</li>
+          <li data-i18n="start.step1"><a href="https://github.com/deuxdoom/FrameDoubler/releases/latest">최신 릴리스</a>에서 <b>FrameDoubler.zip</b>(약 208MB)을 내려받습니다.</li>
+          <li data-i18n="start.step2"><span class="s">원하는 위치에 압축을 풉니다.</span> <span class="s">풀린 <code>FrameDoubler</code> 폴더는 통째로 유지합니다(약 460MB).</span></li>
+          <li data-i18n="start.step3"><code>FrameDoubler.exe</code>를 실행하고 영상을 끌어다 놓습니다.</li>
         </ol>
-        <p class="note"><span class="s">.NET 런타임, RIFE 모델 두 가지, FFmpeg가 모두 들어 있습니다.</span> <span class="s">Python, CUDA Toolkit, 별도 SDK를 설치하거나 모델을 따로 내려받을 필요가 없습니다.</span></p>
+        <p class="note" data-i18n="start.note"><span class="s">.NET 런타임, RIFE 모델 두 가지, FFmpeg가 모두 들어 있습니다.</span> <span class="s">Python, CUDA Toolkit, 별도 SDK를 설치하거나 모델을 따로 내려받을 필요가 없습니다.</span></p>
       </div>
       <div class="panel reveal" style="--i:1">
-        <h3>필요한 환경</h3>
+        <h3 data-i18n="req.title">필요한 환경</h3>
         <ul>
-          <li><b>Windows 11</b> 64비트</li>
-          <li><span class="s"><b>Vulkan을 지원하는 GPU</b>와 최신 드라이버 권장 (NVIDIA, AMD, Intel).</span> <span class="s">없으면 CPU로 처리하며 크게 느려집니다.</span></li>
-          <li>SDR 영상</li>
+          <li data-i18n="req.os"><b>Windows 11</b> 64비트</li>
+          <li data-i18n="req.gpu"><span class="s"><b>Vulkan을 지원하는 GPU</b>와 최신 드라이버 권장 (NVIDIA, AMD, Intel).</span> <span class="s">없으면 CPU로 처리하며 크게 느려집니다.</span></li>
+          <li data-i18n="req.sdr">SDR 영상</li>
         </ul>
-        <h3 style="margin-top:22px">파일 검증</h3>
+        <h3 style="margin-top:22px" data-i18n="verify.title">파일 검증</h3>
         <pre>Get-FileHash <b>FrameDoubler.zip</b> -Algorithm SHA256</pre>
-        <p class="note">SHA-256 값은 릴리스 설명에 적혀 있습니다.</p>
-        <div class="cta"><a class="btn primary" href="https://github.com/deuxdoom/FrameDoubler/releases/latest">릴리스 페이지 열기</a></div>
+        <p class="note" data-i18n="verify.note">SHA-256 값은 릴리스 설명에 적혀 있습니다.</p>
+        <div class="cta"><a class="btn primary" href="https://github.com/deuxdoom/FrameDoubler/releases/latest" data-i18n="verify.button">릴리스 페이지 열기</a></div>
       </div>
     </div>
   </div>
@@ -364,8 +396,8 @@ footer a { color: var(--muted); }
 
 <footer>
   <div class="wrap">
-    <span>FrameDoubler · MIT 라이선스 · 프레임 보간에 <a href="https://github.com/hzwer/Practical-RIFE">Practical-RIFE</a> 모델을, 추론에 <a href="https://github.com/Tencent/ncnn">ncnn</a>을 사용합니다.</span>
-    <span><a href="https://github.com/deuxdoom/FrameDoubler">GitHub</a> · <a href="https://github.com/deuxdoom/FrameDoubler/blob/main/CHANGELOG.md">변경 기록</a> · <a href="https://github.com/deuxdoom/FrameDoubler/blob/main/THIRD_PARTY_NOTICES.md">오픈 소스 고지</a></span>
+    <span data-i18n="footer.credit">FrameDoubler · MIT 라이선스 · 프레임 보간에 <a href="https://github.com/hzwer/Practical-RIFE">Practical-RIFE</a> 모델을, 추론에 <a href="https://github.com/Tencent/ncnn">ncnn</a>을 사용합니다.</span>
+    <span class="footer-links"><a class="icon-link" href="https://github.com/deuxdoom/FrameDoubler" aria-label="GitHub" title="GitHub"><svg class="octicon" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a> · <a href="https://github.com/deuxdoom/FrameDoubler/blob/main/CHANGELOG.md" data-i18n="footer.changelog">변경 기록</a> · <a href="https://github.com/deuxdoom/FrameDoubler/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="footer.notices">오픈 소스 고지</a></span>
   </div>
 </footer>
 
@@ -373,17 +405,127 @@ footer a { color: var(--muted); }
 (() => {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Scroll reveal: CSS scroll-driven animations where available, IntersectionObserver otherwise.
+  /* ---------- Language (Korean in the markup, English below) ---------- */
+  const s = (...sentences) => sentences.map(text => `<span class="s">${text}</span>`).join(" ");
+  const EN = {
+    "meta.title": "FrameDoubler · Real 60fps from 30fps game recordings",
+    "meta.description": "FrameDoubler finds the duplicate frames in 60fps recordings of 30fps games and fills them with RIFE AI frames to make real 60fps video on Windows.",
+    "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
+    "hero.eyebrow": "RIFE frame interpolation for game recordings",
+    "hero.title1": "Make room", "hero.title2": "for motion.",
+    "hero.lead": s("Recorded at 60fps, but it still looks like 30fps?", "FrameDoubler finds the <b>duplicate frames</b> in the file.",
+                   "It fills their place with <b>in-between frames</b> made by AI.", "The result is real 60fps video."),
+    "hero.download": "Download", "hero.why": "What makes it different",
+    "badge.gpu": "Vulkan GPU · CPU fallback", "badge.portable": "Unzip and run", "badge.license": "MIT license",
+    "demo.title": "Compare on a real recording", "demo.speed": "Playback speed", "demo.real": "Real speed",
+    "demo.video": "The original recording and the FrameDoubler output of the same section, stacked top and bottom",
+    "tag.original": "Original recording<small>file 60fps · motion 30fps</small>",
+    "tag.output": "FrameDoubler<small>file 60fps · motion 60fps</small>",
+    "demo.note": s("The same section of a 4K Fire Emblem Fortune’s Weave recording.", "If the difference is hard to see, slow it down.",
+                   "At real speed the difference shows on 60Hz or faster displays."),
+    "why.eyebrow": "The problem", "why.title": "A 60fps file can hold every picture twice",
+    "why.lead1": s("When a console game runs at 30fps, the capture card receives each picture twice and saves a 60fps file.",
+                   "The file says 60fps, but the motion is still 30fps.", "Uploading it to YouTube does not make it any smoother."),
+    "strip.original": "<b>Original recording</b>30fps motion", "strip.output": "<b>FrameDoubler</b>60fps motion",
+    "why.lead2": s("Typical interpolation tools simply double this file.",
+                   "They interpolate between <b>two identical frames</b>, so nothing changes.",
+                   "FrameDoubler removes the duplicates first and interpolates only the real motion."),
+    "slow.title": "Frame by frame in slow motion",
+    "slow.alt": "On the left the original repeats each pose for two frames; on the right the FrameDoubler output changes pose every frame.",
+    "slow.left": "Original · 30fps motion", "slow.right": "FrameDoubler · 60fps motion",
+    "slow.caption": s("A 4K Fire Emblem Fortune’s Weave recording at 0.42× speed (25 frames per second) shows every 60fps frame.",
+                      "The original on the left shows each picture twice; the output on the right moves every frame."),
+    "how.eyebrow": "How it works", "how.title": "From analysis to verification in one pass",
+    "step1.title": "Input and device analysis",
+    "step1.text": s("Reads the resolution, codec, frame rate, bit depth and colour information.", "Tests and picks the GPU and encoder that actually work on this PC."),
+    "step2.title": "Estimating the real motion rate",
+    "step2.text": s("Compares frames to tell the file fps from the real motion fps.", "Finds 30fps motion inside a 60fps file."),
+    "step3.title": "Handling duplicate frames",
+    "step3.text": s("Detects duplicates even when compression makes them slightly different.", "Also recognises triple and quadruple repeats from dropped frames, and still screens."),
+    "step4.title": "RIFE AI interpolation",
+    "step4.text": s("Creates new frames at the exact times between the remaining frames.", "Runs on any vendor’s GPU through ncnn and Vulkan.", "Never blends two pictures across a scene change."),
+    "step5.title": "Encoding",
+    "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "Writes H.264, HEVC or AV1 and keeps the length and audio sync."),
+    "step6.title": "Output verification",
+    "step6.text": s("Checks the frame rate, length, audio sync and colour of the result again.", "Also reports the share of duplicate frames left."),
+    "results.eyebrow": "Results", "results.title": "Tested on a real 4K game recording",
+    "stat1.text": s("The estimated real motion.", "The file was 60fps, but the motion was 30fps."),
+    "stat2.unit": "frames", "stat2.text": s("New in-between frames.", "They fill the duplicate slots among 1,283 frames."),
+    "stat3.text": s("Moving duplicates left after conversion.", "Within the verification limit of 1%."),
+    "stat4.text": s("Length difference from the original.", "Audio sync shifted by at most 6.83ms."),
+    "results.note": s("Results from a 21-second 3840×2160, 60fps recording of Fire Emblem Fortune’s Weave.", "Converted and verified on the development PC.",
+                      "Results and processing speed vary with the content and hardware."),
+    "features.eyebrow": "Features", "features.title": "Drop in a video and you are done",
+    "card1.title": "Automatic analysis", "card1.text": s("Shows the file fps and the estimated motion fps side by side.", "Decides on the processing by itself."),
+    "card2.title": "Duplicates and still screens", "card2.text": "Tells dropped-frame repeats apart from still screens such as pause menus.",
+    "card3.title": "Scene change protection", "card3.text": s("Does not interpolate at a cut.", "No frame shows two scenes overlapping."),
+    "card4.title": "GPU acceleration from any vendor", "card4.text": s("Runs on NVIDIA, AMD and Intel Vulkan GPUs.", "Without a usable GPU it uses the CPU and tells you it will be slower."),
+    "card5.title": "Only encoders that work", "card5.text": s("Runs a short test encode with NVENC, AMF, QSV and software encoders.", "Only codecs that succeed appear in the menu."),
+    "card6.title": "YouTube preset", "card6.text": "Creates an MP4 at the recommended bitrate for its resolution and frame rate in one step.",
+    "card7.title": "Audio sync and colour preserved", "card7.text": s("Matches the video length frame by frame.", "Keeps the audio start time and colour information of the original."),
+    "card8.title": "Static HUD protection", "card8.text": s("Mark areas that never move, such as a minimap or subtitles.", "Pixels in those areas stay exactly as in the original."),
+    "card9.title": "119.88 · 120fps output", "card9.text": "Choose a higher frame rate when you need it for archiving.",
+    "card10.title": "Queue and command line", "card10.text": s("Converts several videos one after another.", "The bundled command-line tool can process a whole folder."),
+    "card11.title": "Verified updates", "card11.text": s("Tells you when a new version is out.", "Installs only when the SHA-256 and every file hash match.", "Rolls back to the previous version if anything fails."),
+    "card12.title": "Tray, Korean and English", "card12.text": s("Minimise the window and conversion continues in the tray.", "The interface is available in Korean and English."),
+    "screens.eyebrow": "Screenshots", "screens.title": "File fps and motion fps at a glance",
+    "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder and verification.",
+                      "Device and encoder options are tucked away under Advanced settings."),
+    "screens.alt": "FrameDoubler main window: file frame rate 60fps, real motion 29.81fps, conversion complete and verification passed.",
+    "gallery1.alt": "First screen for dropping or choosing videos", "gallery1.caption": "Drop or click to add videos.",
+    "gallery2.alt": "FrameDoubler shown in Korean", "gallery2.caption": "Switch between Korean and English instantly.",
+    "gallery3.alt": "Update window with the release notes and an install button", "gallery3.caption": "Review the changes before installing an update.",
+    "download.eyebrow": "Download", "download.title": "No installer, just unzip",
+    "start.title": "Getting started",
+    "start.step1": 'Download <b>FrameDoubler.zip</b> (about 208MB) from the <a href="https://github.com/deuxdoom/FrameDoubler/releases/latest">latest release</a>.',
+    "start.step2": s("Unzip it wherever you like.", "Keep the extracted <code>FrameDoubler</code> folder together (about 460MB)."),
+    "start.step3": "Run <code>FrameDoubler.exe</code> and drop in your videos.",
+    "start.note": s("The .NET runtime, both RIFE models and FFmpeg are included.", "There is no need to install Python, the CUDA Toolkit or another SDK, or to download models."),
+    "req.title": "Requirements", "req.os": "<b>Windows 11</b> 64-bit",
+    "req.gpu": s("<b>A GPU with Vulkan support</b> and a current driver recommended (NVIDIA, AMD, Intel).", "Without one, processing runs on the CPU and is much slower."),
+    "req.sdr": "SDR video",
+    "verify.title": "File verification", "verify.note": "The SHA-256 value is listed in the release notes.", "verify.button": "Open the releases page",
+    "footer.credit": 'FrameDoubler · MIT license · Uses <a href="https://github.com/hzwer/Practical-RIFE">Practical-RIFE</a> models for interpolation and <a href="https://github.com/Tencent/ncnn">ncnn</a> for inference.',
+    "footer.changelog": "Changelog", "footer.notices": "Open source notices",
+  };
+
+  const korean = { "meta.title": document.title, "meta.description": document.querySelector('meta[name="description"]').content };
+  const texts = [...document.querySelectorAll("[data-i18n]")].map(el => [el, el.innerHTML]);
+  const attributes = [...document.querySelectorAll("[data-i18n-attr]")].flatMap(el =>
+    el.dataset.i18nAttr.split(";").map(pair => { const [name, key] = pair.split(":"); return [el, name, key, el.getAttribute(name)]; }));
+  const images = [...document.querySelectorAll("[data-en-src]")].map(el => [el, el.getAttribute("src")]);
+  const switches = document.querySelectorAll(".lang button");
+  let language = "ko";
+
+  function setLanguage(next, remember) {
+    language = next === "en" ? "en" : "ko";
+    const en = language === "en";
+    document.documentElement.lang = language;
+    for (const [el, ko] of texts) el.innerHTML = en ? (EN[el.dataset.i18n] ?? ko) : ko;
+    for (const [el, name, key, ko] of attributes) el.setAttribute(name, en ? (EN[key] ?? ko) : ko);
+    for (const [el, ko] of images) el.setAttribute("src", en ? el.dataset.enSrc : ko);
+    document.title = en ? EN["meta.title"] : korean["meta.title"];
+    document.querySelector('meta[name="description"]').content = en ? EN["meta.description"] : korean["meta.description"];
+    switches.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.lang === language)));
+    if (remember) try { localStorage.setItem("framedoubler-lang", language); } catch {}
+  }
+  switches.forEach(button => button.addEventListener("click", () => setLanguage(button.dataset.lang, true)));
+  let initial = new URLSearchParams(location.search).get("lang");
+  if (!initial) try { initial = localStorage.getItem("framedoubler-lang"); } catch {}
+  if (!initial) initial = (navigator.languages || [navigator.language]).some(l => /^ko\b/i.test(l)) ? "ko" : "en";
+  setLanguage(initial, false);
+
+  /* ---------- Scroll reveal ---------- */
   const observer = new IntersectionObserver(entries => {
     for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add("in"); observer.unobserve(entry.target); }
   }, { threshold: 0.2 });
   document.querySelectorAll(".reveal").forEach(element => observer.observe(element));
 
-  // Comparison video: plays like a GIF while visible; speed buttons change the playback rate.
+  /* ---------- Comparison video: plays like a GIF while visible ---------- */
   const video = document.getElementById("compare");
   let rate = 1;
   if (reduce) {
-    video.controls = true;                    // no autoplay; the viewer starts it
+    video.controls = true;
   } else {
     const visibility = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) video.play().catch(() => { video.controls = true; });
@@ -398,7 +540,7 @@ footer a { color: var(--muted); }
     document.querySelectorAll(".toggle button").forEach(other => other.setAttribute("aria-pressed", String(other === button)));
   }));
 
-  // Numbers count up once when they scroll into view; without motion they simply show the value.
+  /* ---------- Numbers count up once ---------- */
   const counters = new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
@@ -407,7 +549,7 @@ footer a { color: var(--muted); }
       const started = performance.now();
       const tick = now => {
         const t = Math.min(1, (now - started) / 1400), eased = 1 - Math.pow(1 - t, 3);
-        element.textContent = (goal * eased).toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+        element.textContent = (goal * eased).toLocaleString(language === "en" ? "en-US" : "ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
         if (t < 1) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -415,7 +557,7 @@ footer a { color: var(--muted); }
   }, { threshold: 0.6 });
   if (!reduce) document.querySelectorAll("[data-count]").forEach(element => counters.observe(element));
 
-  // Latest version on the download button (kept as is when there is no release or no network).
+  /* ---------- Latest version on the download button ---------- */
   fetch("https://api.github.com/repos/deuxdoom/FrameDoubler/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(response => response.ok ? response.json() : null)
     .then(release => {
