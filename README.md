@@ -20,7 +20,7 @@
 60fps 파일 속의 중복 프레임을 찾아내고, RIFE AI로 사이의 프레임을 채웁니다.</p>
 
 <p align="center">
-  <img src="docs/img/screenshot.png" alt="FrameDoubler 메인 화면" width="900">
+  <img src="assets/ui/main-window-current.png" alt="FrameDoubler 메인 화면" width="900">
 </p>
 
 <p align="center">
