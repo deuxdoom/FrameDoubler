@@ -31,6 +31,7 @@ Throws(()=>EncoderPolicy.Choose([sw],"hevc"),"No silent codec substitution");
 Throws(()=>EncoderPolicy.Choose([sw],"h264",tenBit:true),"No unverified 10-bit encoder");
 var parsed = JsonSerializer.Deserialize<HardwareInventory>("{\"cpu_model\":\"AMD test\",\"logical_processors\":8,\"gpus\":[]}",HardwareInventory.Json)!;
 Assert(parsed.CpuModel=="AMD test" && parsed.LogicalProcessors==8,"Native schema");
+UpdateTests.Parse(Assert);
 Assert(default(Rational)==(Rational)0,"Default rational is numeric zero");
 Assert(Timeline.DefaultRate(Rational.Parse("30000/1001"))==Rational.Parse("60000/1001"),"Exact NTSC doubling");
 Assert((Rational.Parse("600.6")*Rational.Parse("60000/1001")).Ceiling()==36000,"Ten-minute NTSC frame count");
@@ -95,4 +96,6 @@ if (args.Contains("--integration")) {
 }
 if(args.Contains("--pipeline"))await PipelineTests.RunAsync(AppPaths.Discover(),Assert);
 if(args.Contains("--long"))await PipelineTests.LongAsync(AppPaths.Discover(),Assert);
+int packageArgument=Array.IndexOf(args,"--update-package");
+if(packageArgument>=0)await UpdateTests.PackageAsync(args[packageArgument+1],Assert);
 Console.WriteLine($"PASS {passed} assertions. Simulated devices are policy tests, not actual hardware qualification.");

@@ -40,8 +40,11 @@ reported separately from residual moving duplicates.
 Native settings use `%APPDATA%/FrameDoubler/native-settings.json`; legacy settings
 are read for initial migration and not overwritten. Minimize to the tray to keep
 working; close/Exit cancels active work and exits after cleanup. The Updates button
-opens the release page. Automatic installation of legacy split Torch releases is
-not enabled for this independent native package.
+checks stable releases and offers installation only for `FrameDoubler.Native.zip`
+with a GitHub SHA-256 digest and a matching native manifest. Installation verifies
+every file, preserves the previous directory and restores it if swapping fails.
+Legacy Torch assets cannot be installed. Local staging/swap tests passed; an actual
+published native-release update has not been tested.
 
 Development:
 
@@ -49,6 +52,7 @@ Development:
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --integration --pipeline
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --long
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package F:\Temp\FrameDoubler\FrameDoubler.Native.zip
 pwsh scripts/build-native.ps1
 ```
 

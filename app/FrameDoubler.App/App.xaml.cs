@@ -19,6 +19,11 @@ public partial class App:System.Windows.Application
                 Directory.CreateDirectory(e.Args[1]);
                 foreach(string lang in new[]{"ko","en"})foreach(double scale in new[]{1.25,1.5,2.0}){
                     window.PreviewLanguage(lang);Render(window,Path.Combine(e.Args[1],$"window-{lang}-{scale:0.00}.png"),scale);
+                    if(scale==1.25){
+                        var release=new FrameDoubler.Core.UpdateRelease(new Version(2,1,0),FrameDoubler.Core.Updates.ReleasePage,
+                            lang=="ko"?"새 네이티브 패키지의 변경 사항을 확인하세요.\n설치 전에 다운로드와 모든 파일의 무결성을 확인합니다.":"Review changes in the new native package.\nThe download and every packaged file are verified before installation.",null,null,0);
+                        var update=new UpdateWindow(window,release,true);Render(update,Path.Combine(e.Args[1],$"updates-{lang}.png"),scale);
+                    }
                 }
                 Shutdown(0);return;
             }
@@ -40,7 +45,7 @@ public partial class App:System.Windows.Application
             Shutdown(1);
         }
     }
-    private static void Render(MainWindow window,string path,double scale){
+    private static void Render(Window window,string path,double scale){
         var content=(FrameworkElement)window.Content;
         content.Measure(new Size(window.Width,window.Height));content.Arrange(new Rect(0,0,window.Width,window.Height));content.UpdateLayout();
         var image=new RenderTargetBitmap((int)(window.Width*scale),(int)(window.Height*scale),96*scale,96*scale,PixelFormats.Pbgra32);

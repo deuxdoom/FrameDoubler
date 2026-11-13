@@ -44,6 +44,7 @@ public partial class MainWindow:Window
     private bool busy,ready,updating,closing;
     private Forms.NotifyIcon? tray;
     private readonly CancellationTokenSource lifetime=new();
+    private UpdateRelease? availableRelease;
     public bool English=>Selected(LanguageBox)=="en";
     public bool HardwareReady=>ready;
     public void SelfTestOutputFolder(string path)=>OutputBox.Text=path;
@@ -69,6 +70,7 @@ public partial class MainWindow:Window
             UpdateHardwareText();
             Log(T("실행 가능한 장치와 인코더를 확인했습니다.","Available devices and encoders checked."));
             if(useTray)SetupTray();
+            if(useTray)_=CheckUpdatesAsync();
         }catch(Exception ex){Log(ex.Message);HardwareText.Text=ex.Message;updating=false;}
         UpdateControls();
     }
@@ -181,7 +183,7 @@ public partial class MainWindow:Window
         EmptyPanel.Visibility=Entries.Count==0?Visibility.Visible:Visibility.Collapsed;AddButton.IsEnabled=!busy;RemoveButton.IsEnabled=!busy&&QueueList.SelectedItem is not null;
         SettingsPanel.IsEnabled=!busy;LanguageBox.IsEnabled=!busy;CancelButton.IsEnabled=work is not null;
         StartButton.IsEnabled=ready&&!busy&&Entries.Any(x=>x.Analysis is not null&&x.Output is null);
-        OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);
+        OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);UpdatesButton.IsEnabled=!busy;
         if(!busy&&Entries.Count==0)StatusText.Text=T("영상을 추가해 주세요.","Add a video to begin.");
     }
     private void Log(string text){LogBox.AppendText(text+Environment.NewLine);LogBox.ScrollToEnd();}
@@ -193,14 +195,16 @@ public partial class MainWindow:Window
     private static void Open(string path)=>Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
-    private void UpdatesClicked(object sender,RoutedEventArgs e)=>Open("https://github.com/deuxdoom/FrameDoubler/releases/latest");
+    private void UpdatesClicked(object sender,RoutedEventArgs e){if(!busy)new UpdateWindow(this,availableRelease).ShowDialog();}
+    private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);if(availableRelease is not null)UpdatesButton.Content=T("업데이트 있음","Update available");}
+        catch(OperationCanceledException){}catch(Exception ex){Log(T("업데이트 확인: ","Update check: ")+ex.Message);}}
     private async void OnDrop(object sender,DragEventArgs e){if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
     private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;e.Handled=true;}
     private void SetupTray(){
         var stream=System.Windows.Application.GetResourceStream(new Uri("Assets/app.ico",UriKind.Relative))!.Stream;
         tray=new Forms.NotifyIcon{Icon=new System.Drawing.Icon(stream),Text="FrameDoubler",Visible=true};
         var menu=new Forms.ContextMenuStrip();menu.Items.Add(T("창 열기","Open window"),null,(_,_)=>Restore());
-        menu.Items.Add("GitHub",null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler"));menu.Items.Add(T("업데이트","Updates"),null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler/releases/latest"));
+        menu.Items.Add("GitHub",null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler"));menu.Items.Add(T("업데이트","Updates"),null,(_,_)=>{if(!busy)new UpdateWindow(this,availableRelease).ShowDialog();});
         menu.Items.Add(T("종료","Exit"),null,(_,_)=>Close());tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Restore();
     }
     private void Restore(){Show();WindowState=WindowState.Normal;Activate();}
