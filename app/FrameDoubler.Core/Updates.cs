@@ -52,6 +52,32 @@ public static class Updates
         }
         return new(version,page,notes,url,hash,size);
     }
+    // Release bodies are Markdown (RELEASE.md). The update window shows only what changed: headings become
+    // plain lines, bullets "•", and install/verification sections, tables, code blocks and rules are dropped.
+    public static string ReadableNotes(string markdown){
+        var output=new List<string>();bool code=false,skip=false,heading=false;
+        static string Inline(string text)=>Regex.Replace(Regex.Replace(Regex.Replace(text,@"\[([^\]]+)\]\([^)]+\)","$1"),@"(\*\*|__)(.+?)\1","$2"),@"`([^`]+)`","$1");
+        // No blank line between a heading and its list.
+        void Gap(){if(output.Count>0&&output[^1].Length>0&&!heading)output.Add("");}
+        foreach(string raw in (markdown??"").Replace("\r\n","\n").Split('\n')){
+            string line=raw.TrimEnd(),trimmed=line.Trim();
+            if(trimmed.StartsWith("```",StringComparison.Ordinal)){code=!code;continue;}
+            if(code)continue;
+            if(trimmed.StartsWith('#')){
+                string title=Inline(trimmed.TrimStart('#').Trim());
+                skip=Regex.IsMatch(title,"설치|검증|Install|Verif|SHA",RegexOptions.IgnoreCase);
+                if(!skip&&!title.Contains("What's New",StringComparison.OrdinalIgnoreCase)){heading=false;Gap();output.Add(title);heading=true;}
+                continue;
+            }
+            if(skip||trimmed.StartsWith('|')||Regex.IsMatch(trimmed,@"^(-{3,}|\*{3,}|_{3,})$"))continue;
+            if(trimmed.Length==0){Gap();continue;}
+            var bullet=Regex.Match(line,@"^(\s*)[-*+]\s+(.*)$");
+            output.Add(bullet.Success?new string(' ',bullet.Groups[1].Length)+"• "+Inline(bullet.Groups[2].Value):Inline(trimmed));heading=false;
+        }
+        while(output.Count>0&&output[^1].Length==0)output.RemoveAt(output.Count-1);
+        while(output.Count>0&&output[0].Length==0)output.RemoveAt(0);
+        return string.Join(Environment.NewLine,output);
+    }
     public static async Task<StagedUpdate> DownloadAsync(UpdateRelease release,string installationParent,IProgress<double>? progress=null,CancellationToken cancel=default){
         if(!release.Installable)throw new InvalidOperationException("Release has no verified native asset");
         if(!release.AssetUrl!.StartsWith("https://github.com/deuxdoom/FrameDoubler/releases/download/",StringComparison.Ordinal))throw new IOException("Untrusted update URL");

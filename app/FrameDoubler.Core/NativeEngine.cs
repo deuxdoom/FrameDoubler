@@ -23,7 +23,7 @@ public sealed class NativeEngine : IAsyncDisposable
         if(deep)arguments.Add("rgb16");
         var info = ProcessRunner.StartInfo(paths.Engine, arguments);
         info.RedirectStandardInput = true;
-        process = Process.Start(info) ?? throw new IOException("Cannot start native engine");
+        process = ProcessRunner.Start(info, "native engine");
         errors = process.StandardError.ReadToEndAsync();
     }
 

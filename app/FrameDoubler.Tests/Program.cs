@@ -66,8 +66,26 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     Assert(middle[0]==10&&middle[3]==50&&middle[6]==50,"HUD restores only identical source pixels inside the selected region");
 }
 
+{
+    var start=ProcessRunner.StartInfo("ffprobe.exe",["-version"]);
+    Assert(start.StandardOutputEncoding?.WebName=="utf-8"&&start.StandardErrorEncoding?.WebName=="utf-8","Helper output is decoded as UTF-8 (non-ASCII paths in ffprobe JSON)");
+    string hlg=ToneMap.Filter(new HdrSource("arib-std-b67","bt2020","bt2020nc","tv",10));
+    Assert(hlg.StartsWith("zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc:rin=tv:t=linear:npl=100,",StringComparison.Ordinal)&&hlg.Contains("tonemap=tonemap=hable:desat=0")&&hlg.EndsWith("zscale=t=bt709,format=gbrp",StringComparison.Ordinal),"HLG tone-map chain to BT.709");
+    string pq=ToneMap.Filter(new HdrSource("smpte2084",null,"unknown",null,10));
+    Assert(pq.StartsWith("zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:rin=tv:",StringComparison.Ordinal)&&new HdrSource("smpte2084",null,null,null,10).Name=="PQ","PQ with missing tags falls back to BT.2020 limited range");
+    string body="## 🚀 What's New in 1.0.1\n\n요약 문장입니다.\n\n---\n\n### ✨ 새로운 기능\n\n- **HDR**: `SDR`로 변환합니다.\n- [링크](https://example.com) 설명\n\n### 🔧 수정\n\n- 한글 경로\n\n---\n\n### 📦 설치 방법\n\n1. 압축을 풉니다.\n\n### 🔐 파일 검증\n\n| 파일 | SHA |\n| --- | --- |\n| `FrameDoubler.zip` | `ABC` |\n\n```powershell\nGet-FileHash FrameDoubler.zip\n```\n\n---\n\n**🔍 전체 변경 기록**: [CHANGELOG.md](https://example.com)\n";
+    string readable=Updates.ReadableNotes(body);
+    Assert(readable==string.Join(Environment.NewLine,"요약 문장입니다.","","✨ 새로운 기능","• HDR: SDR로 변환합니다.","• 링크 설명","","🔧 수정","• 한글 경로"),"Release notes show only the change lists without Markdown syntax");
+    var sdr=new MediaInfo("",2,2,"","yuv420p",8,1,30,30,false,1,[0],"bt709","tv","bt709","bt709",[]);
+    Assert(!sdr.Hdr&&ToneMap.Arguments(sdr).Length==0&&ToneMap.Arguments(sdr with{HdrInput=new("arib-std-b67","bt2020","bt2020nc","tv",10)})[0]=="-vf","Only HDR input adds the tone-map filter");
+}
+
 if (args.Contains("--integration")) {
     var paths = AppPaths.Discover();
+    using(var helper=ProcessRunner.Start(ProcessRunner.StartInfo(paths.FFmpeg,["-nostdin","-v","error","-f","lavfi","-i","nullsrc=s=16x16","-f","null","-"]),"job test")){
+        try{Assert(ChildProcesses.Available&&ChildProcesses.IsTracked(helper),"Helper processes join the kill-on-close job");}
+        finally{helper.Kill(true);await helper.WaitForExitAsync();}
+    }
     var detected = await HardwareDetector.DetectAsync(paths);
     Assert(detected.LogicalProcessors>0,"CPU inventory");
     Assert(detected.Gpus.All(x=>x.InferencePassed==true),"Available real GPU probes");

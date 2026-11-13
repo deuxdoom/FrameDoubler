@@ -57,8 +57,36 @@ public partial class MainWindow
         Check(WindowState==WindowState.Maximized,"Maximize button");
         Check(ActualWidth<=SystemParameters.WorkArea.Width+2&&ActualHeight<=SystemParameters.WorkArea.Height+2,"Maximize respects taskbar work area");
         MaximizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();Check(WindowState==WindowState.Normal,"Restore button");
-        MinimizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();Check(WindowState==WindowState.Minimized,"Minimize button");
-        WindowState=WindowState.Normal;
+        // Minimize, close and Alt+F4 all ask first; cancelling keeps the window.
+        var asked=new List<ExitTrigger>();var answer=DialogChoice.Cancel;ExitPrompt=trigger=>{asked.Add(trigger);return answer;};
+        MinimizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(asked.Count==1&&asked[0]==ExitTrigger.Minimize&&IsVisible&&WindowState==WindowState.Normal,"Minimize asks before hiding to the tray");
+        CloseButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(asked.Count==2&&asked[1]==ExitTrigger.Close&&IsVisible,"Close button asks and cancel keeps the window");
+        Close();await Idle();
+        Check(asked.Count==3&&asked[2]==ExitTrigger.Close&&IsVisible,"Alt+F4 / taskbar close also asks");
+        SetupTray();answer=DialogChoice.Secondary;
+        MinimizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(!IsVisible&&tray?.Visible==true,"Minimize to tray hides the window and keeps the tray icon");
+        Restore();await Idle();Check(IsVisible&&WindowState==WindowState.Normal,"Tray restore");
+        tray?.Dispose();tray=null;ExitPrompt=null;
+        // Branded dialogs stay compact and every button fits, in both languages and for every trigger.
+        foreach(string lang in new[]{"ko","en"}){
+            PreviewLanguage(lang);
+            foreach(var trigger in new[]{ExitTrigger.Close,ExitTrigger.Minimize,ExitTrigger.Tray}){
+                var dialog=CreateExitDialog(trigger);dialog.ShowActivated=false;dialog.Show();await Idle();dialog.UpdateLayout();
+                var root=(FrameworkElement)dialog.Content;var choices=dialog.Choices;
+                Check(choices.Count==(trigger==ExitTrigger.Tray?2:3),$"Exit dialog choices {trigger} {lang}");
+                foreach(var button in choices){
+                    var bounds=button.TransformToAncestor(root).TransformBounds(new Rect(button.RenderSize));
+                    // DesiredSize includes the button's left margin.
+                    Check(bounds.Left>=0&&bounds.Right<=root.ActualWidth-20&&button.ActualWidth+button.Margin.Left+button.Margin.Right+.5>=button.DesiredSize.Width,$"Exit dialog button fits {button.Content} {trigger} {lang}");
+                }
+                Check(dialog.ActualWidth<=470&&dialog.ActualHeight<=340,$"Exit dialog is compact {trigger} {lang}");
+                dialog.Close();
+            }
+        }
+        PreviewLanguage("ko");
         return new{Assertions=passed.Count,Passed=passed};
     }
 }

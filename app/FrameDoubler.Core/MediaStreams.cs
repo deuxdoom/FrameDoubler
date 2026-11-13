@@ -9,10 +9,9 @@ public static class Decoder
     // Bounded, seeked preflight only. Conversion always uses the exact packet PTS path below.
     public static async IAsyncEnumerable<VideoFrame> WindowAsync(AppPaths paths,MediaInfo info,double offset,int count,
         [EnumeratorCancellation]CancellationToken cancel=default){
-        var args=new[]{"-nostdin","-v","error","-ss",offset.ToString("0.######",System.Globalization.CultureInfo.InvariantCulture),"-i",info.Path,
-            "-map","0:v:0","-frames:v",count.ToString(),"-fps_mode","passthrough","-f","rawvideo","-pix_fmt",info.BitDepth>8?"rgb48le":"rgb24","-"};
-        using var process=new Process{StartInfo=ProcessRunner.StartInfo(paths.FFmpeg,args)};
-        if(!process.Start())throw new IOException("Cannot start sample decoder");
+        string[] args=["-nostdin","-v","error","-ss",offset.ToString("0.######",System.Globalization.CultureInfo.InvariantCulture),"-i",info.Path,
+            "-map","0:v:0",..ToneMap.Arguments(info),"-frames:v",count.ToString(),"-fps_mode","passthrough","-f","rawvideo","-pix_fmt",info.BitDepth>8?"rgb48le":"rgb24","-"];
+        using var process=ProcessRunner.Start(ProcessRunner.StartInfo(paths.FFmpeg,args),"sample decoder");
         var errors=process.StandardError.ReadToEndAsync();
         using var kill=cancel.Register(()=>{try{if(!process.HasExited)process.Kill(true);}catch(InvalidOperationException){} });
         try{for(int i=0;i<count;i++){
@@ -36,12 +35,11 @@ public static class Decoder
         finally { linked.Cancel();try{await produce;}catch(OperationCanceledException){}finally{while(channel.Reader.TryRead(out var extra))extra.Dispose();} }
 
         async Task ProduceAsync() {
-            using var process=new Process{StartInfo=ProcessRunner.StartInfo(paths.FFmpeg,["-nostdin","-v","error","-i",info.Path,
-                "-map","0:v:0","-fps_mode","passthrough","-f","rawvideo","-pix_fmt",info.BitDepth>8?"rgb48le":"rgb24","-"])
-                };
+            Process? process=null;
             bool started=false;Task<string>? errors=null;
             try {
-                if(!process.Start())throw new IOException("Cannot start decoder");
+                process=ProcessRunner.Start(ProcessRunner.StartInfo(paths.FFmpeg,["-nostdin","-v","error","-i",info.Path,
+                    "-map","0:v:0",..ToneMap.Arguments(info),"-fps_mode","passthrough","-f","rawvideo","-pix_fmt",info.BitDepth>8?"rgb48le":"rgb24","-"]),"decoder");
                 started=true;errors=process.StandardError.ReadToEndAsync();
                 int limit=Math.Min(maxFrames??info.Pts.Length,info.Pts.Length);
                 for(int i=0;i<limit;i++) {
@@ -55,11 +53,27 @@ public static class Decoder
             }catch(Exception ex){channel.Writer.TryComplete(ex);}
             finally {
                 if(started){
-                    try { if(!process.HasExited)process.Kill(entireProcessTree:true); }catch(InvalidOperationException){}
-                    await process.WaitForExitAsync();await errors!;
+                    try { if(!process!.HasExited)process.Kill(entireProcessTree:true); }catch(InvalidOperationException){}
+                    await process!.WaitForExitAsync();await errors!;
                 }
+                process?.Dispose();
             }
         }
+    }
+}
+
+// HDR (PQ/HLG) input is tone-mapped once, at decode time, to 8-bit BT.709 SDR RGB. Analysis,
+// time estimates, interpolation, encoding and verification therefore all see the same SDR frames.
+// Hable with desaturation off kept highlights and skin closest to the libplacebo BT.2390
+// reference on a real 4K HLG stage recording while staying on the CPU.
+public static class ToneMap
+{
+    public static string[] Arguments(MediaInfo info)=>info.HdrInput is { } hdr?["-vf",Filter(hdr)]:[];
+    public static string Filter(HdrSource hdr){
+        static bool Known(string? value)=>value is not (null or "" or "unknown" or "unspecified" or "reserved");
+        var input=new List<string>{"tin="+hdr.Transfer,"pin="+(Known(hdr.Primaries)?hdr.Primaries:"bt2020"),
+            "min="+(Known(hdr.Matrix)?hdr.Matrix:"bt2020nc"),"rin="+(hdr.Range=="pc"?"pc":"tv")};
+        return $"zscale={string.Join(':',input)}:t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709,format=gbrp";
     }
 }
 
@@ -110,7 +124,7 @@ public sealed class VideoEncoder:IAsyncDisposable
         if(encoder.Codec=="hevc")args.AddRange(["-tag:v","hvc1"]);
         args.Add(output);
         var start=ProcessRunner.StartInfo(paths.FFmpeg,args);start.RedirectStandardInput=true;
-        process=Process.Start(start)??throw new IOException("Cannot start encoder");errors=process.StandardError.ReadToEndAsync();
+        process=ProcessRunner.Start(start,"encoder");errors=process.StandardError.ReadToEndAsync();
     }
     private static bool Meaningful(string? value)=>value is not (null or "" or "unknown" or "unspecified" or "N/A");
     private static string? ColourBitstream(string codec,MediaInfo info){

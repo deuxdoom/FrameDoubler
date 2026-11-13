@@ -51,7 +51,6 @@ public sealed partial class ConversionPipeline(AppPaths paths)
     public async Task<AnalysisResult> AnalyzeAsync(string input,IProgress<ConversionProgress>? progress=null,CancellationToken cancel=default)
     {
         var info=await MediaProbe.ReadAsync(paths,input,cancel,metadataOnly:true);
-        if(info.Hdr)throw new NotSupportedException("HDR 입력은 아직 지원하지 않습니다. SDR 영상이 필요합니다.");
         return await SampleAnalysisAsync(info,cancel);
     }
     public async Task<ConversionResult> RunAsync(string input,string output,ConversionOptions options,
@@ -67,7 +66,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         if(!string.Equals(Path.GetExtension(output),".mp4",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Output must be .mp4");
         progress?.Report(new("analyze",0,0,0));
         var source=await MediaProbe.ReadAsync(paths,input,cancel);
-        if(source.Hdr)throw new NotSupportedException("HDR 입력은 아직 지원하지 않습니다. SDR 영상이 필요합니다.");
+        if(source.HdrInput is { } hdr)progress?.Report(new("analyze",0,0,0,ToneMapNotice(hdr)));
         foreach(var roi in options.Hud)roi.Validate(source);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
         if(fps<=0||fps>1000)throw new ArgumentException("Invalid output frame rate");
@@ -162,6 +161,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         finally{left?.Dispose();if(engine is not null)await engine.DisposeAsync();if(File.Exists(temp))File.Delete(temp);}
         NativeEngine CreateEngine()=>new(paths,options.Model,source.Width,source.Height,choice,source.Height>1440?.5:1,source.BitDepth>8);
     }
+    public static string ToneMapNotice(HdrSource hdr)=>$"HDR({hdr.Name}) 영상은 SDR(BT.709, 8비트)로 톤 매핑하여 변환합니다.";
     private static string YoutubeBitrate(int width,int height,Rational fps){
         int shortSide=Math.Min(width,height),longSide=Math.Max(width,height);
         if(shortSide<=1080&&longSide<=1920)return fps>30?"12M":"8M";

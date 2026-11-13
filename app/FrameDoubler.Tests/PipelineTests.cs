@@ -58,13 +58,30 @@ internal static class PipelineTests
         var deepResult=await pipeline.RunAsync(deep,Path.Combine(root,"10bit60.mp4"),options with{Codec="av1",HardwareEncoding=false,Device="cpu"});
         var deepInfo=await MediaProbe.ReadAsync(paths,deepResult.Output);
         assert(deepInfo.BitDepth==10&&deepResult.Verification?.Ok==true,"10-bit SDR RGB16 CPU inference and software AV1 output");
-        string hdr=Path.Combine(root,"hdr-tag.mp4");
+        string pq=Path.Combine(root,"hdr-tag.mp4");
         await FF("-f","lavfi","-i","color=s=320x184:r=30:d=0.1,format=yuv420p,setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc",
             "-frames:v","3","-an","-c:v","libkvazaar","-kvazaar-params","threads=2",
             "-color_trc","smpte2084","-color_primaries","bt2020","-colorspace","bt2020nc",
-            "-bsf:v","hevc_metadata=colour_primaries=9:transfer_characteristics=16:matrix_coefficients=9",hdr);
-        bool hdrRejected=false;try{await pipeline.RunAsync(hdr,Path.Combine(root,"unsupported-hdr.mp4"),options);}catch(NotSupportedException){hdrRejected=true;}
-        assert(hdrRejected,"HDR rejection before conversion");
+            "-bsf:v","hevc_metadata=colour_primaries=9:transfer_characteristics=16:matrix_coefficients=9",pq);
+        var pqInfo=await MediaProbe.ReadAsync(paths,pq);
+        assert(pqInfo.HdrInput?.Name=="PQ"&&pqInfo.BitDepth==8&&pqInfo.ColorTransfer=="bt709"&&pqInfo.ColorPrimaries=="bt709","PQ input is processed as tone-mapped BT.709");
+        // HLG 10-bit AV1, as in YouTube 4K HDR uploads: converted to verified 8-bit BT.709 SDR.
+        string hlg=Path.Combine(root,"hlg.mp4");
+        await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=1,format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc:range=tv",
+            "-f","lavfi","-i","sine=frequency=500:sample_rate=48000:duration=1","-c:v","libsvtav1","-preset","10","-svtav1-params","lp=2","-pix_fmt","yuv420p10le",
+            "-color_trc","arib-std-b67","-color_primaries","bt2020","-colorspace","bt2020nc","-c:a","aac","-shortest",
+            "-bsf:v","av1_metadata=color_primaries=9:transfer_characteristics=18:matrix_coefficients=9:color_range=0",hlg);
+        var hlgInfo=await MediaProbe.ReadAsync(paths,hlg);
+        assert(hlgInfo.HdrInput is {Name:"HLG",BitDepth:10}&&hlgInfo.BitDepth==8&&hlgInfo.FrameBytes==320*180*3,"HLG 10-bit input decodes as 8-bit SDR frames");
+        var hlgResult=await pipeline.RunAsync(hlg,Path.Combine(root,"hlg60.mp4"),options);
+        var hlgOut=await MediaProbe.ReadAsync(paths,hlgResult.Output);
+        assert(hlgOut.HdrInput is null&&hlgOut.BitDepth==8&&hlgOut.ColorTransfer=="bt709"&&hlgOut.ColorPrimaries=="bt709"&&hlgOut.ColorSpace=="bt709"&&hlgOut.ColorRange=="tv"
+            &&hlgResult.Fps==60&&hlgResult.Verification?.Ok==true,"HLG converts to verified SDR BT.709 60fps");
+        // A folder name ending in Hangul followed by '(' broke ffprobe JSON decoded with the ANSI code page.
+        string hangulFolder=Path.Combine(root,"한글 시리즈");Directory.CreateDirectory(hangulFolder);
+        string hangulInput=Path.Combine(hangulFolder,"(시험) 입력.mkv");await FF("-i",source,"-c","copy",hangulInput);
+        var hangul=await pipeline.AnalyzeAsync(hangulInput);
+        assert(hangul.Source.Path==hangulInput&&hangul.SampledFrames>0,"Hangul folder + '(' file name analyses");
         string delayed=Path.Combine(root,"late-audio.mp4");
         await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=2.4","-itsoffset","0.25","-f","lavfi","-i","sine=duration=2:sample_rate=48000",
             "-c:v","libopenh264","-b:v","2M","-c:a","aac","-shortest",delayed);

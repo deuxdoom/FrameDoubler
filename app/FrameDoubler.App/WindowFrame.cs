@@ -14,10 +14,12 @@ internal static class WindowFrame
     [DllImport("user32.dll")]private static extern nint MonitorFromWindow(nint window,uint flags);
     [DllImport("user32.dll",CharSet=CharSet.Auto)]private static extern bool GetMonitorInfo(nint monitor,ref Monitor info);
     [DllImport("dwmapi.dll")]private static extern int DwmSetWindowAttribute(nint window,int attribute,ref int value,int size);
+    // Rounded Windows 11 corners only, for fixed-size dialogs that size themselves to their content.
+    public static void RoundCorners(Window window){int rounded=2;_=DwmSetWindowAttribute(new WindowInteropHelper(window).Handle,33,ref rounded,sizeof(int));}
     public static void Attach(Window window){
         nint handle=new WindowInteropHelper(window).Handle;
         HwndSource.FromHwnd(handle)?.AddHook(Hook);
-        int rounded=2;_=DwmSetWindowAttribute(handle,33,ref rounded,sizeof(int));
+        RoundCorners(window);
         var area=SystemParameters.WorkArea;window.Width=Math.Min(window.Width,area.Width-24);window.Height=Math.Min(window.Height,area.Height-24);
     }
     private static nint Hook(nint window,int message,nint wParam,nint lParam,ref bool handled){

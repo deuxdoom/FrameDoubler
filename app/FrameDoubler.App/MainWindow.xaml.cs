@@ -28,7 +28,8 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
     public TimeEstimate? Estimate{get;set;}
     public string State{get;set;}="pending";
     public string Metadata{get{if(Analysis is not { } a)return "";string motion=a.MotionFps is { } fps?$"~{fps:0.##}fps":translate("추정 불가","not estimated");
-        return $"{a.Source.Width} × {a.Source.Height} · {a.Source.BitDepth}-bit SDR · {translate("파일","File")} {a.Source.Fps.ToDouble():0.##}fps · {translate("움직임","Motion")} {motion}";}}
+        string range=a.Source.HdrInput is { } hdr?$"{hdr.BitDepth}-bit HDR({hdr.Name}) → SDR":$"{a.Source.BitDepth}-bit SDR";
+        return $"{a.Source.Width} × {a.Source.Height} · {range} · {translate("파일","File")} {a.Source.Fps.ToDouble():0.##}fps · {translate("움직임","Motion")} {motion}";}}
     public string Details{get{if(Analysis is not {} a)return "";var s=a.Source;long? rate=s.VideoBitrate??s.OverallBitrate;
         long seconds=(long)s.Duration.ToDouble();string length=$"{seconds/3600:00}:{seconds/60%60:00}:{seconds%60:00}";
         return $"{s.Codec.ToUpperInvariant()} · "+(rate is {} b?$"{(s.VideoBitrate is null?translate("전체 평균 ","Overall average "):"")}{b/1_000_000d:0.##} Mbps":translate("비트레이트 정보 없음","Bitrate unavailable"))+$" · {length}"+(a.IsSampled?translate(" · 구간 분석"," · Sampled"):"");}}
@@ -56,7 +57,7 @@ public partial class MainWindow:Window
     public bool English=>language=="en";
     public bool HardwareReady=>ready;
     public void SelfTestOutputFolder(string path)=>OutputBox.Text=path;
-    internal void SaveForUpdate()=>Save();
+    internal void SaveForUpdate(){Save();AllowExit();}
     private string T(string ko,string en)=>English?en:ko;
     private static string Selected(ComboBox box)=>(box.SelectedItem as Choice)?.Value??"auto";
     private static void Select(ComboBox box,string value)=>box.SelectedItem=box.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==value)??box.Items.OfType<Choice>().FirstOrDefault();
@@ -69,7 +70,8 @@ public partial class MainWindow:Window
         OutputBox.Text=preferences.OutputDirectory;QualitySlider.Value=Math.Clamp(preferences.Quality,1,51);
         HardwareCheck.IsChecked=preferences.HardwareEncoding;VerifyCheck.IsChecked=preferences.Verify;
         Translate();Select(PresetBox,preferences.Preset);Select(FpsBox,preferences.Fps);updating=false;
-        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized&&tray is not null)Hide();WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";};
+        // Hiding to the tray only happens through the confirmation dialog; a taskbar minimize stays a normal minimize.
+        StateChanged+=(_,_)=>{WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";};
         SizeChanged+=(_,_)=>AdaptLayout(ActualHeight);
         DragLeave+=(_,_)=>DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;
         foreach(var box in new[]{FpsBox,ModelBox,DeviceBox,EncoderBox})box.SelectionChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
@@ -78,14 +80,51 @@ public partial class MainWindow:Window
         BitrateBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};HudBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
     }
     protected override void OnSourceInitialized(EventArgs e){base.OnSourceInitialized(e);WindowFrame.Attach(this);}
-    private void MinimizeClicked(object sender,RoutedEventArgs e)=>SystemCommands.MinimizeWindow(this);
+    private void MinimizeClicked(object sender,RoutedEventArgs e)=>RequestExit(ExitTrigger.Minimize);
     private void MaximizeClicked(object sender,RoutedEventArgs e){if(WindowState==WindowState.Maximized)SystemCommands.RestoreWindow(this);else SystemCommands.MaximizeWindow(this);}
-    private void CloseClicked(object sender,RoutedEventArgs e)=>Close();
+    private void CloseClicked(object sender,RoutedEventArgs e)=>RequestExit(ExitTrigger.Close);
+    public enum ExitTrigger{Close,Minimize,Tray}
+    // Test seam, like FilePicker: answers the exit/tray confirmation without showing the dialog.
+    internal Func<ExitTrigger,DialogChoice>? ExitPrompt{get;set;}
+    private bool exitConfirmed,asking;
+    // Programmatic exits (update install, diagnostics, Windows sign-out) skip the confirmation.
+    internal void AllowExit()=>exitConfirmed=true;
+    internal BrandDialog CreateExitDialog(ExitTrigger trigger){
+        bool working=busy||measuring,canTray=trigger!=ExitTrigger.Tray;
+        var dialog=new BrandDialog(this,"FrameDoubler");
+        string? warning=working?T("종료하면 진행 중인 분석·변환을 취소하고 미완성 파일을 정리합니다.","Exiting cancels the running analysis or conversion and removes incomplete output."):null;
+        string message=canTray?T("트레이로 최소화하면 창이 사라져도 프로그램과 진행 중인 작업이 계속 실행됩니다. 트레이 아이콘을 두 번 클릭하면 창이 다시 열립니다.",
+                "Minimized to the tray, FrameDoubler and any running job keep going without a window. Double-click the tray icon to open it again.")
+            :T("종료하면 FrameDoubler와 처리에 사용하던 프로세스가 모두 끝납니다.","Exiting closes FrameDoubler and every process it started.");
+        var cancel=new DialogButton(T("취소","Cancel"),DialogChoice.Cancel,"TextButton");
+        bool minimize=trigger==ExitTrigger.Minimize;
+        var exit=new DialogButton(T("종료","Exit"),DialogChoice.Primary,minimize?"SecondaryButton":"PrimaryButton",!minimize);
+        var hide=new DialogButton(T("트레이로 최소화","Minimize to tray"),DialogChoice.Secondary,minimize?"PrimaryButton":"SecondaryButton",minimize);
+        if(minimize)dialog.Configure(BrandDialog.Glyphs.Tray,T("트레이로 최소화할까요?","Minimize to the tray?"),message,warning,cancel,exit,hide);
+        else if(canTray)dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,hide,exit);
+        else dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,exit);
+        return dialog;
+    }
+    private void RequestExit(ExitTrigger trigger){
+        if(asking||exitConfirmed)return;
+        asking=true;
+        try{
+            DialogChoice choice;
+            if(ExitPrompt is not null)choice=ExitPrompt(trigger);
+            else{var dialog=CreateExitDialog(trigger);dialog.ShowDialog();choice=dialog.Choice;}
+            if(choice==DialogChoice.Secondary)HideToTray();
+            else if(choice==DialogChoice.Primary){exitConfirmed=true;Close();}
+        }finally{asking=false;}
+    }
+    private void HideToTray(){if(tray is null){WindowState=WindowState.Minimized;return;}Hide();}
     internal void AdaptLayout(double height){
         MetricsPanel.Visibility=height<660?Visibility.Collapsed:Visibility.Visible;Details.Visibility=height<600?Visibility.Collapsed:Visibility.Visible;
         DropIcon.Visibility=height<600?Visibility.Collapsed:Visibility.Visible;DropText.Margin=height<600?new(0,0,0,6):new(0,18,0,8);
     }
     public async Task InitializeAsync(bool useTray=true){
+        // The tray icon used to appear only after device/encoder detection (several seconds of
+        // Vulkan and encoder test runs). It needs none of that, so it is created immediately.
+        if(useTray)SetupTray();
         try{
             var data=await Task.Run(()=>pipeline.HardwareAsync(lifetime.Token));inventory=data.Hardware;encoders=data.Encoders;
             updating=true;RefreshOptions();Select(DeviceBox,preferences.Device);
@@ -93,7 +132,6 @@ public partial class MainWindow:Window
             Select(EncoderBox,preferences.Encoder);ready=true;updating=false;
             UpdateHardwareText();
             Log(T("실행 가능한 장치와 인코더를 확인했습니다.","Available devices and encoders checked."));
-            if(useTray)SetupTray();
             if(useTray)_=CheckUpdatesAsync();
         }catch(Exception ex){Log(ex.Message);HardwareText.Text=ex.Message;updating=false;}
         UpdateControls();
@@ -140,6 +178,7 @@ public partial class MainWindow:Window
         if(stage=="fallback")return "CPU fallback: inference can be much slower.";
         if(stage=="encoder_fallback")return "Retrying with software encoding; performance can be lower.";
         if(stage=="hardware")return "Inspecting device/encoder capabilities and transfer cost.";
+        if(stage=="analyze"&&message.StartsWith("HDR(",StringComparison.Ordinal))return "HDR video is tone-mapped to SDR (BT.709, 8-bit) for conversion.";
         return message.Replace("FP16 저장·FP32 연산","FP16 storage / FP32 arithmetic").Replace("FP32 저장·연산","FP32 storage / arithmetic")
             .Replace("고비트 심도","high bit depth").Replace("소프트웨어 인코더:","Software encoder:").Replace("인코더:","Encoder:")
             .Replace("하드웨어 인코딩보다 느릴 수 있습니다.","Can be slower than hardware encoding.")
@@ -186,7 +225,8 @@ public partial class MainWindow:Window
             if(work.IsCancellationRequested)break;
             if(!File.Exists(file)||Entries.Any(x=>string.Equals(x.Input,file,StringComparison.OrdinalIgnoreCase)))continue;
             var entry=new QueueEntry(Path.GetFullPath(file),T){State="analyze"};Entries.Add(entry);QueueList.SelectedItem=entry;UpdateControls();
-            try{entry.Analysis=await Task.Run(()=>pipeline.AnalyzeAsync(entry.Input,cancel:work.Token));entry.State="ready";}
+            try{entry.Analysis=await Task.Run(()=>pipeline.AnalyzeAsync(entry.Input,cancel:work.Token));entry.State="ready";
+                if(entry.Analysis.Source.HdrInput is { } hdr)Log(entry.Name+": "+T(ConversionPipeline.ToneMapNotice(hdr),$"HDR ({hdr.Name}) video is tone-mapped to SDR (BT.709, 8-bit) for conversion."));}
             catch(OperationCanceledException){entry.State="cancelled";}catch(Exception ex){entry.State="error";Log(entry.Name+": "+ex.Message);}
             entry.Refresh();
         }}finally{busy=false;work.Dispose();work=null;StatusText.Text=T("변환 준비","Ready");RefreshOptions();UpdateControls();ScheduleEstimate();if(closing)Close();}
@@ -249,17 +289,47 @@ public partial class MainWindow:Window
     private static void Open(string path)=>Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
-    private void UpdatesClicked(object sender,RoutedEventArgs e){if(!busy)new UpdateWindow(this,availableRelease).ShowDialog();}
-    private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);if(availableRelease is not null)UpdatesButton.ToolTip=T("업데이트 있음","Update available");}
+    private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();
+    private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);MarkUpdate();}
         catch(OperationCanceledException){}catch(Exception ex){Log(T("업데이트 확인: ","Update check: ")+ex.Message);}}
+    private void MarkUpdate(){if(availableRelease is null)return;UpdatesButton.ToolTip=T("업데이트 있음","Update available");UpdatesButton.Foreground=(Brush)new BrushConverter().ConvertFromString("#FF8C60")!;}
+    private bool checkingUpdates;
+    // No update: a compact dialog that just says so. Only a real update opens the full window
+    // with the release notes and the download → verify → preserve → restart steps.
+    private async Task ShowUpdatesAsync(){
+        if(busy||checkingUpdates)return;
+        checkingUpdates=true;
+        try{
+            var release=availableRelease;
+            if(release is null){
+                var dialog=new BrandDialog(this,T("업데이트","Updates"));
+                var ok=new DialogButton(T("확인","OK"),DialogChoice.Cancel,"PrimaryButton",true);
+                dialog.Configure(BrandDialog.Glyphs.Update,T("업데이트를 확인하고 있습니다","Checking for updates"),T("GitHub에서 최신 안정 릴리스를 확인합니다.","Looking up the latest stable release on GitHub."),null,
+                    new DialogButton(T("취소","Cancel"),DialogChoice.Cancel,"TextButton"));
+                dialog.Loaded+=async(_,_)=>{
+                    try{release=await Updates.CheckAsync(dialog.ClosedToken);}
+                    catch(OperationCanceledException){return;}
+                    catch(Exception ex){if(dialog.IsVisible)dialog.Configure(BrandDialog.Glyphs.Error,T("업데이트를 확인하지 못했습니다","Couldn't check for updates"),ex.Message,null,ok);return;}
+                    if(!dialog.IsVisible)return;
+                    if(release is not null){dialog.Close();return;}
+                    dialog.Configure(BrandDialog.Glyphs.Done,T("최신 버전입니다","You're up to date"),
+                        T($"지금 사용 중인 {Updates.Current} 버전이 최신입니다.",$"FrameDoubler {Updates.Current} is the latest version."),null,ok);
+                };
+                dialog.ShowDialog();
+                if(release is null)return;
+                availableRelease=release;MarkUpdate();
+            }
+            new UpdateWindow(this,release).ShowDialog();
+        }finally{checkingUpdates=false;}
+    }
     private async void OnDrop(object sender,DragEventArgs e){DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
     private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString(e.Effects==DragDropEffects.Copy?"#FF8C60":"#3A454C")!;e.Handled=true;}
     private void SetupTray(){
         var stream=System.Windows.Application.GetResourceStream(new Uri("Assets/app.ico",UriKind.Relative))!.Stream;
         tray=new Forms.NotifyIcon{Icon=new System.Drawing.Icon(stream),Text="FrameDoubler",Visible=true};
         var menu=new Forms.ContextMenuStrip();menu.Items.Add(T("창 열기","Open window"),null,(_,_)=>Restore());
-        menu.Items.Add("GitHub",null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler"));menu.Items.Add(T("업데이트","Updates"),null,(_,_)=>{if(!busy)new UpdateWindow(this,availableRelease).ShowDialog();});
-        menu.Items.Add(T("종료","Exit"),null,(_,_)=>Close());tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Restore();
+        menu.Items.Add("GitHub",null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler"));menu.Items.Add(T("업데이트","Updates"),null,async(_,_)=>{Restore();await ShowUpdatesAsync();});
+        menu.Items.Add(T("종료","Exit"),null,(_,_)=>RequestExit(ExitTrigger.Tray));tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Restore();
     }
     private void Restore(){Show();WindowState=WindowState.Normal;Activate();}
     private void Save(){
@@ -267,6 +337,13 @@ public partial class MainWindow:Window
             Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),Quality=(int)QualitySlider.Value,
             Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true};preferences.Save();}catch(Exception ex){Log(ex.Message);}
     }
-    private void OnClosing(object? sender,CancelEventArgs e){if(busy||measuring){e.Cancel=true;closing=true;work?.Cancel();estimateCancel?.Cancel();return;}lifetime.Cancel();Save();tray?.Dispose();}
+    private void OnClosing(object? sender,CancelEventArgs e){
+        // Alt+F4 and the taskbar's "Close window" also go through the confirmation.
+        if(!exitConfirmed){e.Cancel=true;Dispatcher.BeginInvoke(()=>RequestExit(ExitTrigger.Close));return;}
+        // Running jobs are cancelled first; their FFmpeg/engine processes are killed and incomplete output removed,
+        // then the queue/estimate completion calls Close() again. The job object is the last safety net.
+        if(busy||measuring){e.Cancel=true;closing=true;StatusText.Text=T("작업을 취소하고 정리한 뒤 종료합니다…","Cancelling and cleaning up before exit…");work?.Cancel();estimateCancel?.Cancel();return;}
+        lifetime.Cancel();Save();if(tray is not null){tray.Visible=false;tray.Dispose();tray=null;}
+    }
     public void PreviewLanguage(string value){SetLanguage(value,false);Translate();}
 }

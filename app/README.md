@@ -18,7 +18,8 @@ inference GPU. CPU/software fallbacks are shown and can be much slower.
 No Python, PyTorch, CUDA Toolkit, separate SDK or separately installed .NET is
 required by the self-contained package. GPU drivers are provided by the operating
 system/hardware vendor and are not bundled. Vulkan unavailable: use CPU inference.
-HDR is explicitly unsupported; 8-bit and 10-bit SDR paths are implemented.
+HDR (HLG/PQ) input is tone-mapped to 8-bit BT.709 SDR (zscale + Hable) when
+decoded; 8-bit and 10-bit SDR paths are kept as they are.
 
 ```text
 FrameDoubler.Cli hardware
@@ -46,9 +47,12 @@ for time estimates) and the `work` folder live next to `FrameDoubler.exe`.
 AppData is not used. Output verification is off by default in the GUI and
 included in the time estimate when enabled; `run` in the CLI verifies unless
 `--no-verify` is given. `estimate FILE [--preset youtube] [--verify]` prints the
-sampled analysis and the expected time range for the selected device/settings. Minimize to the tray to keep
-working; close/Exit cancels active work and exits after cleanup. The Updates button
-checks stable releases and offers installation only for `FrameDoubler.zip`
+sampled analysis and the expected time range for the selected device/settings. The minimize and close
+buttons (and tray Exit) ask whether to minimize to the tray, where work continues,
+or to exit, which cancels active work and cleans up. FFmpeg and engine processes
+are in a kill-on-close job, so none survive an exit or crash. The Updates button
+checks stable releases: when up to date it only says so; a newer release opens
+the notes and download/verify/keep-settings/restart steps. It installs only `FrameDoubler.zip`
 with a GitHub SHA-256 digest and a matching native manifest. Installation verifies
 every file, preserves the previous directory and restores it if swapping fails.
 Legacy Torch assets cannot be installed. Local staging/swap tests passed; an actual

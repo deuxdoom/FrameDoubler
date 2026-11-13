@@ -41,7 +41,8 @@ public sealed partial class ConversionPipeline
         engineFingerprint??=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths.Engine)));
         var gpu=device.Gpu;
         return TimeEstimates.Key("estimate-v1",engineFingerprint,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
-            device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.Codec,source.Fps.ToString(),fps.ToString(),
+            // Tone-mapped HDR decodes slower; mark only those keys so existing SDR history stays valid.
+            device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.HdrInput is { } hdr?$"{source.Codec}+tonemap-{hdr.Name}":source.Codec,source.Fps.ToString(),fps.ToString(),
             options.Model,encoder.Name,options.Quality,options.Bitrate,options.Youtube,options.Deduplicate,options.Hud.Length);
     }
     public async Task<TimeEstimate> EstimateAsync(AnalysisResult analysis,ConversionOptions options,CancellationToken cancel=default,bool refresh=false){
