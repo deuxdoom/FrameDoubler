@@ -13,6 +13,9 @@
 #include <vector>
 #include <fcntl.h>
 #include <io.h>
+#include <thread>
+#include <windows.h>
+#include "hardware.h"
 
 using Clock = std::chrono::steady_clock;
 extern "C" void fd_register_warp(ncnn_net_t net);
@@ -21,6 +24,41 @@ double elapsed(Clock::time_point start) { return std::chrono::duration<double>(C
 void checked(int value, const char* what) { if (value != 0) throw std::runtime_error(what); }
 void read_exact(void* target, size_t bytes) {
     if (std::fread(target, 1, bytes, stdin) != bytes) throw std::runtime_error("truncated input");
+}
+void unpack_row(const unsigned char* __restrict source, float* __restrict red,
+                float* __restrict green, float* __restrict blue, int width) {
+    constexpr float norm = 1.f / 255.f;
+    for (int x = 0; x < width; ++x) {
+        red[x] = source[x * 3] * norm;
+        green[x] = source[x * 3 + 1] * norm;
+        blue[x] = source[x * 3 + 2] * norm;
+    }
+}
+bool pack_row(const float* __restrict red, const float* __restrict green, const float* __restrict blue,
+              unsigned char* __restrict dest, int width) {
+    bool finite = true;
+    for (int x = 0; x < width; ++x) {
+        bool r = std::isfinite(red[x]), g = std::isfinite(green[x]), b = std::isfinite(blue[x]);
+        finite &= r & g & b;
+        dest[x * 3] = static_cast<unsigned char>(std::clamp(r ? red[x] : 0.f, 0.f, 1.f) * 255 + .5f);
+        dest[x * 3 + 1] = static_cast<unsigned char>(std::clamp(g ? green[x] : 0.f, 0.f, 1.f) * 255 + .5f);
+        dest[x * 3 + 2] = static_cast<unsigned char>(std::clamp(b ? blue[x] : 0.f, 0.f, 1.f) * 255 + .5f);
+    }
+    return finite;
+}
+void unpack_row16(const unsigned short* source, float* red, float* green, float* blue, int width) {
+    constexpr float norm = 1.f / 65535.f;
+    for(int x=0;x<width;++x){red[x]=source[x*3]*norm;green[x]=source[x*3+1]*norm;blue[x]=source[x*3+2]*norm;}
+}
+bool pack_row16(const float* red,const float* green,const float* blue,unsigned short* dest,int width) {
+    bool finite=true;
+    for(int x=0;x<width;++x){
+        bool r=std::isfinite(red[x]),g=std::isfinite(green[x]),b=std::isfinite(blue[x]);finite &= r&g&b;
+        dest[x*3]=static_cast<unsigned short>(std::clamp(r?red[x]:0.f,0.f,1.f)*65535+.5f);
+        dest[x*3+1]=static_cast<unsigned short>(std::clamp(g?green[x]:0.f,0.f,1.f)*65535+.5f);
+        dest[x*3+2]=static_cast<unsigned short>(std::clamp(b?blue[x]:0.f,0.f,1.f)*65535+.5f);
+    }
+    return finite;
 }
 struct Tensor {
     ncnn_mat_t value;
@@ -33,35 +71,53 @@ struct Tensor {
     Tensor& operator=(const Tensor&) = delete;
 };
 
-int main(int argc, char** argv) {
+int wmain(int argc, wchar_t** wide) {
+    std::vector<std::string> arguments;
+    for(int i=0;i<argc;i++){
+        int size=WideCharToMultiByte(CP_UTF8,0,wide[i],-1,nullptr,0,nullptr,nullptr);
+        std::string value(size,'\0');
+        WideCharToMultiByte(CP_UTF8,0,wide[i],-1,value.data(),size,nullptr,nullptr);
+        value.pop_back();arguments.push_back(value);
+    }
+    std::vector<char*> pointers;for(auto& value:arguments)pointers.push_back(value.data());
+    char** argv=pointers.data();
     ncnn_net_t net = nullptr;
     try {
-        if (argc < 6 || argc > 8) throw std::runtime_error("usage: rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 gpu|cpu [SCALE] [sequence]");
-        const std::filesystem::path model(argv[1]);
+        if (argc == 2 && std::string(argv[1]) == "--hardware") {
+            std::cout << fd_hardware_json() << '\n';
+            return 0;
+        }
+        if (argc < 6 || argc > 9) throw std::runtime_error("usage: rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 auto|gpu:INDEX|cpu [SCALE] [rgb16] [sequence]");
+        const std::filesystem::path model(wide[1]);
         const int width = std::stoi(argv[2]), height = std::stoi(argv[3]);
         if (width < 2 || height < 2 || width > 8192 || height > 8192) throw std::runtime_error("invalid dimensions");
-        const bool half = std::string(argv[4]) == "fp16";
-        const bool gpu = std::string(argv[5]) == "gpu";
+        if (std::string(argv[4]) != "fp16" && std::string(argv[4]) != "fp32") throw std::runtime_error("invalid precision");
+        bool half = std::string(argv[4]) == "fp16";
+        const bool deep = argc >= 8 && std::string(argv[7]) == "rgb16";
+        if (deep) half=false;
+        const int device = fd_choose_device(argv[5], half);
+        const bool gpu = device >= 0;
         const float scale = argc >= 7 ? std::stof(argv[6]) : (height > 1440 ? .5f : 1.f);
         if (scale != .5f && scale != 1.f) throw std::runtime_error("unsupported scale");
         const int alignment = static_cast<int>(64 / scale);
         const int padded_w = (width + alignment - 1) / alignment * alignment;
         const int padded_h = (height + alignment - 1) / alignment * alignment;
-        const bool sequence = argc == 8 && std::string(argv[7]) == "sequence";
+        const bool sequence = argc >= 8 && std::string(argv[argc-1]) == "sequence";
         _setmode(_fileno(stdin), _O_BINARY);
         _setmode(_fileno(stdout), _O_BINARY);
         const auto startup = Clock::now();
         net = ncnn_net_create();
         fd_register_warp(net);
         auto option = ncnn_net_get_option(net);
-        ncnn_option_set_num_threads(option, 4);
+        ncnn_option_set_num_threads(option, std::max(1, std::min(32, int(std::thread::hardware_concurrency()))));
         ncnn_option_set_use_vulkan_compute(option, gpu);
         ncnn_option_set_use_fp16_packed(option, half);
         ncnn_option_set_use_fp16_storage(option, half);
         // Keep arithmetic in FP32, with optional FP16 weights/activation storage.
         ncnn_option_set_use_fp16_arithmetic(option, false);
         // get_option borrows the Net-owned option; it must not be destroyed.
-        if (gpu) ncnn_net_set_vulkan_device(net, 0);
+        if (gpu) ncnn_net_set_vulkan_device(net, device);
+        else std::cerr << "DEVICE cpu: inference can be much slower than a Vulkan GPU.\n";
         const auto scaled_param = model / "rife-s05.ncnn.param";
         const auto param = scale == .5f && std::filesystem::exists(scaled_param)
                          ? scaled_param : model / "rife.ncnn.param";
@@ -72,7 +128,7 @@ int main(int argc, char** argv) {
         if (gpu && !actual_gpu) throw std::runtime_error("Vulkan was requested but disabled");
         if (gpu && fd_audit_layers(net)) throw std::runtime_error("unexpected CPU fallback in graph");
         Tensor a(padded_w, padded_h, 3), b(padded_w, padded_h, 3), time(padded_w, padded_h, 1);
-        std::vector<unsigned char> first(static_cast<size_t>(width) * height * 3), second(first.size()), output(first.size());
+        std::vector<unsigned char> first(static_cast<size_t>(width) * height * 3 * (deep?2:1)), second(first.size()), output(first.size());
         float* planes_a[3] = {a.channel(0), a.channel(1), a.channel(2)};
         float* planes_b[3] = {b.channel(0), b.channel(1), b.channel(2)};
         std::cerr << "READY vulkan=" << actual_gpu << " startup_s=" << elapsed(startup)
@@ -97,13 +153,23 @@ int main(int argc, char** argv) {
             }
             if (!(step > 0 && step < 1)) throw std::runtime_error("invalid timestep");
             auto start = Clock::now();
-            for (int y = 0; y < padded_h; ++y) for (int x = 0; x < padded_w; ++x) {
-                const size_t src = (static_cast<size_t>(std::min(y, height - 1)) * width + std::min(x, width - 1)) * 3;
-                const size_t dst = static_cast<size_t>(y) * padded_w + x;
-                for (int channel = 0; channel < 3; ++channel) {
-                    planes_a[channel][dst] = first[src + channel] / 255.f;
-                    planes_b[channel][dst] = second[src + channel] / 255.f;
+            for (int y = 0; y < height; ++y) {
+                const size_t src = size_t(y) * width * 3 * (deep?2:1), dst = size_t(y) * padded_w;
+                if(deep){
+                    unpack_row16(reinterpret_cast<const unsigned short*>(first.data()+src),planes_a[0]+dst,planes_a[1]+dst,planes_a[2]+dst,width);
+                    unpack_row16(reinterpret_cast<const unsigned short*>(second.data()+src),planes_b[0]+dst,planes_b[1]+dst,planes_b[2]+dst,width);
+                }else{
+                    unpack_row(first.data() + src, planes_a[0] + dst, planes_a[1] + dst, planes_a[2] + dst, width);
+                    unpack_row(second.data() + src, planes_b[0] + dst, planes_b[1] + dst, planes_b[2] + dst, width);
                 }
+                for (int channel = 0; channel < 3; ++channel) {
+                    std::fill(planes_a[channel] + dst + width, planes_a[channel] + dst + padded_w, planes_a[channel][dst + width - 1]);
+                    std::fill(planes_b[channel] + dst + width, planes_b[channel] + dst + padded_w, planes_b[channel][dst + width - 1]);
+                }
+            }
+            for (int channel = 0; channel < 3; ++channel) for (int y = height; y < padded_h; ++y) {
+                std::copy_n(planes_a[channel] + size_t(height - 1) * padded_w, padded_w, planes_a[channel] + size_t(y) * padded_w);
+                std::copy_n(planes_b[channel] + size_t(height - 1) * padded_w, padded_w, planes_b[channel] + size_t(y) * padded_w);
             }
             ncnn_mat_fill_float(time.value, step);
             double durations[3] = {elapsed(start), 0, 0};
@@ -123,15 +189,20 @@ int main(int argc, char** argv) {
                 ncnn_mat_destroy(result);
                 throw std::runtime_error("unexpected output shape/type");
             }
-            for (int channel = 0; channel < 3; ++channel) {
-                const auto* data = static_cast<const float*>(ncnn_mat_get_channel_data(result, channel));
-                for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
-                    const float value = std::clamp(data[static_cast<size_t>(y) * padded_w + x], 0.f, 1.f);
-                    if (!std::isfinite(value)) throw std::runtime_error("non-finite output");
-                    output[(static_cast<size_t>(y) * width + x) * 3 + channel] = static_cast<unsigned char>(value * 255 + .5f);
-                }
+            const float* channels[3] = {
+                static_cast<const float*>(ncnn_mat_get_channel_data(result, 0)),
+                static_cast<const float*>(ncnn_mat_get_channel_data(result, 1)),
+                static_cast<const float*>(ncnn_mat_get_channel_data(result, 2))};
+            bool finite = true;
+            for (int y = 0; y < height; ++y) {
+                const size_t offset = size_t(y) * padded_w;
+                if(deep)finite &= pack_row16(channels[0]+offset,channels[1]+offset,channels[2]+offset,
+                    reinterpret_cast<unsigned short*>(output.data()+size_t(y)*width*6),width);
+                else finite &= pack_row(channels[0] + offset, channels[1] + offset, channels[2] + offset,
+                                   output.data() + size_t(y) * width * 3, width);
             }
             ncnn_mat_destroy(result);
+            if (!finite) throw std::runtime_error("non-finite output");
             durations[2] = elapsed(start);
             if (sequence) {
                 if (std::fwrite(first.data(), 1, first.size(), stdout) != first.size()) throw std::runtime_error("output failed");

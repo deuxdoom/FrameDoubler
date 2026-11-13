@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <algorithm>
+#include <cmath>
 
 namespace {
 class PixelWarp final : public ncnn::Layer {
@@ -15,10 +17,11 @@ public:
     PixelWarp() {
         one_blob_only = false;
         support_vulkan = true;
-        support_packing = false;
+        support_packing = true;
         support_fp16_storage = true;
     }
     int create_pipeline(const ncnn::Option& option) override {
+        if (!option.use_vulkan_compute) return 0;
         const bool half = option.use_fp16_storage;
         std::string shader = "#version 450\n";
         if (half) shader += "#extension GL_EXT_shader_16bit_storage : require\n#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require\n";
@@ -28,7 +31,7 @@ layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
 layout(binding=0) readonly buffer Source { SAMPLE src[]; };
 layout(binding=1) readonly buffer Displacement { SAMPLE flow[]; };
 layout(binding=2) writeonly buffer Destination { SAMPLE dst[]; };
-layout(push_constant) uniform parameter { int width; int height; int channels; int srcstep; int flowstep; int dststep; } shape;
+layout(push_constant) uniform parameter { int width; int height; int channels; int srcstep; int flowstep; int dststep; int pack; } shape;
 void main() {
     int x = int(gl_GlobalInvocationID.x);
     int y = int(gl_GlobalInvocationID.y);
@@ -40,10 +43,12 @@ void main() {
     int x0 = int(floor(sx)); int y0 = int(floor(sy));
     int x1 = min(x0 + 1, shape.width - 1); int y1 = min(y0 + 1, shape.height - 1);
     float fx = sx - float(x0); float fy = sy - float(y0);
-    int start = channel * shape.srcstep;
-    float upper = mix(float(src[start + y0 * shape.width + x0]), float(src[start + y0 * shape.width + x1]), fx);
-    float lower = mix(float(src[start + y1 * shape.width + x0]), float(src[start + y1 * shape.width + x1]), fx);
-    dst[channel * shape.dststep + position] = SAMPLE(mix(upper, lower, fy));
+    int start = channel * shape.srcstep * shape.pack;
+    for (int lane = 0; lane < shape.pack; ++lane) {
+        float upper = mix(float(src[start + (y0 * shape.width + x0) * shape.pack + lane]), float(src[start + (y0 * shape.width + x1) * shape.pack + lane]), fx);
+        float lower = mix(float(src[start + (y1 * shape.width + x0) * shape.pack + lane]), float(src[start + (y1 * shape.width + x1) * shape.pack + lane]), fx);
+        dst[(channel * shape.dststep + position) * shape.pack + lane] = SAMPLE(mix(upper, lower, fy));
+    }
 }
 )glsl";
         std::vector<uint32_t> spirv;
@@ -57,23 +62,50 @@ void main() {
         pipeline = nullptr;
         return 0;
     }
-    int forward(const std::vector<ncnn::Mat>&, std::vector<ncnn::Mat>&, const ncnn::Option&) const override {
-        // CPU fallback would invalidate this GPU compatibility experiment.
-        return -1;
+    int forward(const std::vector<ncnn::Mat>& inputs, std::vector<ncnn::Mat>& outputs, const ncnn::Option& option) const override {
+        const auto& image = inputs.at(0);
+        const auto& flow = inputs.at(1);
+        if (flow.elempack != 1 || flow.c != 2 || image.w != flow.w || image.h != flow.h
+                || image.elemsize != size_t(4 * image.elempack) || flow.elemsize != 4) return -1;
+        auto& result = outputs.at(0);
+        result.create(image.w, image.h, image.c, image.elemsize, image.elempack, option.blob_allocator);
+        if (result.empty()) return -100;
+        const float* dx = flow.channel(0);
+        const float* dy = flow.channel(1);
+        const int pack = image.elempack;
+        for (int channel = 0; channel < image.c; ++channel) {
+            const float* source = image.channel(channel);
+            float* dest = result.channel(channel);
+            for (int y = 0; y < image.h; ++y) for (int x = 0; x < image.w; ++x) {
+                const int position = y * image.w + x;
+                float sx = std::clamp(float(x) + dx[position], 0.f, float(image.w - 1));
+                float sy = std::clamp(float(y) + dy[position], 0.f, float(image.h - 1));
+                int x0 = int(std::floor(sx)), y0 = int(std::floor(sy));
+                int x1 = std::min(x0 + 1, image.w - 1), y1 = std::min(y0 + 1, image.h - 1);
+                float fx = sx - x0, fy = sy - y0;
+                for (int lane = 0; lane < pack; ++lane) {
+                    float upper = source[(y0 * image.w + x0) * pack + lane] * (1-fx) + source[(y0 * image.w + x1) * pack + lane] * fx;
+                    float lower = source[(y1 * image.w + x0) * pack + lane] * (1-fx) + source[(y1 * image.w + x1) * pack + lane] * fx;
+                    dest[position * pack + lane] = upper * (1-fy) + lower * fy;
+                }
+            }
+        }
+        return 0;
     }
     int forward(const std::vector<ncnn::VkMat>& inputs, std::vector<ncnn::VkMat>& outputs,
                 ncnn::VkCompute& commands, const ncnn::Option& option) const override {
         const auto& image = inputs.at(0);
         const auto& flow = inputs.at(1);
-        if (image.elempack != 1 || flow.elempack != 1 || flow.c != 2 || image.w != flow.w || image.h != flow.h) return -1;
+        if (flow.elempack != 1 || flow.c != 2 || image.w != flow.w || image.h != flow.h) return -1;
         auto& output = outputs.at(0);
-        output.create(image.w, image.h, image.c, image.elemsize, 1, option.blob_vkallocator);
+        output.create(image.w, image.h, image.c, image.elemsize, image.elempack, option.blob_vkallocator);
         if (output.empty()) return -100;
-        std::vector<ncnn::vk_constant_type> dimensions(6);
+        std::vector<ncnn::vk_constant_type> dimensions(7);
         dimensions[0].i = image.w; dimensions[1].i = image.h; dimensions[2].i = image.c;
         dimensions[3].i = static_cast<int>(image.cstep);
         dimensions[4].i = static_cast<int>(flow.cstep);
         dimensions[5].i = static_cast<int>(output.cstep);
+        dimensions[6].i = image.elempack;
         commands.record_pipeline(pipeline, {image, flow, output}, dimensions, output);
         return 0;
     }

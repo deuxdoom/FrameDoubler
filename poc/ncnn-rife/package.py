@@ -9,9 +9,10 @@ import shutil
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--work", type=Path, default=Path(r"F:\Temp\FrameDoubler\ncnn-poc"))
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
-    dest = args.work / "package" / "FrameDoubler-ncnn-PoC"
+    dest = args.output or args.work / "package" / "FrameDoubler-ncnn-PoC"
     if dest.exists():
         raise RuntimeError(f"Use an empty output directory: {dest}")
     dest.mkdir(parents=True)
