@@ -173,12 +173,20 @@ class Encoder:
                 pass
         if self._proc.wait() != 0:
             raise EncodeError(self._failure())
+        self._drain.join(timeout=5)
+        self._proc.stderr.close()
 
     def abort(self) -> None:
         """Stops encoding and removes the incomplete file."""
         if self._proc.poll() is None:
             self._proc.kill()
         self._proc.wait()
+        try:
+            self._proc.stdin.close()
+        except OSError:
+            pass
+        self._drain.join(timeout=5)
+        self._proc.stderr.close()
         self.output.unlink(missing_ok=True)
 
     def _failure(self) -> str:
@@ -192,6 +200,10 @@ class Encoder:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if exc_type is None:
-            self.close()
+            try:
+                self.close()
+            except BaseException:
+                self.abort()
+                raise
         else:
             self.abort()

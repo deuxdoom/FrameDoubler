@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
     run.add_argument("--max-frames", type=int, help="process only the first N input frames")
     run.add_argument("--verify", action="store_true", help="check the output after converting")
+    run.add_argument("--overwrite", action="store_true", help="replace an existing output only after a successful conversion")
     run.add_argument("--hud-region", type=_hud_region, action="append", default=[], metavar="X,Y,W,H",
                      help="protect identical pixels inside a static HUD rectangle; repeat for multiple regions")
     run.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
@@ -90,12 +91,16 @@ def _run(args: argparse.Namespace) -> int:
         raise RuntimeError("The output file must differ from the input file.")
 
     def show(p: Progress) -> None:
+        if p.stage != "convert":
+            print(f"\r{p.stage:<70}", end="", flush=True)
+            return
         remaining = (p.frames_total - p.frames_out) / p.fps if p.fps > 0 else 0
         print(f"\r{p.frames_out}/{p.frames_total} frames  {p.fps:5.1f} fps  "
               f"{remaining:5.0f} s left ", end="", flush=True)
 
     result = run(source, output, Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
                                          max_frames=args.max_frames,
+                                         overwrite=args.overwrite,
                                          hud_regions=tuple(args.hud_region),
                                          encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
                                                                quality=args.quality, bitrate=args.bitrate,
@@ -131,3 +136,6 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("\nConversion cancelled.", file=sys.stderr)
+        return 130

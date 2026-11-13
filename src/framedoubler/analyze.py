@@ -1,6 +1,8 @@
 """Input analysis report: what the file is and how it will be processed."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
+from contextlib import closing
 from fractions import Fraction
 from pathlib import Path
 
@@ -28,9 +30,15 @@ class Analysis:
         return "native-low"  # real 30fps-class motion
 
 
-def analyze(path: str | Path, sample_frames: int = SAMPLE_FRAMES) -> Analysis:
+def analyze(path: str | Path, sample_frames: int = SAMPLE_FRAMES,
+            check_cancelled: Callable[[], None] | None = None) -> Analysis:
     info = probe(path)
-    labels = [label for _, _, label in classify(iter_frames(info, max_frames=sample_frames))]
+    labels = []
+    with closing(iter_frames(info, max_frames=sample_frames)) as frames:
+        for _, _, label in classify(frames):
+            if check_cancelled:
+                check_cancelled()
+            labels.append(label)
     rate = source_rate(info.fps, info.nominal_fps, info.is_vfr)
     return Analysis(info, summarize(labels, info.fps), default_output_fps(rate))
 

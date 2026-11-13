@@ -43,6 +43,10 @@ framedoubler verify input.mp4 output.mp4  # checks an existing conversion
 
 The RIFE model is downloaded on first use.
 
+Existing outputs are protected by default. Use `--overwrite` to replace one after
+a successful conversion. Ctrl+C cancels conversion and removes the incomplete
+output. A failed or cancelled overwrite preserves the previous file.
+
 The default encoder is HEVC NVENC at quality 19. `--codec` accepts `h264`, `hevc`
 or `av1`. Choose `--quality 1`–`51` (lower is better) or a target VBR `--bitrate`
 in bits/s, with optional `k` or `M` units. Quality values are encoder-specific;

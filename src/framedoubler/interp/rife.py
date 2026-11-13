@@ -6,6 +6,7 @@ This is an inference-only implementation; see THIRD_PARTY_NOTICES.md.
 """
 
 from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -117,12 +118,13 @@ class _Prepared:
 
 class RifeInterpolator(Interpolator):
     def __init__(self, model: str = DEFAULT_MODEL, scale: float | None = None,
-                 half: bool = True, device: str = "cuda", weights: Path | None = None):
+                 half: bool = True, device: str = "cuda", weights: Path | None = None,
+                 check_cancelled: Callable[[], None] | None = None):
         """`scale` is the resolution factor for motion estimation; None picks 0.5
         for frames taller than 1440 lines and 1.0 otherwise, as the RIFE authors advise."""
         if device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available. FrameDoubler needs an NVIDIA GPU.")
-        path = weights or ensure_model(model)
+        path = weights or ensure_model(model, check_cancelled)
         state = torch.load(path, map_location="cpu", weights_only=True)
         state = {k.replace("module.", ""): v for k, v in state.items()}
         net = _IFNet()

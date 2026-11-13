@@ -5,6 +5,7 @@ import io
 import os
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,7 +43,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ensure_model(name: str = DEFAULT_MODEL) -> Path:
+def ensure_model(name: str = DEFAULT_MODEL, check_cancelled: Callable[[], None] | None = None) -> Path:
     """Returns the path of the weight file, downloading it on first use."""
     spec = MODELS.get(name)
     if spec is None:
@@ -53,10 +54,20 @@ def ensure_model(name: str = DEFAULT_MODEL) -> Path:
 
     url = f"https://drive.usercontent.google.com/download?id={spec.drive_id}&export=download&confirm=t"
     try:
-        with urllib.request.urlopen(url, timeout=120) as response:
-            data = response.read()
+        with urllib.request.urlopen(url, timeout=15) as response:
+            chunks = []
+            while True:
+                if check_cancelled:
+                    check_cancelled()
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            data = b"".join(chunks)
         archive = zipfile.ZipFile(io.BytesIO(data))
     except (OSError, zipfile.BadZipFile) as exc:
+        if check_cancelled:
+            check_cancelled()
         raise ModelError(
             f"Could not download RIFE {name}: {exc}. Download it from the Practical-RIFE "
             f"README and place flownet.pkl at {target}"
@@ -68,10 +79,14 @@ def ensure_model(name: str = DEFAULT_MODEL) -> Path:
         raise ModelError(f"The RIFE {name} archive does not contain flownet.pkl")
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(".part")
-    partial.write_bytes(archive.read(member))
-    actual = _sha256(partial)
-    if actual != spec.sha256:
-        partial.unlink()
-        raise ModelError(f"RIFE {name} checksum mismatch: expected {spec.sha256}, got {actual}")
-    partial.replace(target)
+    try:
+        if check_cancelled:
+            check_cancelled()
+        partial.write_bytes(archive.read(member))
+        actual = _sha256(partial)
+        if actual != spec.sha256:
+            raise ModelError(f"RIFE {name} checksum mismatch: expected {spec.sha256}, got {actual}")
+        partial.replace(target)
+    finally:
+        partial.unlink(missing_ok=True)
     return target

@@ -4,12 +4,17 @@ Used by the CLI and, later, the GUI. Everything runs sequentially in one thread.
 """
 
 import time
+import os
+import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import closing
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 
 from framedoubler.cadence import CadenceConfig, Label, classify
+from framedoubler.analyze import Analysis, analyze as analyze_input
+from framedoubler.control import Cancelled, CancellationToken
 from framedoubler.decode import iter_frames
 from framedoubler.encode import Encoder, EncodeSettings
 from framedoubler.frame_diff import signature
@@ -31,6 +36,15 @@ class Options:
     encode: EncodeSettings = EncodeSettings()
     max_frames: int | None = None  # process only the first N input frames (for trials)
     hud_regions: tuple[Region, ...] = ()
+    overwrite: bool = False
+
+    def __post_init__(self) -> None:
+        if self.fps is not None and self.fps <= 0:
+            raise RuntimeError("Output frame rate must be positive.")
+        if self.max_frames is not None and self.max_frames <= 0:
+            raise RuntimeError("max_frames must be positive.")
+        if not 0 <= self.scene_threshold <= 1:
+            raise RuntimeError("Scene threshold must be between 0 and 1.")
 
 
 @dataclass(frozen=True)
@@ -38,10 +52,15 @@ class Progress:
     frames_out: int
     frames_total: int
     elapsed: float
+    stage: str = "convert"
 
     @property
     def fps(self) -> float:
         return self.frames_out / self.elapsed if self.elapsed > 0 else 0.0
+
+    @property
+    def remaining(self) -> float | None:
+        return max(0, self.frames_total - self.frames_out) / self.fps if self.fps > 0 else None
 
 
 @dataclass(frozen=True)
@@ -59,17 +78,74 @@ class Result:
     elapsed: float
 
 
-def run(input_path: str | Path, output_path: str | Path, options: Options = Options(),
+def run(input_path: str | Path, output_path: str | Path | None = None, options: Options = Options(),
         interpolator: Interpolator | None = None,
-        on_progress: Callable[[Progress], None] | None = None) -> Result:
+        on_progress: Callable[[Progress], None] | None = None,
+        cancel: CancellationToken | None = None, analyze_only: bool = False) -> Result | Analysis:
+    """Runs a job, publishing only complete output; analysis also uses this API."""
+    token = cancel or CancellationToken()
+    started = time.perf_counter()
+    staging = None
+
+    def stage(name: str) -> None:
+        if on_progress:
+            on_progress(Progress(0, 0, time.perf_counter() - started, name))
+
+    try:
+        token.check()
+        stage("analyze")
+        if analyze_only:
+            analysis = analyze_input(input_path, check_cancelled=token.check)
+            token.check()
+            stage("done")
+            return analysis
+        if output_path is None:
+            raise RuntimeError("An output path is required for conversion.")
+        output = Path(output_path)
+        if Path(input_path).resolve() == output.resolve():
+            raise RuntimeError("The output file must differ from the input file.")
+        if output.exists() and not options.overwrite:
+            raise RuntimeError(f"Output already exists: {output}. Choose another name or enable overwrite.")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        staging = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.partial{output.suffix}")
+        result = _convert(input_path, staging, options, interpolator, on_progress, token)
+        token.check()
+        if options.overwrite:
+            staging.replace(output)
+        elif os.name == "nt":
+            staging.rename(output)  # Windows rename refuses an existing destination.
+        else:
+            os.link(staging, output)  # atomic no-replace publication on POSIX
+            staging.unlink()
+        stage("done")
+        return replace(result, output=output)
+    except Cancelled:
+        stage("cancelled")
+        raise
+    except (OSError, ValueError) as exc:
+        stage("error")
+        raise RuntimeError(f"Cannot process {input_path}: {exc}") from exc
+    except RuntimeError:
+        stage("error")
+        raise
+    finally:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
+
+
+def _convert(input_path, output_path, options, interpolator, on_progress, cancel) -> Result:
     info = probe(input_path)
+    cancel.check()
     if info.is_hdr:
         raise RuntimeError("HDR input is not supported yet.")
     validate_regions(options.hud_regions, info.width, info.height)
     fps_out = options.fps or default_output_fps(source_rate(info.fps, info.nominal_fps, info.is_vfr))
     if interpolator is None:
+        if on_progress:
+            on_progress(Progress(0, 0, 0.0, "model"))
         from framedoubler.interp.rife import RifeInterpolator
-        interpolator = RifeInterpolator(options.model, options.scale)
+        interpolator = RifeInterpolator(options.model, options.scale, check_cancelled=cancel.check)
+    cancel.check()
 
     limit = info.frame_count if options.max_frames is None else min(options.max_frames, info.frame_count)
     partial = limit < info.frame_count
@@ -94,10 +170,11 @@ def run(input_path: str | Path, output_path: str | Path, options: Options = Opti
             last_report = now
             on_progress(Progress(encoder.frames_written, total, now - started))
 
-    with Encoder(output_path, info, fps_out, options.encode, duration if partial else None) as encoder:
+    with closing(frames), closing(labelled), Encoder(output_path, info, fps_out, options.encode, duration if partial else None) as encoder:
         # `a` is the source frame currently on screen: (time, frame, prepared, descriptor)
         a = None
         for pts, frame, label in labelled:
+            cancel.check()
             counts[label] += 1
             if label is Label.DUP:
                 continue
@@ -110,6 +187,7 @@ def run(input_path: str | Path, output_path: str | Path, options: Options = Opti
                     hold = True
                     cuts += 1
                 for _, position in steps(a[0], t, fps_out):
+                    cancel.check()
                     if position == 0.0 or (hold and position < 1.0):
                         encoder.write(a[1])
                     elif position == 1.0:
@@ -129,8 +207,12 @@ def run(input_path: str | Path, output_path: str | Path, options: Options = Opti
         if a is not None:
             # The last source frame stays on screen until the end of the clip.
             while encoder.frames_written < total:
+                cancel.check()
                 encoder.write(a[1])
         report(force=True)
+        cancel.check()
+        if on_progress:
+            on_progress(Progress(encoder.frames_written, total, time.perf_counter() - started, "mux"))
         frames_out = encoder.frames_written
 
     return Result(Path(output_path), info, fps_out, sum(counts.values()), frames_out,
