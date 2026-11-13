@@ -101,8 +101,8 @@ public partial class MainWindow:Window
     }
     private void Translate(){
         bool old=updating;updating=true;
-        Tagline.Text=T("프레임 사이를, 움직임으로.","Make room for motion.");AddButton.Content=T("영상 추가","Add videos");QueueTitle.Text=T("입력 영상","Input videos");
-        Subtitle.Text=T("게임 녹화의 순간을 더 부드럽게 이어 보세요.","Bring smoother motion to your game captures.");
+        Tagline.Text=T("30fps 게임 녹화를 60fps로 변환","Convert 30fps game recordings to 60fps");AddButton.Content=T("영상 추가","Add videos");QueueTitle.Text=T("입력 영상","Input videos");
+        Subtitle.Text=T("반복된 중복 프레임을 찾아내고, 그 자리를 RIFE AI 보간 프레임으로 채웁니다.","Finds repeated duplicate frames and fills them with RIFE AI-interpolated frames.");
         DropText.Text=T("영상을 끌어 놓으세요","Drop your videos here");DropHint.Text=T("또는 클릭하여 파일을 선택하세요","Or click here to choose files");
         FileMetricLabel.Text=T("파일 프레임레이트","File frame rate");MotionMetricLabel.Text=T("추정 움직임","Estimated motion");Details.Header=T("처리 기록","Activity");
         EstimateTitle.Text=T("예상 소요 시간","Estimated time");EstimateAgain.ToolTip=T("현재 설정으로 다시 계산","Recalculate for current settings");

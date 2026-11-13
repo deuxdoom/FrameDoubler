@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FrameDoubler · 30fps 게임 녹화를 진짜 60fps로</title>
 <meta name="description" content="60fps로 녹화되었지만 30fps로 보이는 게임 영상에서 중복 프레임을 찾아내고, RIFE AI로 사이의 프레임을 만들어 실제 60fps 영상으로 바꾸는 Windows 프로그램입니다.">
-<meta property="og:title" content="FrameDoubler · 프레임 사이를, 움직임으로.">
+<meta property="og:title" content="FrameDoubler · 30fps 게임 녹화를 진짜 60fps로">
 <meta property="og:description" content="30fps 게임 녹화 영상을 실제 60fps로. 중복 프레임 감지와 RIFE AI 프레임 보간.">
 <meta property="og:image" content="https://deuxdoom.github.io/FrameDoubler/img/og.png">
 <meta property="og:type" content="website">
@@ -37,7 +37,7 @@ img, video { max-width: 100%; height: auto; display: block; }
 .wrap { width: min(var(--wide), 100% - 32px); margin-inline: auto; }
 section { padding: clamp(48px, 7vw, 84px) 0; }
 h1, h2, h3 { line-height: 1.25; margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
-h1 { font-size: clamp(2.2rem, 6vw, 4.2rem); font-weight: 800; }
+h1 { font-size: clamp(2rem, 4.6vw, 3.4rem); font-weight: 800; }
 h2 { font-size: clamp(1.6rem, 3.6vw, 2.5rem); font-weight: 700; }
 h3 { font-size: 1.1rem; font-weight: 700; }
 p { margin: 0; }
@@ -237,7 +237,7 @@ footer a { color: var(--muted); }
   <div class="wrap hero-grid">
     <div>
       <p class="eyebrow" data-i18n="hero.eyebrow">게임 녹화 영상을 위한 RIFE 프레임 보간 도구</p>
-      <h1><span data-i18n="hero.title1">프레임 사이를,</span><span class="accent" data-i18n="hero.title2">움직임으로.</span></h1>
+      <h1><span data-i18n="hero.title1">30fps 게임 녹화를</span><span class="accent" data-i18n="hero.title2">진짜 60fps로</span></h1>
       <p class="lead" data-i18n="hero.lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
       <div class="cta">
         <a class="btn primary" id="download-button" href="https://github.com/deuxdoom/FrameDoubler/releases/latest"><span data-i18n="hero.download">내려받기</span> <small id="latest-version">Windows 11</small></a>
@@ -307,7 +307,7 @@ footer a { color: var(--muted); }
       <li class="reveal" style="--i:2"><h3 data-i18n="step3.title">중복 프레임 처리</h3><p data-i18n="step3.text"><span class="s">압축 때문에 조금씩 달라진 중복 프레임도 판정합니다.</span> <span class="s">프레임 드롭으로 3번, 4번 반복된 구간과 정지 화면도 구분합니다.</span></p></li>
       <li class="reveal" style="--i:3"><h3 data-i18n="step4.title">RIFE AI 보간</h3><p data-i18n="step4.text"><span class="s">남은 프레임 사이의 정확한 시각에 새 프레임을 만듭니다.</span> <span class="s">ncnn과 Vulkan으로 제조사와 관계없이 GPU에서 실행합니다.</span> <span class="s">장면이 바뀌는 순간에는 두 화면을 섞지 않습니다.</span></p></li>
       <li class="reveal" style="--i:4"><h3 data-i18n="step5.title">인코딩</h3><p data-i18n="step5.text"><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">H.264, HEVC, AV1로 만들고 길이와 오디오 싱크를 유지합니다.</span></p></li>
-      <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증</h3><p data-i18n="step6.text"><span class="s">결과 파일의 프레임레이트, 길이, 오디오 동기, 색상을 다시 검사합니다.</span> <span class="s">남은 중복 프레임의 비율도 함께 보고합니다.</span></p></li>
+      <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증 (선택)</h3><p data-i18n="step6.text"><span class="s">원하면 변환 뒤에 결과 파일의 프레임레이트, 길이, 오디오 동기, 색상을 다시 검사합니다.</span> <span class="s">남은 중복 프레임의 비율도 함께 보고합니다.</span></p></li>
     </ol>
   </div>
 </section>
@@ -331,17 +331,17 @@ footer a { color: var(--muted); }
     <p class="eyebrow reveal" data-i18n="features.eyebrow">기능</p>
     <h2 class="reveal" data-i18n="features.title">영상을 끌어다 놓으면 끝납니다</h2>
     <div class="grid">
-      <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3 data-i18n="card1.title">자동 분석</h3><p data-i18n="card1.text"><span class="s">파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">필요한 처리는 스스로 정합니다.</span></p></article>
+      <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3 data-i18n="card1.title">자동 분석</h3><p data-i18n="card1.text"><span class="s">코덱, 비트레이트, 길이와 함께 파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">1~2시간 녹화도 여러 구간만 읽어 바로 분석합니다.</span></p></article>
       <article class="card reveal" style="--i:1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="12" height="12" rx="2"/><rect x="9" y="8" width="12" height="12" rx="2"/></svg><h3 data-i18n="card2.title">중복·정지 화면 구분</h3><p data-i18n="card2.text">프레임 드롭으로 생긴 반복과 일시 정지 메뉴 같은 정지 화면을 구별합니다.</p></article>
       <article class="card reveal" style="--i:2"><svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M9 8l6 4-6 4z"/></svg><h3 data-i18n="card3.title">장면 전환 보호</h3><p data-i18n="card3.text"><span class="s">컷이 바뀌는 순간에는 보간하지 않습니다.</span> <span class="s">두 장면이 겹쳐 보이는 프레임이 생기지 않습니다.</span></p></article>
       <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3 data-i18n="card4.title">제조사와 관계없는 GPU 가속</h3><p data-i18n="card4.text"><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU에서 동작합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
       <article class="card reveal" style="--i:4"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg><h3 data-i18n="card5.title">동작하는 인코더만 선택</h3><p data-i18n="card5.text"><span class="s">NVENC, AMF, QSV와 소프트웨어 인코더로 짧게 인코딩해 봅니다.</span> <span class="s">성공한 코덱만 메뉴에 보여 줍니다.</span></p></article>
-      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">YouTube 프리셋</h3><p data-i18n="card6.text">해상도와 fps에 맞는 권장 비트레이트의 MP4를 한 번에 만듭니다.</p></article>
+      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">YouTube 프리셋</h3><p data-i18n="card6.text"><span class="s">해상도와 fps에 맞는 권장 비트레이트의 MP4를 한 번에 만듭니다.</span> <span class="s">보관용으로 119.88·120fps 출력도 고를 수 있습니다.</span></p></article>
       <article class="card reveal" style="--i:6"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><h3 data-i18n="card7.title">오디오 싱크와 색상 보존</h3><p data-i18n="card7.text"><span class="s">영상 길이를 프레임 단위로 맞춥니다.</span> <span class="s">오디오의 시작 시각과 색상 정보도 원본 그대로 유지합니다.</span></p></article>
       <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3 data-i18n="card8.title">고정 HUD 보호</h3><p data-i18n="card8.text"><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
-      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><path d="M12 3v5M12 21a8 8 0 1 1 6-13"/><path d="M12 13l4-3"/></svg><h3 data-i18n="card9.title">119.88 · 120fps 출력</h3><p data-i18n="card9.text">보관용으로 더 높은 프레임레이트가 필요할 때 선택합니다.</p></article>
+      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4"/></svg><h3 data-i18n="card9.title">예상 소요 시간</h3><p data-i18n="card9.text"><span class="s">변환 전에 선택한 장치와 설정으로 짧게 실제 처리를 해 보고 예상 시간을 알려 줍니다.</span> <span class="s">끝낸 작업이 쌓이면 예상이 더 정확해집니다.</span></p></article>
       <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3 data-i18n="card10.title">대기열과 명령줄</h3><p data-i18n="card10.text"><span class="s">여러 영상을 순서대로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
-      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">검증된 업데이트</h3><p data-i18n="card11.text"><span class="s">새 버전이 나오면 알려 줍니다.</span> <span class="s">SHA-256과 모든 파일의 해시가 일치할 때만 설치합니다.</span> <span class="s">실패하면 이전 버전으로 되돌립니다.</span></p></article>
+      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">포터블 실행과 검증된 업데이트</h3><p data-i18n="card11.text"><span class="s">설정과 기록은 실행 파일이 있는 폴더에 저장합니다.</span> <span class="s">업데이트는 SHA-256과 모든 파일의 해시가 일치할 때만 설치하고, 실패하면 이전 버전으로 되돌립니다.</span></p></article>
       <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3 data-i18n="card12.title">트레이와 한국어·영어</h3><p data-i18n="card12.text"><span class="s">창을 최소화하면 트레이에서 계속 변환합니다.</span> <span class="s">화면은 한국어와 영어를 지원합니다.</span></p></article>
     </div>
   </div>
@@ -351,7 +351,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <p class="eyebrow reveal" data-i18n="screens.eyebrow">실제 화면</p>
     <h2 class="reveal" data-i18n="screens.title">파일 fps와 움직임 fps를 한눈에</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 고급 설정에 접어 두었습니다.</span></p>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증, 예상 소요 시간만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 고급 설정에 접어 두었습니다.</span></p>
     <img class="shot reveal" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1475" height="1000" loading="lazy"
          alt="FrameDoubler 메인 화면: 파일 프레임레이트 60fps와 실제 움직임 29.81fps, 변환 완료와 검증 통과가 표시되어 있습니다." data-i18n-attr="alt:screens.alt">
     <div class="gallery">
@@ -412,7 +412,7 @@ footer a { color: var(--muted); }
     "meta.description": "FrameDoubler finds the duplicate frames in 60fps recordings of 30fps games and fills them with RIFE AI frames to make real 60fps video on Windows.",
     "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
     "hero.eyebrow": "RIFE frame interpolation for game recordings",
-    "hero.title1": "Make room", "hero.title2": "for motion.",
+    "hero.title1": "30fps game recordings", "hero.title2": "to real 60fps",
     "hero.lead": s("Recorded at 60fps, but it still looks like 30fps?", "FrameDoubler finds the <b>duplicate frames</b> in the file.",
                    "It fills their place with <b>in-between frames</b> made by AI.", "The result is real 60fps video."),
     "hero.download": "Download", "hero.why": "What makes it different",
@@ -446,8 +446,8 @@ footer a { color: var(--muted); }
     "step4.text": s("Creates new frames at the exact times between the remaining frames.", "Runs on any vendor’s GPU through ncnn and Vulkan.", "Never blends two pictures across a scene change."),
     "step5.title": "Encoding",
     "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "Writes H.264, HEVC or AV1 and keeps the length and audio sync."),
-    "step6.title": "Output verification",
-    "step6.text": s("Checks the frame rate, length, audio sync and colour of the result again.", "Also reports the share of duplicate frames left."),
+    "step6.title": "Output verification (optional)",
+    "step6.text": s("If you want, checks the frame rate, length, audio sync and colour of the result after conversion.", "It also reports the share of duplicate frames left."),
     "results.eyebrow": "Results", "results.title": "Tested on a real 4K game recording",
     "stat1.text": s("The estimated real motion.", "The file was 60fps, but the motion was 30fps."),
     "stat2.unit": "frames", "stat2.text": s("New in-between frames.", "They fill the duplicate slots among 1,283 frames."),
@@ -456,20 +456,20 @@ footer a { color: var(--muted); }
     "results.note": s("Results from a 21-second 3840×2160, 60fps recording of Fire Emblem Fortune’s Weave.", "Converted and verified on the development PC.",
                       "Results and processing speed vary with the content and hardware."),
     "features.eyebrow": "Features", "features.title": "Drop in a video and you are done",
-    "card1.title": "Automatic analysis", "card1.text": s("Shows the file fps and the estimated motion fps side by side.", "Decides on the processing by itself."),
+    "card1.title": "Automatic analysis", "card1.text": s("Shows codec, bitrate and length with the file fps and the estimated motion fps side by side.", "Even one- or two-hour recordings are analysed right away from a few sampled sections."),
     "card2.title": "Duplicates and still screens", "card2.text": "Tells dropped-frame repeats apart from still screens such as pause menus.",
     "card3.title": "Scene change protection", "card3.text": s("Does not interpolate at a cut.", "No frame shows two scenes overlapping."),
     "card4.title": "GPU acceleration from any vendor", "card4.text": s("Runs on NVIDIA, AMD and Intel Vulkan GPUs.", "Without a usable GPU it uses the CPU and tells you it will be slower."),
     "card5.title": "Only encoders that work", "card5.text": s("Runs a short test encode with NVENC, AMF, QSV and software encoders.", "Only codecs that succeed appear in the menu."),
-    "card6.title": "YouTube preset", "card6.text": "Creates an MP4 at the recommended bitrate for its resolution and frame rate in one step.",
+    "card6.title": "YouTube preset", "card6.text": s("Creates an MP4 at the recommended bitrate for its resolution and frame rate in one step.", "119.88 and 120fps output is also available for archiving."),
     "card7.title": "Audio sync and colour preserved", "card7.text": s("Matches the video length frame by frame.", "Keeps the audio start time and colour information of the original."),
     "card8.title": "Static HUD protection", "card8.text": s("Mark areas that never move, such as a minimap or subtitles.", "Pixels in those areas stay exactly as in the original."),
-    "card9.title": "119.88 · 120fps output", "card9.text": "Choose a higher frame rate when you need it for archiving.",
+    "card9.title": "Time estimate", "card9.text": s("Before converting, a short real run on the chosen device and settings gives an estimated time.", "Estimates get more accurate as finished jobs accumulate."),
     "card10.title": "Queue and command line", "card10.text": s("Converts several videos one after another.", "The bundled command-line tool can process a whole folder."),
-    "card11.title": "Verified updates", "card11.text": s("Tells you when a new version is out.", "Installs only when the SHA-256 and every file hash match.", "Rolls back to the previous version if anything fails."),
+    "card11.title": "Portable, with verified updates", "card11.text": s("Settings and history stay in the folder next to the executable.", "Updates install only when the SHA-256 and every file hash match, and roll back if anything fails."),
     "card12.title": "Tray, Korean and English", "card12.text": s("Minimise the window and conversion continues in the tray.", "The interface is available in Korean and English."),
     "screens.eyebrow": "Screenshots", "screens.title": "File fps and motion fps at a glance",
-    "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder and verification.",
+    "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder, verification and the time estimate.",
                       "Device and encoder options are tucked away under Advanced settings."),
     "screens.alt": "FrameDoubler main window: file frame rate 60fps, real motion 29.81fps, conversion complete and verification passed.",
     "gallery1.alt": "First screen for dropping or choosing videos", "gallery1.caption": "Drop or click to add videos.",
