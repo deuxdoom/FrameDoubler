@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using FrameDoubler.Core;
 using Microsoft.Win32;
@@ -45,6 +46,7 @@ public partial class MainWindow:Window
     private Forms.NotifyIcon? tray;
     private readonly CancellationTokenSource lifetime=new();
     private UpdateRelease? availableRelease;
+    internal Func<string[]?>? FilePicker{get;set;}
     public bool English=>Selected(LanguageBox)=="en";
     public bool HardwareReady=>ready;
     public void SelfTestOutputFolder(string path)=>OutputBox.Text=path;
@@ -53,13 +55,24 @@ public partial class MainWindow:Window
     private static void Select(ComboBox box,string value)=>box.SelectedItem=box.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==value)??box.Items.OfType<Choice>().FirstOrDefault();
     private void Fill(ComboBox box,IEnumerable<Choice> choices,string? value=null){string selected=value??Selected(box);box.ItemsSource=choices.ToArray();Select(box,selected);}
     public MainWindow(){
-        InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;UpdatesButton.HorizontalAlignment=HorizontalAlignment.Left;
+        InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;
+        CommandBindings.Add(new CommandBinding(ApplicationCommands.Open,(_,_)=>AddClicked(this,new RoutedEventArgs()),(_,e)=>e.CanExecute=!busy));
         updating=true;Fill(LanguageBox,[new("ko","한국어"),new("en","English")],preferences.Language);
         Fill(ModelBox,[new("v4.25","RIFE 4.25"),new("v4.26","RIFE 4.26")],preferences.Model);
         OutputBox.Text=preferences.OutputDirectory;QualitySlider.Value=Math.Clamp(preferences.Quality,1,51);
         HardwareCheck.IsChecked=preferences.HardwareEncoding;VerifyCheck.IsChecked=preferences.Verify;
         Translate();Select(PresetBox,preferences.Preset);Select(FpsBox,preferences.Fps);updating=false;
-        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized&&tray is not null)Hide();};
+        StateChanged+=(_,_)=>{if(WindowState==WindowState.Minimized&&tray is not null)Hide();WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";};
+        SizeChanged+=(_,_)=>AdaptLayout(ActualHeight);
+        DragLeave+=(_,_)=>DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;
+    }
+    protected override void OnSourceInitialized(EventArgs e){base.OnSourceInitialized(e);WindowFrame.Attach(this);}
+    private void MinimizeClicked(object sender,RoutedEventArgs e)=>SystemCommands.MinimizeWindow(this);
+    private void MaximizeClicked(object sender,RoutedEventArgs e){if(WindowState==WindowState.Maximized)SystemCommands.RestoreWindow(this);else SystemCommands.MaximizeWindow(this);}
+    private void CloseClicked(object sender,RoutedEventArgs e)=>Close();
+    internal void AdaptLayout(double height){
+        MetricsPanel.Visibility=height<660?Visibility.Collapsed:Visibility.Visible;Details.Visibility=height<600?Visibility.Collapsed:Visibility.Visible;
+        DropIcon.Visibility=height<600?Visibility.Collapsed:Visibility.Visible;DropText.Margin=height<600?new(0,0,0,6):new(0,18,0,8);
     }
     public async Task InitializeAsync(bool useTray=true){
         try{
@@ -77,21 +90,26 @@ public partial class MainWindow:Window
     private void Translate(){
         bool old=updating;updating=true;
         Tagline.Text=T("프레임 사이를, 움직임으로.","Make room for motion.");AddButton.Content=T("영상 추가","Add videos");QueueTitle.Text=T("입력 영상","Input videos");
-        DropText.Text=T("영상을 끌어놓으세요","Drop your videos here");DropHint.Text=T("30fps 원본과 60fps로 녹화된 게임 영상","30fps originals and 60fps game captures");
+        Subtitle.Text=T("게임 녹화의 순간을 더 부드럽게 이어 보세요.","Bring smoother motion to your game captures.");
+        DropText.Text=T("영상을 끌어 놓으세요","Drop your videos here");DropHint.Text=T("또는 클릭하여 파일을 선택하세요","Or click here to choose files");
+        FileMetricLabel.Text=T("파일 프레임레이트","File frame rate");MotionMetricLabel.Text=T("실제 움직임","Actual motion");Details.Header=T("처리 기록","Activity");
         SettingsTitle.Text=T("출력 설정","Output settings");OutputLabel.Text=T("저장 폴더","Output folder");PresetLabel.Text=T("프리셋","Preset");
         FpsLabel.Text=T("목표 프레임레이트","Output frame rate");CodecLabel.Text=T("코덱","Codec");DeviceLabel.Text=T("추론 장치","Inference device");EncoderLabel.Text=T("인코더","Encoder");
         QualityLabel.Text=T("품질 (낮을수록 고화질)","Quality (lower is better)");BitrateLabel.Text=T("목표 비트레이트 (예: 24M, 선택)","Target bitrate (e.g. 24M, optional)");
         HudLabel.Text=T("고정 HUD 영역 (X,Y,W,H; 선택)","Static HUD region (X,Y,W,H; optional)");ModelLabel.Text=T("RIFE 모델","RIFE model");
-        Advanced.Header=T("고급 설정","Advanced");HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 품질·동기 검증","Verify quality and synchronization");
+        Advanced.Header=T("고급 설정","Advanced");HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 검증","Verify output");VerifyCheck.ToolTip=T("품질·프레임레이트·색상·오디오 동기를 검사합니다.","Check quality, frame rate, color and audio synchronization.");
         RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("변환 시작","Convert");CancelButton.Content=T("취소","Cancel");
-        OpenButton.Content=T("결과 파일 열기","Open result");FolderButton.Content=T("출력 폴더 열기","Open folder");UpdatesButton.Content=T("업데이트","Updates");
+        OpenButton.Content=T("결과 열기","Open result");FolderButton.Content=T("폴더 열기","Open folder");UpdatesButton.ToolTip=T("업데이트","Updates");
+        MinimizeButton.ToolTip=T("최소화","Minimize");MaximizeButton.ToolTip=T("최대화 / 복원","Maximize / restore");CloseButton.ToolTip=T("닫기","Close");BrowseButton.ToolTip=T("저장 폴더 선택","Choose output folder");
+        foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
+        System.Windows.Automation.AutomationProperties.SetName(EmptyPanel,T("영상 파일 선택","Choose video files"));
         OutputBox.ToolTip=T("비워 두면 원본 영상과 같은 폴더에 저장합니다.","Leave empty to save beside the source video.");
         foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(CodecBox,CodecLabel.Text),(DeviceBox,DeviceLabel.Text),
             (EncoderBox,EncoderLabel.Text),(ModelBox,ModelLabel.Text),(QualitySlider,QualityLabel.Text),(BitrateBox,BitrateLabel.Text),(HudBox,HudLabel.Text)})
             System.Windows.Automation.AutomationProperties.SetName(control,name);
         Fill(PresetBox,[new("youtube","YouTube"),new("quality",T("품질 우선","Quality"))]);
         Fill(FpsBox,[new("auto",T("입력에 맞춤 (권장)","Match input (recommended)")),new("60","60fps"),new("60000/1001","59.94fps"),new("120","120fps"),new("120000/1001","119.88fps")]);
-        RefreshOptions();foreach(var entry in Entries)entry.Refresh();updating=old;UpdateControls();
+        RefreshOptions();foreach(var entry in Entries)entry.Refresh();UpdateMetrics();updating=old;UpdateControls();
         UpdateHardwareText();
         if(tray?.ContextMenuStrip is { } menu){menu.Items[0].Text=T("창 열기","Open window");menu.Items[2].Text=T("업데이트","Updates");menu.Items[3].Text=T("종료","Exit");}
     }
@@ -130,7 +148,12 @@ public partial class MainWindow:Window
     }
     private void LanguageChanged(object sender,SelectionChangedEventArgs e){if(!updating&&IsInitialized)Translate();}
     private void OptionsChanged(object sender,RoutedEventArgs e){if(!updating&&IsInitialized)RefreshOptions();}
-    private async void AddClicked(object sender,RoutedEventArgs e){var dialog=new OpenFileDialog{Multiselect=true,Filter="Video|*.mp4;*.mkv;*.mov;*.ts|All files|*.*"};if(dialog.ShowDialog(this)==true)await AddFilesAsync(dialog.FileNames);}
+    private async void AddClicked(object sender,RoutedEventArgs e){
+        if(busy)return;
+        if(FilePicker is not null){if(FilePicker() is {Length:>0} files)await AddFilesAsync(files);return;}
+        var dialog=new OpenFileDialog{Multiselect=true,Title=T("영상 선택","Choose videos"),Filter="Video|*.mp4;*.mkv;*.mov;*.ts|All files|*.*"};
+        if(dialog.ShowDialog(this)==true)await AddFilesAsync(dialog.FileNames);
+    }
     public async Task AddFilesAsync(IEnumerable<string> files){
         if(busy)return;busy=true;work=new CancellationTokenSource();StatusText.Text=T("영상 분석 중","Analyzing video");UpdateControls();
         try{foreach(string file in files){
@@ -181,6 +204,7 @@ public partial class MainWindow:Window
     private void UpdateControls(){
         if(!IsInitialized)return;
         EmptyPanel.Visibility=Entries.Count==0?Visibility.Visible:Visibility.Collapsed;AddButton.IsEnabled=!busy;RemoveButton.IsEnabled=!busy&&QueueList.SelectedItem is not null;
+        EmptyPanel.IsEnabled=!busy;QueueCount.Text=Entries.Count.ToString();UpdateMetrics();
         SettingsPanel.IsEnabled=!busy;LanguageBox.IsEnabled=!busy;CancelButton.IsEnabled=work is not null;
         StartButton.IsEnabled=ready&&!busy&&Entries.Any(x=>x.Analysis is not null&&x.Output is null);
         OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);UpdatesButton.IsEnabled=!busy;
@@ -190,16 +214,21 @@ public partial class MainWindow:Window
     private async void StartClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync();
     private void CancelClicked(object sender,RoutedEventArgs e)=>work?.Cancel();
     private void RemoveClicked(object sender,RoutedEventArgs e){if(!busy&&QueueList.SelectedItem is QueueEntry item)Entries.Remove(item);RefreshOptions();UpdateControls();}
-    private void QueueChanged(object sender,SelectionChangedEventArgs e)=>UpdateControls();
+    private void QueueChanged(object sender,SelectionChangedEventArgs e){UpdateMetrics();UpdateControls();}
+    private void UpdateMetrics(){
+        var analysis=(QueueList.SelectedItem as QueueEntry)?.Analysis;
+        FileMetric.Text=analysis is null?"—":analysis.Source.Fps.ToDouble().ToString("0.##");
+        MotionMetric.Text=analysis?.MotionFps is { } fps?fps.ToString("0.##"):"—";
+    }
     private void ChooseFolder(object sender,RoutedEventArgs e){var dialog=new OpenFolderDialog();if(dialog.ShowDialog(this)==true)OutputBox.Text=dialog.FolderName;}
     private static void Open(string path)=>Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private void UpdatesClicked(object sender,RoutedEventArgs e){if(!busy)new UpdateWindow(this,availableRelease).ShowDialog();}
-    private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);if(availableRelease is not null)UpdatesButton.Content=T("업데이트 있음","Update available");}
+    private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);if(availableRelease is not null)UpdatesButton.ToolTip=T("업데이트 있음","Update available");}
         catch(OperationCanceledException){}catch(Exception ex){Log(T("업데이트 확인: ","Update check: ")+ex.Message);}}
-    private async void OnDrop(object sender,DragEventArgs e){if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
-    private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;e.Handled=true;}
+    private async void OnDrop(object sender,DragEventArgs e){DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
+    private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString(e.Effects==DragDropEffects.Copy?"#FF8C60":"#3A454C")!;e.Handled=true;}
     private void SetupTray(){
         var stream=System.Windows.Application.GetResourceStream(new Uri("Assets/app.ico",UriKind.Relative))!.Stream;
         tray=new Forms.NotifyIcon{Icon=new System.Drawing.Icon(stream),Text="FrameDoubler",Visible=true};

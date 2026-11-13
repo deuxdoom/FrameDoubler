@@ -13,8 +13,8 @@ import pnnx
 import torch
 import torch.nn.functional as F
 
-from framedoubler.interp.rife import _IFNet
-from framedoubler.models import MODELS, ensure_model
+from baseline.rife import _IFNet
+from baseline.weights import MODELS, ensure_model
 
 
 class Warp(torch.nn.Module):

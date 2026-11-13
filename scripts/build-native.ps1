@@ -1,5 +1,5 @@
 param(
-    [string]$DistPath = 'dist\FrameDoubler.Native',
+    [string]$DistPath = 'dist\FrameDoubler',
     [string]$WorkRoot = 'F:\Temp\FrameDoubler\native-package',
     [string]$PocWorkRoot = 'F:\Temp\FrameDoubler\ncnn-poc'
 )
@@ -14,7 +14,9 @@ $env:TEMP=Join-Path $WorkRoot 'tmp';$env:TMP=$env:TEMP
 $env:DOTNET_CLI_TELEMETRY_OPTOUT='1';$env:DOTNET_GENERATE_ASPNET_CERTIFICATE='false'
 $env:DOTNET_CLI_HOME=Join-Path $WorkRoot 'dotnet-home';$env:DOTNET_NOLOGO='1'
 $env:FRAMEDOUBLER_BUILD_ROOT=Join-Path $WorkRoot 'dotnet'
-$Python=Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+$BuildTools=Join-Path (Split-Path -Parent $PocWorkRoot) 'build-env'
+$Python=Join-Path $BuildTools 'Scripts\python.exe'
+if(-not(Test-Path -LiteralPath $Python)){throw 'Run pwsh scripts/setup-dev.ps1 before building'}
 Push-Location (Join-Path $ProjectRoot 'app')
 try {
     & dotnet publish FrameDoubler.App\FrameDoubler.App.csproj -c Release -r win-x64 --self-contained true -o (Join-Path $Build 'gui') '-p:DebugType=None' '-p:DebugSymbols=false' '-p:SatelliteResourceLanguages=ko%3Ben'
@@ -27,7 +29,7 @@ if($LASTEXITCODE -ne 0){throw 'Native engine build failed'}
 $Assets=Join-Path $Build 'engine-assets'
 & $Python (Join-Path $ProjectRoot 'poc\ncnn-rife\package.py') --work $PocWorkRoot --output $Assets
 if($LASTEXITCODE -ne 0){throw 'Model and engine staging failed'}
-New-Item -ItemType Directory -Force -Path $Destination,(Join-Path $Destination 'native'),(Join-Path $Destination 'ffmpeg') | Out-Null
+New-Item -ItemType Directory -Force -Path $Destination,(Join-Path $Destination 'engine'),(Join-Path $Destination 'ffmpeg') | Out-Null
 foreach($Part in 'gui','cli'){
     Get-ChildItem -LiteralPath (Join-Path $Build $Part) | ForEach-Object {
         $Target=Join-Path $Destination $_.Name
@@ -36,7 +38,7 @@ foreach($Part in 'gui','cli'){
         } else {Copy-Item -LiteralPath $_.FullName -Destination $Target -Recurse -Force}
     }
 }
-Copy-Item -LiteralPath (Join-Path $Assets 'rife-poc.exe') -Destination (Join-Path $Destination 'native\rife-poc.exe')
+Copy-Item -LiteralPath (Join-Path $Assets 'rife-poc.exe') -Destination (Join-Path $Destination 'engine\rife-poc.exe')
 Copy-Item -LiteralPath (Join-Path $Assets 'models'),(Join-Path $Assets 'licenses') -Destination $Destination -Recurse
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\ffmpeg\bin\ffmpeg.exe'),(Join-Path $ProjectRoot 'tools\ffmpeg\bin\ffprobe.exe') -Destination (Join-Path $Destination 'ffmpeg')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\ffmpeg\LICENSE.txt') -Destination (Join-Path $Destination 'licenses\FFmpeg-LGPL.txt')
@@ -84,5 +86,5 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($Destination,$Zip,[IO.Compression.CompressionLevel]::Optimal,$true)
 (Get-FileHash -LiteralPath $Zip).Hash.ToLowerInvariant()+'  '+[IO.Path]::GetFileName($Zip) | Set-Content -LiteralPath ($Zip+'.sha256') -Encoding ascii
 $Actual=(Get-ChildItem -LiteralPath $Destination -File -Recurse | Measure-Object -Property Length -Sum).Sum
-Write-Output "Native package: $Destination"
+Write-Output "FrameDoubler package: $Destination"
 Write-Output "Installed bytes: $Actual; ZIP bytes: $((Get-Item -LiteralPath $Zip).Length)"

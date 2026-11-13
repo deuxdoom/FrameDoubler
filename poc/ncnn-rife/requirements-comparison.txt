@@ -1,0 +1,4 @@
+# Optional model export/numerical comparison only. Not needed to build or run the app.
+numpy==2.5.4
+pnnx==20261020
+# Install torch==2.14.1 from the official index appropriate for the comparison device.

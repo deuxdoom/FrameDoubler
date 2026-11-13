@@ -7,10 +7,10 @@ internal static class UpdateTests
 {
     public static void Parse(Action<bool,string> assert){
         string json=JsonSerializer.Serialize(new{tag_name="v2.1.0",draft=false,prerelease=false,body="",html_url="https://github.com/deuxdoom/FrameDoubler/releases/tag/v2.1.0",
-            assets=new[]{new{name="FrameDoubler.Native.zip",browser_download_url="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.1.0/FrameDoubler.Native.zip",size=100,digest="sha256:"+new string('a',64)}}});
+            assets=new[]{new{name="FrameDoubler.zip",browser_download_url="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.1.0/FrameDoubler.zip",size=100,digest="sha256:"+new string('a',64)}}});
         assert(Updates.Parse(json)?.Installable==true,"Verified native release qualifies for update");
         assert(Updates.Parse(json.Replace("sha256:","md5:"))?.Installable==false,"No digest means link-only release");
-        assert(Updates.Parse(json.Replace("FrameDoubler.Native.zip","FrameDoubler_v100.zip"))?.Installable==false,"Legacy Torch asset never auto-installs");
+        assert(Updates.Parse(json.Replace("FrameDoubler.zip","FrameDoubler_v100.zip"))?.Installable==false,"Legacy Torch asset never auto-installs");
         assert(Updates.Parse(json.Replace("v2.1.0","v1.0.0")) is null,"No update downgrade");
     }
     public static async Task PackageAsync(string archive,Action<bool,string> assert){
@@ -19,11 +19,11 @@ internal static class UpdateTests
         bool mismatch=false;try{await Updates.StageAsync(archive,new string('0',64),new Version(2,0,0),root);}catch(IOException){mismatch=true;}
         assert(mismatch,"Wrong update digest rejected before installation");
         var stage=await Updates.StageAsync(archive,hash,new Version(2,0,0),root);
-        assert(File.Exists(Path.Combine(stage.Directory,"FrameDoubler.exe"))&&File.Exists(Path.Combine(stage.Directory,"native","rife-poc.exe")),"Actual native ZIP passes all file hashes and staging");
+        assert(File.Exists(Path.Combine(stage.Directory,"FrameDoubler.exe"))&&File.Exists(Path.Combine(stage.Directory,"engine","rife-poc.exe")),"Actual native ZIP passes all file hashes and staging");
         string unsafeZip=Path.Combine(root,"unsafe.zip");
         using(var zip=ZipFile.Open(unsafeZip,ZipArchiveMode.Create)){
-            using(var writer=new StreamWriter(zip.CreateEntry("FrameDoubler.Native/manifest.json").Open()))writer.Write("{}");
-            using(var writer=new StreamWriter(zip.CreateEntry("FrameDoubler.Native/../../escaped.txt").Open()))writer.Write("unsafe");
+            using(var writer=new StreamWriter(zip.CreateEntry("FrameDoubler/manifest.json").Open()))writer.Write("{}");
+            using(var writer=new StreamWriter(zip.CreateEntry("FrameDoubler/../../escaped.txt").Open()))writer.Write("unsafe");
         }
         string badHash;using(var bad=File.OpenRead(unsafeZip))badHash=Convert.ToHexString(await SHA256.HashDataAsync(bad));
         bool escaped=false;try{await Updates.StageAsync(unsafeZip,badHash,new Version(2,0,0),root);}catch(IOException){escaped=true;}

@@ -31,7 +31,7 @@ def main():
     notices = dest / "licenses"
     notices.mkdir()
     shutil.copy2(root / "LICENSE", notices / "FrameDoubler-MIT.txt")
-    practical = (root / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8").split("## Practical-RIFE notice")[1].split("```")[1].strip()
+    practical = (root / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8").split("## Practical-RIFE notice")[1].split("```")[1].strip().removeprefix("text\n")
     (notices / "Practical-RIFE-MIT.txt").write_text(practical + "\n", encoding="utf-8")
     native = args.work / "native/ncnn-20261020"
     shutil.copy2(native / "LICENSE.txt", notices / "ncnn.txt")

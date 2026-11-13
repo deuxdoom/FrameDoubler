@@ -1,23 +1,38 @@
-# Third-Party Notices
+# FrameDoubler native package notices
 
-FrameDoubler is released under the MIT License (see `LICENSE`). It depends on the
-third-party components listed below. Runtime libraries and model weights are
-downloaded during setup or first use; selected icon assets are included. A packaged release that bundles any of them must
-ship the corresponding license texts.
+FrameDoubler is MIT licensed. This package uses the independently authored
+C#/.NET 10 application and C++ ncnn/Vulkan engine. Python, PyTorch, Qt/PySide,
+CUDA Toolkit and GPU drivers are not included. Video2X/Flowframes code or model
+assets are not included; technical requirements were analyzed as references.
 
-| Component | Use | License | How it is used | Obligations when redistributed |
-|---|---|---|---|---|
-| [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) (code and model weights) | The network layout in FrameDoubler's RIFE backend matches the official weights; the weights are downloaded by the user. | MIT, Copyright (c) 2021 hzwer | Independent inference-only implementation of the same architecture; weights loaded at runtime | Keep the copyright and permission notice |
-| [PyTorch](https://pytorch.org) | Inference runtime | BSD-3-Clause | Python dependency | Keep the license notice |
-| NVIDIA CUDA runtime libraries (bundled in PyTorch CUDA wheels) | GPU execution | NVIDIA proprietary redistributable license terms | Installed with PyTorch | Review NVIDIA's redistribution terms before bundling in a package |
-| [NumPy](https://numpy.org) | Array handling | BSD-3-Clause | Python dependency | Keep the license notice |
-| [FFmpeg](https://ffmpeg.org) (BtbN LGPL build) | Decoding, encoding (NVENC), muxing | LGPL-3.0-or-later for this build | Run as a separate executable; not linked into FrameDoubler | Ship the LGPL text, state the FFmpeg version and where its source can be obtained, and do not restrict replacing the executable |
-| [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) | GUI checkmark | MIT, Copyright (c) 2020 Microsoft Corporation | Recoloured SVG asset; notice in `assets/icons/LICENSE-fluent.txt` | Keep the copyright and permission notice |
-| [PySide6 Essentials / Qt 6](https://doc.qt.io/qtforpython-6/) and Shiboken6 | GUI toolkit, Qt Widgets/SVG; tested with 6.12.0 on Python 3.14 | LGPL-3.0 (community distribution; see included Qt module notices) | Python dependency, dynamically loaded; no GPL-only Qt modules used | Ship the LGPL text and module notices, provide corresponding source location, and allow replacing the Qt libraries |
+Bundled components and notice locations:
+
+- FrameDoubler: MIT, `licenses/FrameDoubler-MIT.txt`.
+- Practical-RIFE official weights, independently converted: MIT, `licenses/Practical-RIFE-MIT.txt`.
+- Tencent ncnn 20261020: BSD-3-Clause and its listed components, `licenses/ncnn.txt`.
+- glslang pinned by the ncnn build: `licenses/glslang.txt` and `licenses/glslang/`.
+- LLVM/MinGW C++ and C runtime support linked into the engine: Apache-2.0 with
+  LLVM exceptions and the MinGW runtime notices in `licenses/`.
+- Microsoft .NET / Windows Desktop runtime: MIT and third-party notices from
+  the exact restored runtime packages, under `licenses/dotnet/`.
+- FFmpeg: the existing BtbN LGPL-3.0 build, separate replaceable executables in
+  `ffmpeg/`. See `licenses/FFmpeg-LGPL.txt`, `ffmpeg-version.txt` and `ffmpeg-buildconf.txt`.
+
+FFmpeg source commit: [d838f9f9ae](https://github.com/FFmpeg/FFmpeg/tree/d838f9f9ae).
+Build provider: [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds).
+The full build configuration and binary hashes are preserved with this package.
+Encoder availability is tested at runtime; compiled-in support does not imply
+that a matching device or driver is installed. OpenH264, Kvazaar and SVT-AV1
+notices are included separately when fetched by the package build.
+
+This is a local test candidate. Verification on other physical hardware and the
+exact corresponding-source/dependency/build-recipe review remain required before
+a public release. See `app/HARDWARE-TESTS.md` and `PROGRESS.md` in the repository.
+
 
 ## Practical-RIFE notice
 
-```
+```text
 MIT License
 
 Copyright (c) 2021 hzwer
@@ -41,29 +56,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Reference projects
+## Development-only comparison tools
 
-Video2X and Flowframes were studied for architecture and known limitations only.
-No source code from either project is included in FrameDoubler.
-
-## Local package candidates
-
-The folder package includes Python (PSF license), the runtime libraries above
-and their transitive dependencies. `licenses/` contains license/notice files
-copied from the build environment, the Python license, LGPL/GPL texts and NVIDIA
-CUDA/cuDNN terms. `manifest.json` records component versions, legal download
-sources and file hashes. An inventory entry may describe a build dependency
-rather than a bundled runtime component; it is not a claim that all components
-listed there are shipped.
-
-PyInstaller 6.22.3 and its hooks are build tools. Its GPL exception permits the
-resulting application to retain its own license; see the
-[PyInstaller license](https://pyinstaller.org/en/stable/license.html). No modified
-PyInstaller source is shipped. Python dependencies collected by the packaging
-hooks retain their respective licenses and notices.
-
-The local candidate is not a completed redistribution audit. Exact Qt/FFmpeg
-corresponding sources/build configurations and NVIDIA DLL redistribution terms
-must be checked before publishing. See [distribution status](docs/distribution.md).
-Qt libraries live under `_internal/PySide6`, and FFmpeg under `tools/ffmpeg/bin`;
-neither is hidden in a self-extracting executable or protected against replacement.
+The optional Python/Torch/pnnx tools under `poc/ncnn-rife` are not bundled.
+Their minimal model definition was retained from this project solely for model export and numerical comparison.
+The retired Python/Qt app and its tests/build tools were moved outside the repository; see `app/CLEANUP.md`.

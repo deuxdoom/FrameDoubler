@@ -47,7 +47,7 @@ public sealed record AppPaths(string Engine, string Models, string FFmpeg, strin
     {
         string? data = Environment.GetEnvironmentVariable("FRAMEDOUBLER_DATA");
         string root = string.IsNullOrWhiteSpace(data) ? AppContext.BaseDirectory : Path.GetFullPath(data);
-        return new(Path.Combine(root, "native", "rife-poc.exe"), Path.Combine(root, "models"),
+        return new(Path.Combine(root, "engine", "rife-poc.exe"), Path.Combine(root, "models"),
                    Path.Combine(root, "ffmpeg", "ffmpeg.exe"), Path.Combine(root, "ffmpeg", "ffprobe.exe"));
     }
 }

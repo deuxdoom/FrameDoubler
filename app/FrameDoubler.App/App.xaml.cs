@@ -14,7 +14,17 @@ public partial class App:System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e){
         base.OnStartup(e);
         try{
+            if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal)&&string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR"))){
+                string target=Path.GetFullPath(e.Args[1]);string parent=e.Args[0]=="--render-preview"?target:Path.GetDirectoryName(target)!;
+                Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",Path.Combine(parent,"diagnostic-settings"));
+            }
             var window=new MainWindow();MainWindow=window;
+            if(e.Args.Length>=2&&e.Args[0]=="--ui-test"){
+                window.Show();var result=await window.CheckUiAsync();
+                string report=Path.GetFullPath(e.Args[1]);Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+                await File.WriteAllTextAsync(report,JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
+                Shutdown(0);return;
+            }
             if(e.Args.Length>=2&&e.Args[0]=="--render-preview"){
                 Directory.CreateDirectory(e.Args[1]);
                 foreach(string lang in new[]{"ko","en"})foreach(double scale in new[]{1.25,1.5,2.0}){
@@ -25,6 +35,8 @@ public partial class App:System.Windows.Application
                         var update=new UpdateWindow(window,release,true);Render(update,Path.Combine(e.Args[1],$"updates-{lang}.png"),scale);
                     }
                 }
+                window.Width=820;window.Height=480;window.Advanced.IsExpanded=true;
+                Render(window,Path.Combine(e.Args[1],"window-small-advanced.png"),1.5);
                 Shutdown(0);return;
             }
             if(e.Args.Length>=2&&e.Args[0]=="--self-test"){
@@ -46,6 +58,7 @@ public partial class App:System.Windows.Application
         }
     }
     private static void Render(Window window,string path,double scale){
+        if(window is MainWindow main)main.AdaptLayout(window.Height);
         var content=(FrameworkElement)window.Content;
         content.Measure(new Size(window.Width,window.Height));content.Arrange(new Rect(0,0,window.Width,window.Height));content.UpdateLayout();
         var image=new RenderTargetBitmap((int)(window.Width*scale),(int)(window.Height*scale),96*scale,96*scale,PixelFormats.Pbgra32);

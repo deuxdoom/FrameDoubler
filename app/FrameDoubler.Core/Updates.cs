@@ -31,7 +31,7 @@ public static class Updates
         if(!page.StartsWith("https://github.com/deuxdoom/FrameDoubler/releases/",StringComparison.Ordinal))page=ReleasePage;
         string? url=null,hash=null;long size=0;
         if(root.TryGetProperty("assets",out var assets))foreach(var asset in assets.EnumerateArray()){
-            if(asset.GetProperty("name").GetString()!="FrameDoubler.Native.zip")continue;
+            if(asset.GetProperty("name").GetString()!="FrameDoubler.zip")continue;
             string candidate=asset.GetProperty("browser_download_url").GetString()??"";
             string digest=asset.TryGetProperty("digest",out var d)?d.GetString()??"":"";
             size=asset.GetProperty("size").GetInt64();
@@ -40,7 +40,7 @@ public static class Updates
             hash=digest[7..].ToLowerInvariant();url=candidate;
             // If release notes supply a hash for this asset, it must agree.
             string[] lines=notes.Split('\n');
-            for(int i=0;i<lines.Length;i++)if(lines[i].Contains("FrameDoubler.Native.zip",StringComparison.OrdinalIgnoreCase)){
+            for(int i=0;i<lines.Length;i++)if(lines[i].Contains("FrameDoubler.zip",StringComparison.OrdinalIgnoreCase)){
                 foreach(var match in Regex.Matches(string.Join('\n',lines.Skip(i).Take(5)),@"\b[0-9a-fA-F]{64}\b").Cast<Match>())
                     if(!string.Equals(hash,match.Value,StringComparison.OrdinalIgnoreCase)){url=null;hash=null;break;}
                 break;
@@ -102,7 +102,7 @@ public static class Updates
                     throw new IOException("Update file hash mismatch: "+name);
             }
             var actual=Directory.GetFiles(stage,"*",SearchOption.AllDirectories).Select(x=>Path.GetRelativePath(stage,x).Replace('\\','/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if(!expected.SetEquals(actual)||!actual.Contains("FrameDoubler.exe")||!actual.Contains("native/rife-poc.exe"))throw new IOException("Incomplete/unlisted update files");
+            if(!expected.SetEquals(actual)||!actual.Contains("FrameDoubler.exe")||!actual.Contains("engine/rife-poc.exe"))throw new IOException("Incomplete/unlisted update files");
             return new(stage,expectedVersion);
         }catch{
             // Only the unique directory created above may be removed.

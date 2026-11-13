@@ -1,97 +1,65 @@
-# Independent RIFE/ncnn/Vulkan compatibility PoC
+# 독립 RIFE/ncnn/Vulkan 엔진과 개발 도구
 
-결과와 한계는 [REPORT.ko.md](REPORT.ko.md), 측정 원본은 [results.json](results.json)에 있습니다.
-이 폴더는 GUI 재작성이 아니라 RIFE 4.25/4.26 호환성 검증입니다.
-Video2X 6.4.0의 입력/출력, 패딩, warp와 정밀도 요구사항을 분석 참고했고,
-프로그램 코드는 복사하거나 직접 이식하지 않았습니다. 외부 참고 소스/모델은 이 폴더에 없습니다.
-모델은 프로젝트의 기존 MIT 네트워크와 공식 MIT 가중치에서 직접 변환했습니다.
+호환성 결과는 [REPORT.ko.md](REPORT.ko.md)·[results.json](results.json), 성능 검증은 [N2.md](N2.md)입니다.
+Video2X 6.4.0을 읽기 전용 기술 참고로 분석했으며 코드·모델 자산을 복사/이식하지 않았습니다.
+공식 MIT RIFE 4.25/4.26 가중치를 이 프로젝트의 MIT 네트워크에서 독립 변환합니다.
+제품 GUI/CLI와 회귀는 `app/`에 있습니다. 구형 Python 앱은 제거했습니다.
 
-## 개발 환경과 빌드
-
-Windows x64, Vulkan 드라이버가 필요합니다. 검증 PC는 RTX 4080 SUPER입니다.
-개발/변환에는 기존 Python 환경과 PyTorch가 필요하지만 **엔진 실행과 패키지에는 필요하지 않습니다**.
-아래 명령은 저장소 루트에서 실행합니다. 다운로드/중간 파일은 F 드라이브에 유지합니다.
+## 기본 빌드
 
 ```powershell
-$work = 'F:\Temp\FrameDoubler\ncnn-poc'
-$env:PIP_CACHE_DIR = 'F:\Temp\FrameDoubler\pip-cache'
-$env:TEMP = "$work\tmp"
-$env:TMP = $env:TEMP
-New-Item -ItemType Directory -Force $env:TEMP | Out-Null
-.venv\Scripts\python -m pip install pnnx==20261020 cmake==4.4.4 ninja==1.13.2
-pwsh -NoProfile -File poc\ncnn-rife\bootstrap.ps1 -WorkRoot $work
-pwsh -NoProfile -File poc\ncnn-rife\build.ps1 -WorkRoot $work
-foreach ($model in 'v4.25','v4.26') {
-    .venv\Scripts\python poc\ncnn-rife\export_model.py --model $model --scale 1 --output "$work\models\$model-vulkan"
-    .venv\Scripts\python poc\ncnn-rife\export_model.py --model $model --scale 0.5 --output "$work\models\$model-vulkan-s05"
-}
-.venv\Scripts\python poc\ncnn-rife\package.py --work $work
-.venv\Scripts\python poc\ncnn-rife\smoke.py --package "$work\package\FrameDoubler-ncnn-PoC"
+pwsh scripts/setup-dev.ps1
+pwsh poc/ncnn-rife/bootstrap.ps1
+pwsh poc/ncnn-rife/build.ps1
+pwsh scripts/build.ps1
 ```
 
-`bootstrap.ps1`은 ncnn 20261020, 해당 glslang 커밋, LLVM-MinGW 20261104
-다운로드의 SHA-256을 검사합니다. 소스는 저장소 밖에 둡니다. MSVC/Vulkan SDK 없이
-`NCNN_SIMPLEVK`와 정적 ncnn/glslang으로 빌드합니다. Vulkan은 GPU 드라이버의 로더를 사용합니다.
-도구/변환기/학습 가중치/소스/중간 `.pt` 파일은 패키지에 복사하지 않습니다.
-`package.py`는 기존 출력 폴더를 덮어쓰지 않습니다. 이전 패키지를 보존하고 새 검증 폴더를 사용합니다.
-버전별 scale 1/0.5의 가중치가 같은 것을 SHA로 확인한 뒤 가중치 한 벌과 param 두 개를 담습니다.
+CMake/Ninja는 `F:/Temp/FrameDoubler/build-env`에 둡니다. 기본 빌드에 Torch/Qt가 필요하지 않습니다.
+`bootstrap.ps1`은 SHA-256으로 고정한 ncnn 20261020·glslang·LLVM-MinGW를 외부 폴더에 준비합니다.
+Vulkan SDK 없이 `NCNN_SIMPLEVK`와 정적 ncnn/glslang을 빌드합니다. CPU 대체도 지원합니다.
+FFmpeg와 변환한 모델은 빌드 입력입니다. `package.py`는 엔진·변환 모델·고지를 준비하며
+최종 `scripts/build.ps1`은 .NET 런타임을 포함한 `dist/FrameDoubler`와 ZIP을 만듭니다.
 
-## 재현 측정
+## 선택적 최초 모델 변환과 비교
 
-`compare.py`와 `video_compare.py`는 개발 전용 비교 도구입니다. 기존 실제 샘플
-`samples/Fire Emblem Fortunes Weave 30fps.mp4`가 필요합니다.
-GPU 측정은 다른 GPU 작업과 겹치지 않게 순서대로 실행합니다.
+`baseline/rife.py`·`baseline/weights.py`만 기존 MIT 구현에서 유지했습니다.
+`export_model.py`의 모델 변환, `compare.py`의 PyTorch FP32 대조군에 실제 사용합니다.
+`media_helpers.py`는 독립적인 RGB8 시험 입력 도구입니다. 제거한 `framedoubler` 패키지를 import하지 않습니다.
+Python/Torch/pnnx·학습 가중치는 배포하지 않습니다. 내려받은 모델의 Python 코드는 실행하지 않으며
+공식 가중치는 SHA-256 확인 후 `torch.load(weights_only=True)`로만 읽습니다.
+
+기존 비교 환경은 `F:/Temp/FrameDoubler/comparison-env-20261114`, 가중치는 `ncnn-poc/weights`에 있습니다.
+새 환경에는 `requirements-comparison.txt`와 장치에 맞는 공식 Torch 빌드를 설치합니다.
 
 ```powershell
-foreach ($model in 'v4.25','v4.26') {
-    foreach ($size in '1920x1080','2560x1440','3840x2160') {
-        .venv\Scripts\python poc\ncnn-rife\compare.py --model $model --size $size --repeats 12
-    }
-    foreach ($pair in 120,360) {
-        .venv\Scripts\python poc\ncnn-rife\compare.py --model $model --size 3840x2160 --pair-index $pair --repeats 4
-    }
-    foreach ($size in '1920x1080','3840x2160') {
-        .venv\Scripts\python poc\ncnn-rife\video_compare.py --model $model --size $size
-    }
+$py='F:/Temp/FrameDoubler/comparison-env-20261114/Scripts/python.exe'
+$work='F:/Temp/FrameDoubler/ncnn-poc'
+foreach($model in 'v4.25','v4.26') {
+    & $py poc/ncnn-rife/export_model.py --model $model --scale 1 --output "$work/models/$model-vulkan"
+    & $py poc/ncnn-rife/export_model.py --model $model --scale 0.5 --output "$work/models/$model-vulkan-s05"
+    & $py poc/ncnn-rife/compare.py --model $model --size 1920x1080 --repeats 30
 }
+& $py poc/ncnn-rife/stability.py --model v4.25 --iterations 480
 ```
 
-비교기는 같은 RGB8 두 프레임을 사용하고 t=0.25/0.5/0.75를 실행합니다.
-속도 표는 예열 후 12회 중앙값입니다. C++ 요청은 파이프·두 입력 준비·Vulkan 실행·결과 반환을
-포함하며, PyTorch도 두 입력 준비+추론+CPU 반환을 포함하는 수치를 별도로 잽니다.
-추론 구간은 GPU 전용 타임스탬프가 아니라 ncnn extract 벽시계(업로드/실행/다운로드)입니다.
-첫 요청 시간은 시작/셰이더 준비의 영향을 받으며 따로 기록합니다.
-`--fp32`는 FP16 저장을 끈 대조 실험입니다. 기본은 FP16 저장+FP32 연산입니다.
+비교 입력은 `samples/Fire Emblem Fortunes Weave 30fps.mp4`입니다. 실제 장치 측정은 순차 실행합니다.
+엔진 `smoke.py`는 numpy만 필요하며 제품 변환·오디오·취소 검증은 C# 테스트를 사용합니다.
+제거한 `video_compare.py`의 과거 결과는 N1 보고서에 보존했습니다.
 
-영상 시험은 원본의 짝수 프레임을 239프레임/30fps로 저장한 뒤 478프레임/60fps를 만듭니다.
-네이티브 경로는 OS 파이프로 기존 FFmpeg → C++ → 기존 FFmpeg를 연결하며,
-Python이 보간하거나 프레임을 중계하지 않습니다. FFmpeg 설정 최적화는 하지 않습니다.
-오디오는 이 엔진 시험에서 제외합니다. PyTorch 영상은 기존 pipeline을 그대로 사용합니다.
-
-## 실행 계약
+## 엔진 계약
 
 ```text
+rife-poc --hardware
 rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 auto|gpu:INDEX|cpu [SCALE] [rgb16] [sequence]
 ```
 
-- `--hardware`는 CPU/논리 프로세서와 Vulkan 장치·기능·메모리를 JSON으로 반환합니다.
-  `gpu`는 자동 GPU 선택의 호환 별칭이며 수동 선택은 `gpu:INDEX`입니다. CPU warp와
-  FP32 대체를 구현했습니다. Vulkan 요청에서는 비구조 레이어의 GPU 지원을 검사합니다.
-- 입력/출력은 색상 변환 없는 packed RGB24입니다. 추론 시 planar RGB/255, replicate padding,
-  dense timestep을 사용합니다. 1080p/1440p scale=1, 4K scale=0.5, 정렬은 64/scale입니다.
-- `rgb16`은 little-endian RGB48 입출력(6바이트/화소), FP32 저장/연산 경로입니다.
-  FP16 저장은 실제 장치 기능 확인 후에만 사용합니다. CPU 대체는 크게 느릴 수 있습니다.
-- 기본 요청 모드: `P` 한 바이트, little-endian float32 timestep, RGB A, RGB B를 stdin에 씁니다.
-  stdout은 little-endian float64 시간 세 개(준비/extract/후처리), RGB 중간 프레임입니다.
-  `Q` 또는 EOF로 종료합니다. 프레임 크기는 WIDTH×HEIGHT×3바이트입니다.
-- `sequence`: stdin은 연속된 30fps RGB 프레임입니다. 각 A/B에서 A와 t=0.5 결과를 출력하고
-  마지막 프레임은 두 번 출력합니다. 출력은 타임스탬프 헤더 없는 60fps RGB 스트림입니다.
-- 버전/scale 조합에 맞는 모델을 지정해야 합니다. 패키지의 모델 폴더는 scale=0.5일 때
-  `rife-s05.ncnn.param`을 선택하며 같은 `rife.ncnn.bin`을 공유합니다.
-- HDR/10비트/VFR/오디오/취소/GUI 연동과 장시간 사용은 이 PoC의 완료 범위가 아닙니다.
-  현재 C# 공통 파이프라인과 GUI/배포는 `app/`에서 이 계약을 사용합니다. 성능 목표와
-  다른 실제 장비의 검증은 `PROGRESS.md`의 상태를 따릅니다. `--pre-resize` 변환 옵션은
-  채널별 resize/concat 순서 교환의 개발 실험이며 현재 배포 모델에는 적용하지 않았습니다.
+- RGB 0~1, 64/scale replicate padding, dense timestep, FP16 저장/FP32 연산. 4K scale=0.5.
+- `rgb16`은 RGB48 little-endian이며 FP32 저장/연산. FP16 저장은 실제 장치 기능 확인 후 선택합니다.
+- `P` + little-endian float32 timestep + RGB A/B 요청. 응답은 float64 시간 세 개 + RGB 중간 프레임.
+  `Q`/EOF로 종료합니다. `sequence`는 연속 RGB30→RGB60 스트림이며 마지막 프레임을 유지합니다.
+- scale별 param 두 개가 같은 bin을 공유합니다. 일반 ncnn GridSample의 CPU 대체를 피하려고
+  독립 FDWarp CPU/Vulkan 커널을 사용합니다.
+- 엔진 실행에 Python/Torch/.NET은 필요하지 않습니다. 제품 앱은 포함된 .NET 런타임을 사용합니다.
+- 타 제조사 실제 장비, CUDA 대비 성능 목표, GPU zero-copy는 `PROGRESS.md`의 미완료 상태를 따릅니다.
 
-모든 자체 코드는 저장소의 MIT 라이선스를 따릅니다. 패키지에 ncnn/glslang/LLVM·MinGW runtime/
-Practical-RIFE 고지를 함께 넣습니다. 외부 구성 요소의 실제 고지는 패키지 `licenses/`를 확인합니다.
+모든 자체 코드는 MIT이며 패키지 `licenses/`에 외부 구성 요소 고지를 포함합니다.
