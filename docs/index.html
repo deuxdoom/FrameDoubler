@@ -26,6 +26,8 @@ body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 16px/1.65 "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  /* Korean breaks only between words, never inside one; long tokens may still wrap. */
+  word-break: keep-all; overflow-wrap: break-word;
 }
 a { color: inherit; }
 img, video { max-width: 100%; height: auto; display: block; }
@@ -40,6 +42,10 @@ p { margin: 0; text-wrap: pretty; }
 .lead { color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.2rem); max-width: 46em; }
 .accent { color: var(--accent); }
 .note { font-size: .8rem; color: var(--dim); margin-top: 10px; }
+/* Section introductions are centred; cards, lists and panels stay left-aligned. */
+section:not(.hero) .wrap > :is(.eyebrow, h2, .lead, .note) { text-align: center; margin-inline: auto; }
+section:not(.hero) .wrap > .lead { max-width: 40em; text-wrap: balance; }
+section:not(.hero) .wrap > .note { max-width: 52em; text-wrap: balance; }
 
 /* header */
 header.top { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px);
@@ -119,7 +125,8 @@ nav a:hover { color: var(--text); background: var(--raised); }
 .slow { margin-top: 28px; }
 .slow figure { margin: 14px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; }
 .slow img { width: 100%; border-radius: 8px; image-rendering: auto; }
-.slow figcaption { color: var(--dim); font-size: .8rem; margin-top: 10px; }
+.slow figcaption { color: var(--dim); font-size: .8rem; margin-top: 10px; text-align: center; text-wrap: balance; }
+.slow h3 { text-align: center; }
 
 /* steps */
 .steps { counter-reset: step; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-top: 36px; padding: 0; list-style: none; }
