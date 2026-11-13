@@ -7,7 +7,7 @@ from pathlib import Path
 from framedoubler.cadence import CadenceSummary, classify, summarize
 from framedoubler.decode import iter_frames
 from framedoubler.probe import VideoInfo, probe
-from framedoubler.timeline import default_output_fps
+from framedoubler.timeline import default_output_fps, source_rate
 
 # Frames examined for the cadence estimate (15 s of a 60fps file).
 SAMPLE_FRAMES = 900
@@ -23,7 +23,7 @@ class Analysis:
     def kind(self) -> str:
         if self.cadence.has_duplicates:
             return "duplicated"  # low frame rate content stored at a higher container rate
-        if self.info.fps > 45:
+        if self.info.fps > 45 and not self.info.is_vfr:
             return "native-high"  # already real 60fps-class motion
         return "native-low"  # real 30fps-class motion
 
@@ -31,7 +31,8 @@ class Analysis:
 def analyze(path: str | Path, sample_frames: int = SAMPLE_FRAMES) -> Analysis:
     info = probe(path)
     labels = [label for _, _, label in classify(iter_frames(info, max_frames=sample_frames))]
-    return Analysis(info, summarize(labels, info.fps), default_output_fps(info.fps))
+    rate = source_rate(info.fps, info.nominal_fps, info.is_vfr)
+    return Analysis(info, summarize(labels, info.fps), default_output_fps(rate))
 
 
 def _rate(value: Fraction) -> str:

@@ -16,8 +16,19 @@ SNAP = Fraction(1, 20)
 
 def default_output_fps(container_fps: Fraction) -> Fraction:
     """60fps-class files keep their rate (their motion is restored in place);
-    30fps-class files are doubled. 29.97 becomes 59.94 and 30 becomes 60."""
+    30fps-class files are doubled. 29.97 becomes 59.94 and 30 becomes 60.
+
+    For variable frame rate files pass the nominal rate of the container, not the
+    average: the average says how many frames there are, not which grid they sit on.
+    """
+    if container_fps <= 0 or container_fps > 121:
+        return Fraction(60)  # no usable nominal rate (e.g. a millisecond time base)
     return container_fps if container_fps > 45 else container_fps * 2
+
+
+def source_rate(fps: Fraction, nominal_fps: Fraction, is_vfr: bool) -> Fraction:
+    """The rate `default_output_fps` should be given for a probed file."""
+    return nominal_fps if is_vfr else fps
 
 
 def output_count(duration: Fraction, fps_out: Fraction) -> int:
