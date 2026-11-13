@@ -6,6 +6,26 @@ namespace FrameDoubler.Core;
 
 public static class Decoder
 {
+    // Bounded, seeked preflight only. Conversion always uses the exact packet PTS path below.
+    public static async IAsyncEnumerable<VideoFrame> WindowAsync(AppPaths paths,MediaInfo info,double offset,int count,
+        [EnumeratorCancellation]CancellationToken cancel=default){
+        var args=new[]{"-nostdin","-v","error","-ss",offset.ToString("0.######",System.Globalization.CultureInfo.InvariantCulture),"-i",info.Path,
+            "-map","0:v:0","-frames:v",count.ToString(),"-fps_mode","passthrough","-f","rawvideo","-pix_fmt",info.BitDepth>8?"rgb48le":"rgb24","-"};
+        using var process=new Process{StartInfo=ProcessRunner.StartInfo(paths.FFmpeg,args)};
+        if(!process.Start())throw new IOException("Cannot start sample decoder");
+        var errors=process.StandardError.ReadToEndAsync();
+        using var kill=cancel.Register(()=>{try{if(!process.HasExited)process.Kill(true);}catch(InvalidOperationException){} });
+        try{for(int i=0;i<count;i++){
+            VideoFrame? frame=new(info.FrameBytes,i,(Rational)i/info.Fps);
+            try{int first=await process.StandardOutput.BaseStream.ReadAsync(frame.Memory[..1],cancel);if(first==0){cancel.ThrowIfCancellationRequested();yield break;}
+                await process.StandardOutput.BaseStream.ReadExactlyAsync(frame.Memory[1..],cancel);
+                var result=frame;frame=null;yield return result;
+            }finally{frame?.Dispose();}
+        }}finally{
+            try{if(!process.HasExited)process.Kill(true);}catch(InvalidOperationException){}
+            await process.WaitForExitAsync();await errors;
+        }
+    }
     public static async IAsyncEnumerable<VideoFrame> FramesAsync(AppPaths paths,MediaInfo info,int? maxFrames=null,
         [EnumeratorCancellation] CancellationToken cancel=default)
     {

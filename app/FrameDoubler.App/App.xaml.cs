@@ -43,10 +43,10 @@ public partial class App:System.Windows.Application
                 string json=Path.GetFullPath(e.Args[1]);Directory.CreateDirectory(Path.GetDirectoryName(json)!);
                 await window.InitializeAsync(false);
                 if(!window.HardwareReady)throw new IOException("Hardware/encoder initialization failed");
-                if(e.Args.Length>2){window.SelfTestOutputFolder(Path.GetDirectoryName(json)!);await window.AddFilesAsync([e.Args[2]]);await window.RunQueueAsync();}
+                if(e.Args.Length>2){window.SelfTestOutputFolder(Path.GetDirectoryName(json)!);if(e.Args.Contains("--verify"))window.VerifyCheck.IsChecked=true;await window.AddFilesAsync([e.Args[2]]);await window.RunQueueAsync();}
                 Render(window,Path.ChangeExtension(json,".png"),1.25);
-                await File.WriteAllTextAsync(json,JsonSerializer.Serialize(new{GuiCreated=true,window.English,Entries=window.Entries.Select(x=>new{x.Input,x.Output,x.State,x.Analysis,x.Result})},new JsonSerializerOptions{WriteIndented=true}));
-                Shutdown(e.Args.Length>2&&(window.Entries.Count!=1||window.Entries[0].State!="done")?2:0);return;
+                await File.WriteAllTextAsync(json,JsonSerializer.Serialize(new{GuiCreated=true,window.English,Verification=window.VerifyCheck.IsChecked==true,Entries=window.Entries.Select(x=>new{x.Input,x.Output,x.State,x.Analysis,x.Estimate,x.Result})},new JsonSerializerOptions{WriteIndented=true}));
+                Shutdown(e.Args.Length>2&&(window.Entries.Count!=1||window.Entries[0].State is not ("done" or "unverified"))?2:0);return;
             }
             window.Show();await window.InitializeAsync();
             if(e.Args.Length>0)await window.AddFilesAsync(e.Args.Where(File.Exists));

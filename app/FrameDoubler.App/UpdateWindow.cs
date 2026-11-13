@@ -60,8 +60,11 @@ public sealed class UpdateWindow:Window
             string location=Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory),parent=Path.GetDirectoryName(location)!;
             var staged=await Updates.DownloadAsync(release,parent,new Progress<double>(x=>progress.Value=x),stop.Token);
             stop.Token.ThrowIfCancellationRequested();
+            owner.SaveForUpdate();TimeEstimates.PreservePortableFiles(location,staged.Directory);
             status.Text=T("프로그램을 종료하고 업데이트합니다.","Restarting to install the update.");
-            Updates.LaunchInstaller(staged,location);owner.Close();Close();
+            string current=Environment.CurrentDirectory;
+            try{Environment.CurrentDirectory=parent;Updates.LaunchInstaller(staged,location);}finally{Environment.CurrentDirectory=current;}
+            owner.Close();Close();
         }catch(OperationCanceledException){status.Text=T("취소됨","Cancelled");}
         catch(Exception ex){status.Text=ex.Message;install.IsEnabled=true;}
     }

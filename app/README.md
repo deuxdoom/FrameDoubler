@@ -41,8 +41,12 @@ timing/audio/color errors stop finalization. Actual duplicates at input-proven
 scene/static hold positions and required final-source holds are reported separately
 from residual moving duplicates. The 1% moving-duplicate limit is unchanged.
 
-Native settings use `%APPDATA%/FrameDoubler/native-settings.json`; legacy settings
-are read for initial migration and not overwritten. Minimize to the tray to keep
+The package is portable: `settings.json`, `performance.json` (measured speed profiles
+for time estimates) and the `work` folder live next to `FrameDoubler.exe`.
+AppData is not used. Output verification is off by default in the GUI and
+included in the time estimate when enabled; `run` in the CLI verifies unless
+`--no-verify` is given. `estimate FILE [--preset youtube] [--verify]` prints the
+sampled analysis and the expected time range for the selected device/settings. Minimize to the tray to keep
 working; close/Exit cancels active work and exits after cleanup. The Updates button
 checks stable releases and offers installation only for `FrameDoubler.zip`
 with a GitHub SHA-256 digest and a matching native manifest. Installation verifies

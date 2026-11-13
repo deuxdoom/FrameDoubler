@@ -5,7 +5,7 @@ using var cancel=new CancellationTokenSource();
 Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancel.Cancel();};
 try{
     var paths=AppPaths.Discover();var pipeline=new ConversionPipeline(paths);
-    if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER");return 0;}
+    if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | estimate FILE [--verify] | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER");return 0;}
     string? Get(string name){int i=Array.IndexOf(args,name);if(i<0)return null;if(i+1>=args.Length)throw new ArgumentException("Missing value: "+name);return args[i+1];}
     bool Has(string name)=>args.Contains(name);
     var json=new JsonSerializerOptions{WriteIndented=true};
@@ -22,6 +22,7 @@ try{
     switch(args[0]){
         case "hardware":{var found=await pipeline.HardwareAsync(cancel.Token);Print(new{found.Hardware,found.Encoders});break;}
         case "analyze":Print(await pipeline.AnalyzeAsync(args[1],progress,cancel.Token));break;
+        case "estimate":{var analysis=await pipeline.AnalyzeAsync(args[1],cancel:cancel.Token);Print(new{Analysis=analysis,Estimate=await pipeline.EstimateAsync(analysis,Options() with{Verify=Has("--verify")},cancel.Token)});break;}
         case "run":{
             string input=Get("-i")??throw new ArgumentException("Missing -i input");
             string output=Get("-o")??Path.Combine(Path.GetDirectoryName(Path.GetFullPath(input))!,Path.GetFileNameWithoutExtension(input)+"_smooth.mp4");

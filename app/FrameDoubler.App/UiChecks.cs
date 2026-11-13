@@ -18,6 +18,7 @@ public partial class MainWindow
         void Check(bool condition,string name){if(!condition)throw new InvalidOperationException("UI: "+name);passed.Add(name);}
         async Task Idle(){await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);}
         Check(WindowStyle==WindowStyle.None&&WindowChrome.GetWindowChrome(this).ResizeBorderThickness.Left>0,"Frameless and resizable chrome");
+        Check(VerifyCheck.IsChecked==false,"Verification starts unchecked");
         int picks=0;FilePicker=()=>{picks++;return[];};
         var peer=new ButtonAutomationPeer(EmptyPanel);((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();await Idle();
         Check(picks==1,"Drop target click invokes file chooser");
@@ -37,9 +38,21 @@ public partial class MainWindow
             var hint=DropHint.TransformToAncestor(DropBorder).TransformBounds(new Rect(DropHint.RenderSize));
             Check(hint.Bottom<DropBorder.ActualHeight-3,$"Drop hint remains visible {size.Width} {lang}");
             Check(OutputBox.ActualWidth>=150,$"Output path has usable width {size.Width} {lang}");
+            EstimateValue.Text=lang=="ko"?"약 25시간 59분 ~ 61시간 47분":"About 25 h 59 min ~ 61 h 47 min";
+            EstimateHint.Text=lang=="ko"?"최근 실제 작업으로 보정 · 검증 포함":"Adjusted from recent jobs · Includes verification";await Idle();UpdateLayout();
+            foreach(var text in new[]{EstimateValue,EstimateHint}){
+                var bounds=text.TransformToAncestor(SettingsPanel).TransformBounds(new Rect(text.RenderSize));
+                Check(bounds.Right<=SettingsPanel.ActualWidth+1&&text.ActualWidth>0,$"Estimate text fits {text.Name} {size.Width} {lang}");
+            }
+            RefreshEstimateText();
             Advanced.IsExpanded=false;SettingsScroll.ScrollToTop();
         }
-        Width=1180;Height=800;await Idle();
+        Width=1180;Height=800;PreviewLanguage("ko");await Idle();
+        EnglishButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(English&&AddButton.Content as string=="Add videos","Language switch selects English");
+        KoreanButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(!English&&AddButton.Content as string=="영상 추가","Language switch selects Korean");
+        Check(LanguageThumb.ActualWidth>20&&Math.Abs(LanguageThumb.ActualWidth*2-(LanguageSwitch.ActualWidth-6))<4,"Language switch halves");
         MaximizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
         Check(WindowState==WindowState.Maximized,"Maximize button");
         Check(ActualWidth<=SystemParameters.WorkArea.Width+2&&ActualHeight<=SystemParameters.WorkArea.Height+2,"Maximize respects taskbar work area");

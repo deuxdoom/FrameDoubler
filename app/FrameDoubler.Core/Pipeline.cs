@@ -26,11 +26,18 @@ public sealed record ConversionProgress(string Stage,long Frames,long Total,doub
     public double Fraction=>Total>0?(double)Frames/Total:0;
     public double? Remaining=>Frames>0?Seconds*(Total-Frames)/Frames:null;
 }
-public sealed record AnalysisResult(MediaInfo Source,int Unique,int Duplicates,int Static,double? MotionFps);
+public sealed record SampleInterval(Rational First,Rational Second,bool Hold);
+public sealed record AnalysisResult(MediaInfo Source,int Unique,int Duplicates,int Static,double? MotionFps){
+    public int SampledFrames{get;init;}
+    public double DecodeSecondsPerFrame{get;init;}
+    public double BestSampleOffset{get;init;}
+    public SampleInterval[] Intervals{get;init;}=[];
+    public bool IsSampled=>SampledFrames>0&&SampledFrames<Source.FrameCount;
+}
 public sealed record ConversionResult(string Output,Rational Fps,long Frames,int Interpolated,int SceneCuts,int Duplicates,
-    double Seconds,string Device,string Encoder,VerificationReport? Verification);
+    double Seconds,string Device,string Encoder,VerificationReport? Verification){public double OverallSeconds{get;init;}}
 
-public sealed class ConversionPipeline(AppPaths paths)
+public sealed partial class ConversionPipeline(AppPaths paths)
 {
     private HardwareInventory? hardware;
     private List<EncoderCapability>? encoders;
@@ -43,20 +50,14 @@ public sealed class ConversionPipeline(AppPaths paths)
     }
     public async Task<AnalysisResult> AnalyzeAsync(string input,IProgress<ConversionProgress>? progress=null,CancellationToken cancel=default)
     {
-        var info=await MediaProbe.ReadAsync(paths,input,cancel);
+        var info=await MediaProbe.ReadAsync(paths,input,cancel,metadataOnly:true);
         if(info.Hdr)throw new NotSupportedException("HDR 입력은 아직 지원하지 않습니다. SDR 영상이 필요합니다.");
-        int unique=0,duplicates=0,staticFrames=0;var watch=Stopwatch.StartNew();
-        await foreach(var item in LabelledAsync(info,null,true,cancel)){
-            using var frame=item.Frame;
-            if(item.Label==FrameLabel.Unique)unique++;else if(item.Label==FrameLabel.Duplicate)duplicates++;else staticFrames++;
-            if(frame.Index%30==0)progress?.Report(new("analyze",frame.Index,info.Pts.Length,watch.Elapsed.TotalSeconds));
-        }
-        double? motion=unique<=1||staticFrames>info.Pts.Length*.8?null:info.Fps.ToDouble()*(1-(double)duplicates/Math.Max(1,unique+duplicates));
-        return new(info,unique,duplicates,staticFrames,motion);
+        return await SampleAnalysisAsync(info,cancel);
     }
     public async Task<ConversionResult> RunAsync(string input,string output,ConversionOptions options,
         IProgress<ConversionProgress>? progress=null,CancellationToken cancel=default)
     {
+        var overall=Stopwatch.StartNew();
         if(options.Quality is <1 or >51||options.SceneThreshold is <0 or >1||options.MaxFrames is <=0)throw new ArgumentException("Invalid conversion settings");
         if(options.Model is not ("v4.25" or "v4.26"))throw new ArgumentException("Unsupported RIFE model");
         if(options.Bitrate is not null&&!System.Text.RegularExpressions.Regex.IsMatch(options.Bitrate,@"^\d+[kKmM]?$"))throw new ArgumentException("Invalid bitrate");
@@ -148,7 +149,8 @@ public sealed class ConversionPipeline(AppPaths paths)
             File.Move(temp,output,options.Overwrite);
             progress?.Report(new(verification?.Ok==false?"warning":"done",total,total,watch.Elapsed.TotalSeconds,
                 choice.Explanation+" · "+encoder.Explanation+(verification?.Ok==false?" · "+string.Join("; ",verification.Problems):"")));
-            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification);
+            RecordPerformance(source,options,choice,encoder.Encoder,total,interpolated,overall.Elapsed.TotalSeconds);
+            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds};
         }catch(EncodingException)when(options.Encoder=="auto"&&options.HardwareEncoding&&encoder.Encoder.Hardware){
             if(engine is not null)await engine.DisposeAsync();left?.Dispose();if(File.Exists(temp))File.Delete(temp);
             double failedSeconds=watch.Elapsed.TotalSeconds;

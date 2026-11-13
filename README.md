@@ -83,7 +83,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 ### 🔍 입력과 장치 자동 분석
 
-영상을 추가하면 해상도, 코덱, 프레임레이트, CFR/VFR, 비트 심도, 색상 정보를 읽습니다. **파일 프레임레이트**와 **실제 움직임 프레임레이트**를 나란히 보여 주므로 이 영상이 어떤 파일인지 바로 알 수 있습니다. 시작할 때에는 이 PC의 CPU, GPU, Vulkan 기능, 인코더를 확인합니다.
+영상을 추가하면 해상도, 코덱, 비트레이트, 길이, 프레임레이트, CFR/VFR, 비트 심도, 색상 정보를 읽습니다. 1~2시간 길이의 녹화도 여러 구간만 읽어 바로 분석합니다. **파일 프레임레이트**와 **실제 움직임 프레임레이트**를 나란히 보여 주므로 이 영상이 어떤 파일인지 바로 알 수 있습니다. 시작할 때에는 이 PC의 CPU, GPU, Vulkan 기능, 인코더를 확인합니다.
 
 ### 🎞️ 중복 프레임 감지와 움직임 복원
 
@@ -91,6 +91,10 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 - 게임이 프레임을 놓쳐 3회, 4회 반복된 구간을 올바르게 처리합니다.
 - 일시 정지 메뉴나 로딩 화면 같은 정지 화면은 보간하지 않고 그대로 둡니다.
 - 29.97/30fps 원본, 59.94/60fps 파일, VFR 입력을 같은 방식으로 처리합니다.
+
+### ⏱️ 예상 소요 시간
+
+변환하기 전에 선택한 장치와 설정으로 짧게 실제 처리를 해 보고 예상 시간의 범위를 보여 줍니다. 대기열 전체의 합계도 함께 표시합니다. 같은 조건으로 끝낸 작업이 쌓이면 그 결과로 예상을 보정합니다. 장면, 저장 장치, 다른 프로그램의 부하에 따라 실제 시간은 달라질 수 있습니다.
 
 ### 🤖 RIFE AI 보간
 
@@ -104,7 +108,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 - NVENC, AMF, QSV, 소프트웨어 인코더를 짧게 실제로 인코딩해 보고, 성공한 H.264·HEVC·AV1 조합만 메뉴에 보여 줍니다. 추론 GPU와 인코더는 서로 달라도 됩니다.
 - **YouTube 프리셋**은 해상도와 fps에 맞는 권장 비트레이트의 MP4를 만듭니다. 화질을 우선하는 **품질 우선** 프리셋도 있습니다.
 - 영상 길이, 오디오 시작 시각과 싱크, 색상 정보를 원본 그대로 유지합니다.
-- 변환이 끝나면 프레임레이트, 길이, 오디오 동기, 색상, 남은 중복 프레임 비율을 검사합니다.
+- `변환 후 검증`을 켜면 변환이 끝난 뒤 프레임레이트, 길이, 오디오 동기, 색상, 남은 중복 프레임 비율을 검사합니다. 기본으로는 꺼져 있으며, 켜면 예상 소요 시간에 검증 시간도 더해집니다.
 - 보관용으로 119.88fps와 120fps 출력을 선택할 수 있습니다.
 
 ### 🧰 편의 기능
@@ -159,7 +163,7 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 
 1. 영상을 창에 끌어 놓거나 가운데 영역을 클릭합니다. `영상 추가`와 `Ctrl+O`도 사용할 수 있습니다. 추가하면 바로 분석합니다.
 2. 파일 fps와 실제 움직임 fps를 확인하고, 목표 프레임레이트·프리셋·저장 폴더를 고릅니다. 저장 폴더를 비워 두면 원본과 같은 폴더에 저장합니다.
-3. `변환 시작`을 누릅니다. 끝나면 검증 결과를 확인하고 `결과 열기` 또는 `폴더 열기`를 누릅니다.
+3. `예상 소요 시간`을 확인하고 `변환 시작`을 누릅니다. 끝나면 `결과 열기` 또는 `폴더 열기`를 누릅니다. 결과를 검사하려면 `변환 후 검증`을 켜 둡니다.
 
 | 입력 | 기본 출력 (`입력에 맞춤`) |
 | --- | --- |
@@ -170,7 +174,7 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 
 추론 장치, 인코더, 코덱, RIFE 모델, 품질, 비트레이트, 고정 HUD 영역은 `고급 설정`에 있습니다. YouTube 프리셋은 60fps까지이며, 120fps 출력에는 `품질 우선` 프리셋을 사용합니다. 창을 닫으면 진행 중인 작업을 취소하고 정리한 뒤 종료합니다.
 
-설정은 `%APPDATA%\FrameDoubler\native-settings.json`에 저장합니다.
+설정(`settings.json`), 성능 기록(`performance.json`), 작업 파일(`work`)은 모두 `FrameDoubler.exe`가 있는 폴더에 저장합니다. 폴더를 통째로 옮겨도 설정이 그대로 이어집니다.
 
 <a id="update"></a>
 
@@ -179,7 +183,7 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 시작할 때 GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 제목 표시줄의 업데이트 버튼(⟳)에 표시합니다. 업데이트 창에서 변경 사항을 확인한 뒤 설치를 선택합니다. 트레이 메뉴의 `업데이트`로도 열 수 있습니다.
 
 - `FrameDoubler.zip`에 GitHub가 제공하는 SHA-256이 있어야 하고, 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
-- 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인하고, 이전 설치를 보관한 상태에서 교체합니다. 교체에 실패하면 이전 설치로 되돌립니다.
+- 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인하고, 이전 설치를 보관한 상태에서 교체합니다. 설정과 성능 기록은 새 설치로 옮기며, 교체에 실패하면 이전 설치로 되돌립니다.
 - 로컬 시험은 통과했으며, 실제 공개 릴리스를 통한 업데이트는 아직 검증하지 않았습니다.
 
 <a id="cli"></a>
@@ -190,7 +194,8 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 
 ```text
 FrameDoubler.Cli hardware                                   이 PC의 장치와 인코더
-FrameDoubler.Cli analyze video.mp4                          형식과 실제 움직임 fps
+FrameDoubler.Cli analyze video.mp4                          형식, 비트레이트, 실제 움직임 fps
+FrameDoubler.Cli estimate video.mp4 --preset youtube         예상 소요 시간 (--verify: 검증 포함)
 FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset youtube
 FrameDoubler.Cli run -i video.mp4 --device gpu:1 --encoder qsv --codec hevc
 FrameDoubler.Cli run -i video.mp4 --device cpu --software --codec h264
@@ -199,7 +204,7 @@ FrameDoubler.Cli verify video.mp4 smooth.mp4 --fps 60
 FrameDoubler.Cli batch recordings -o converted --recursive
 ```
 
-`--overwrite`는 기존 파일의 교체를 허용하고, `--no-verify`는 검증을 건너뜁니다. `--hud-region X,Y,W,H`는 여러 번 지정할 수 있으며, `--quality 1..51` 또는 `--bitrate 24M`으로 화질을 정합니다. 자세한 내용은 [실행 안내](app/README.md)에 있습니다.
+`--overwrite`는 기존 파일의 교체를 허용하고, `--no-verify`는 검증을 건너뜁니다(명령줄의 `run`은 기본으로 검증합니다). `--hud-region X,Y,W,H`는 여러 번 지정할 수 있으며, `--quality 1..51` 또는 `--bitrate 24M`으로 화질을 정합니다. 자세한 내용은 [실행 안내](app/README.md)에 있습니다.
 
 <a id="development"></a>
 

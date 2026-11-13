@@ -16,9 +16,11 @@ internal static class UpdateTests
     public static async Task PackageAsync(string archive,Action<bool,string> assert){
         string root=Path.Combine(EncoderDetector.WorkRoot,"update-tests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         using var file=File.OpenRead(archive);string hash=Convert.ToHexString(await SHA256.HashDataAsync(file));
-        bool mismatch=false;try{await Updates.StageAsync(archive,new string('0',64),new Version(2,0,0),root);}catch(IOException){mismatch=true;}
+        using var package=ZipFile.OpenRead(archive);var manifestEntry=package.Entries.Single(x=>x.FullName.EndsWith("/manifest.json",StringComparison.Ordinal));
+        using var manifest=JsonDocument.Parse(manifestEntry.Open());var version=Version.Parse(manifest.RootElement.GetProperty("version").GetString()!);
+        bool mismatch=false;try{await Updates.StageAsync(archive,new string('0',64),version,root);}catch(IOException){mismatch=true;}
         assert(mismatch,"Wrong update digest rejected before installation");
-        var stage=await Updates.StageAsync(archive,hash,new Version(2,0,0),root);
+        var stage=await Updates.StageAsync(archive,hash,version,root);
         assert(File.Exists(Path.Combine(stage.Directory,"FrameDoubler.exe"))&&File.Exists(Path.Combine(stage.Directory,"engine","rife-poc.exe")),"Actual native ZIP passes all file hashes and staging");
         string unsafeZip=Path.Combine(root,"unsafe.zip");
         using(var zip=ZipFile.Open(unsafeZip,ZipArchiveMode.Create)){

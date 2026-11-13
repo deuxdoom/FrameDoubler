@@ -56,7 +56,7 @@ try{
     Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",config);
     new Preferences{Language="en",OutputDirectory="F:\\한글 출력",Preset="quality",Fps="60000/1001"}.Save();
     var loaded=Preferences.Load();Assert(loaded.Language=="en"&&loaded.OutputDirectory=="F:\\한글 출력"&&loaded.Fps=="60000/1001","Settings restart/Unicode round trip");
-    File.WriteAllText(Path.Combine(config,"native-settings.json"),"invalid json");
+    File.WriteAllText(Path.Combine(config,"settings.json"),"invalid json");
     Assert(Preferences.Load().Language=="ko","Malformed preferences recover safely");
 }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",previousConfig);}
 var hudInfo=new MediaInfo("",2,2,"","rgb24",8,1,30,30,false,1,[0],null,null,null,null,[]);
@@ -95,6 +95,7 @@ if (args.Contains("--integration")) {
     }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_DISABLE_VULKAN",previous);}
 }
 if(args.Contains("--pipeline"))await PipelineTests.RunAsync(AppPaths.Discover(),Assert);
+EstimateTests.Run(Assert);
 if(args.Contains("--long"))await PipelineTests.LongAsync(AppPaths.Discover(),Assert);
 int packageArgument=Array.IndexOf(args,"--update-package");
 if(packageArgument>=0)await UpdateTests.PackageAsync(args[packageArgument+1],Assert);
