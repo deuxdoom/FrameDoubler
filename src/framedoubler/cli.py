@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-frames", type=int, help="process only the first N input frames")
     run.add_argument("--verify", action="store_true", help="check the output after converting")
     run.add_argument("--overwrite", action="store_true", help="replace an existing output only after a successful conversion")
+    run.add_argument("--profile", action="store_true", help="report time spent in each processing stage")
     run.add_argument("--hud-region", type=_hud_region, action="append", default=[], metavar="X,Y,W,H",
                      help="protect identical pixels inside a static HUD rectangle; repeat for multiple regions")
     run.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
@@ -105,6 +106,7 @@ def _run(args: argparse.Namespace) -> int:
     result = run(source, output, Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
                                          max_frames=args.max_frames,
                                          overwrite=args.overwrite,
+                                         profile=args.profile,
                                          hud_regions=tuple(args.hud_region),
                                          encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
                                                                quality=args.quality, bitrate=args.bitrate,
@@ -116,6 +118,10 @@ def _run(args: argparse.Namespace) -> int:
           f"({result.interpolated} interpolated, {result.scene_cuts} scene cuts)")
     print(f"Time    : {result.elapsed:.1f} s ({result.frames_out / result.elapsed:.1f} fps)")
     print(f"Written : {result.output}")
+    if args.profile:
+        print("Stage timings (exclusive seconds, including pipe waits):")
+        for name, seconds in result.timings.seconds.items():
+            print(f"  {name:10s} {seconds:7.3f} s  {seconds / result.timings.total:6.1%}")
     if args.verify and args.max_frames is None:
         return _verify(argparse.Namespace(input=str(source), output=str(output)))
     return 0

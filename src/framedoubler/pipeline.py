@@ -24,6 +24,7 @@ from framedoubler.models import DEFAULT_MODEL
 from framedoubler.probe import VideoInfo, probe
 from framedoubler.scene import DEFAULT_THRESHOLD, cut_score, descriptor
 from framedoubler.timeline import default_output_fps, output_count, source_rate, steps
+from framedoubler.timing import Profiler, TimingReport
 from framedoubler.verify import Report, format_report, verify
 
 
@@ -39,6 +40,7 @@ class Options:
     hud_regions: tuple[Region, ...] = ()
     overwrite: bool = False
     verify_output: bool = False
+    profile: bool = False
 
     def __post_init__(self) -> None:
         if self.fps is not None and self.fps <= 0:
@@ -79,6 +81,7 @@ class Result:
     scene_cuts: int
     elapsed: float
     verification: Report | None = None
+    timings: TimingReport | None = None
 
     @property
     def verification_text(self) -> str:
@@ -91,6 +94,7 @@ def run(input_path: str | Path, output_path: str | Path | None = None, options: 
         cancel: CancellationToken | None = None, analyze_only: bool = False) -> Result | Analysis:
     """Runs a job, publishing only complete output; analysis also uses this API."""
     token = cancel or CancellationToken()
+    profiler = Profiler(options.profile)
     started = time.perf_counter()
     staging = None
 
@@ -115,12 +119,12 @@ def run(input_path: str | Path, output_path: str | Path | None = None, options: 
             raise RuntimeError(f"Output already exists: {output}. Choose another name or enable overwrite.")
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.partial{output.suffix}")
-        result = _convert(input_path, staging, options, interpolator, on_progress, token)
+        result = _convert(input_path, staging, options, interpolator, on_progress, token, profiler)
         token.check()
         if options.verify_output:
             stage("verify")
-            result = replace(result, verification=verify(input_path, staging, expected_fps=result.fps,
-                                                         check_cancelled=token.check))
+            result = replace(result, verification=profiler.call("verify", verify, input_path, staging,
+                                expected_fps=result.fps, check_cancelled=token.check))
             token.check()
         if options.overwrite:
             staging.replace(output)
@@ -130,7 +134,7 @@ def run(input_path: str | Path, output_path: str | Path | None = None, options: 
             os.link(staging, output)  # atomic no-replace publication on POSIX
             staging.unlink()
         stage("done")
-        return replace(result, output=output)
+        return replace(result, output=output, timings=profiler.snapshot())
     except Cancelled:
         stage("cancelled")
         raise
@@ -145,8 +149,8 @@ def run(input_path: str | Path, output_path: str | Path | None = None, options: 
             staging.unlink(missing_ok=True)
 
 
-def _convert(input_path, output_path, options, interpolator, on_progress, cancel) -> Result:
-    info = probe(input_path)
+def _convert(input_path, output_path, options, interpolator, on_progress, cancel, profiler) -> Result:
+    info = profiler.call("probe", probe, input_path)
     cancel.check()
     if info.is_hdr:
         raise RuntimeError("HDR input is not supported yet.")
@@ -156,7 +160,7 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
         if on_progress:
             on_progress(Progress(0, 0, 0.0, "model"))
         from framedoubler.interp.rife import RifeInterpolator
-        interpolator = RifeInterpolator(options.model, options.scale, check_cancelled=cancel.check)
+        interpolator = profiler.call("model", RifeInterpolator, options.model, options.scale, check_cancelled=cancel.check)
     cancel.check()
 
     limit = info.frame_count if options.max_frames is None else min(options.max_frames, info.frame_count)
@@ -164,11 +168,12 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
     duration = (info.pts[limit] - info.pts[0]) * info.time_base if partial else info.duration
     total = output_count(duration, fps_out)
 
-    frames = iter_frames(info, max_frames=options.max_frames)
+    frames = profiler.iterator("decode", iter_frames(info, max_frames=options.max_frames))
     if options.dedup:
         labelled = classify(frames, CadenceConfig())
     else:
         labelled = ((pts, frame, Label.UNIQUE) for pts, frame in frames)
+    labelled = profiler.iterator("cadence", labelled)
 
     counts = {label: 0 for label in Label}
     interpolated = cuts = 0
@@ -182,7 +187,8 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
             last_report = now
             on_progress(Progress(encoder.frames_written, total, now - started))
 
-    with closing(frames), closing(labelled), Encoder(output_path, info, fps_out, options.encode, duration if partial else None) as encoder:
+    manager = profiler.call("encode", Encoder, output_path, info, fps_out, options.encode, duration if partial else None)
+    with closing(frames), closing(labelled), profiler.context("encode", manager) as encoder:
         # `a` is the source frame currently on screen: (time, frame, prepared, descriptor)
         a = None
         for pts, frame, label in labelled:
@@ -191,28 +197,28 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
             if label is Label.DUP:
                 continue
             t = (pts - info.pts[0]) * info.time_base
-            b = (t, frame, None, descriptor(signature(frame)))
+            b = (t, frame, None, profiler.call("scene", lambda: descriptor(signature(frame))))
             if a is not None:
                 # A static frame repeats `a`, and nothing may be blended across a cut.
                 hold = label is Label.STATIC
-                if not hold and cut_score(a[3], b[3]) > options.scene_threshold:
+                if not hold and profiler.call("scene", cut_score, a[3], b[3]) > options.scene_threshold:
                     hold = True
                     cuts += 1
                 for _, position in steps(a[0], t, fps_out):
                     cancel.check()
                     if position == 0.0 or (hold and position < 1.0):
-                        encoder.write(a[1])
+                        profiler.call("encode", encoder.write, a[1])
                     elif position == 1.0:
-                        encoder.write(frame)
+                        profiler.call("encode", encoder.write, frame)
                     else:
                         if a[2] is None:
-                            a = (a[0], a[1], interpolator.prepare(a[1]), a[3])
+                            a = (a[0], a[1], profiler.call("inference", interpolator.prepare, a[1]), a[3])
                         if b[2] is None:
-                            b = (t, frame, interpolator.prepare(frame), b[3])
-                        middle = interpolator.interpolate(a[2], b[2], position)
+                            b = (t, frame, profiler.call("inference", interpolator.prepare, frame), b[3])
+                        middle = profiler.call("inference", interpolator.interpolate, a[2], b[2], position)
                         if options.hud_regions:
-                            middle = restore_static(a[1], frame, middle, options.hud_regions)
-                        encoder.write(middle)
+                            middle = profiler.call("hud", restore_static, a[1], frame, middle, options.hud_regions)
+                        profiler.call("encode", encoder.write, middle)
                         interpolated += 1
                     report()
             a = b
@@ -220,7 +226,7 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
             # The last source frame stays on screen until the end of the clip.
             while encoder.frames_written < total:
                 cancel.check()
-                encoder.write(a[1])
+                profiler.call("encode", encoder.write, a[1])
         report(force=True)
         cancel.check()
         if on_progress:
