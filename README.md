@@ -56,9 +56,22 @@ framedoubler run -i input.mp4 --preset youtube --verify
 framedoubler run -i input.mp4 --codec av1 --quality 19
 framedoubler run -i input.mp4 --codec hevc --bitrate 24M
 framedoubler verify input.mp4 output.mp4  # checks an existing conversion
+framedoubler batch "D:\Captures" --preset youtube --verify
+framedoubler batch "D:\Captures" -o "D:\Converted" --recursive
 ```
 
 The RIFE model is downloaded on first use.
+
+`batch` snapshots supported videos in a folder and converts them sequentially.
+By default, outputs go into its `FrameDoubler` subfolder with `_smooth.mp4` names.
+`--recursive` preserves relative subfolders and excludes the output tree. Name
+collisions receive `_2`, `_3`, etc.; names remain stable on reruns. Existing files
+still require `--overwrite`. Individual errors are reported and remaining files
+continue; `--stop-on-error` stops at the first failure. Exit status is 0 on full
+success, 2 on file/verification failures and 130 on cancellation. Completed files
+remain available when a later job fails or is cancelled. Supported extensions:
+MP4, MKV, MOV, AVI, WebM, M4V, TS, MTS and M2TS. Actual codec support is checked
+for each file. `--max-frames` trial conversions skip full-file verification.
 
 Existing outputs are protected by default. Use `--overwrite` to replace one after
 a successful conversion. Ctrl+C cancels conversion and removes the incomplete

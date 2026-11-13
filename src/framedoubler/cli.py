@@ -54,21 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="convert a video to real 60fps")
     run.add_argument("-i", "--input", required=True, help="input video file")
     run.add_argument("-o", "--output", help="output file (default: <input>_60fps.mp4 next to the input)")
-    run.add_argument("--fps", type=Fraction, help="output frame rate, e.g. 60 or 60000/1001 (default: automatic)")
-    run.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL, help="RIFE model")
-    run.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
-    run.add_argument("--max-frames", type=int, help="process only the first N input frames")
-    run.add_argument("--verify", action="store_true", help="check the output after converting")
-    run.add_argument("--overwrite", action="store_true", help="replace an existing output only after a successful conversion")
-    run.add_argument("--profile", action="store_true", help="report time spent in each processing stage")
-    run.add_argument("--serial", action="store_true", help="disable input prefetch for diagnostics")
-    run.add_argument("--hud-region", type=_hud_region, action="append", default=[], metavar="X,Y,W,H",
-                     help="protect identical pixels inside a static HUD rectangle; repeat for multiple regions")
-    run.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
-    run.add_argument("--codec", choices=["h264", "hevc", "av1"], help="NVENC codec (default: hevc; youtube preset: h264)")
-    rate = run.add_mutually_exclusive_group()
-    rate.add_argument("--quality", type=_quality, help="NVENC quality 1-51, lower is better (default: 19 without --preset)")
-    rate.add_argument("--bitrate", type=_bitrate, help="target video bitrate, e.g. 24M or 24000k; overrides preset bitrate")
+    _conversion_arguments(run)
+
+    batch = sub.add_parser("batch", help="convert all videos in a folder sequentially")
+    batch.add_argument("input", help="input folder")
+    batch.add_argument("-o", "--output", help="output folder (default: <input>/FrameDoubler)")
+    batch.add_argument("--recursive", action="store_true", help="include subfolders and preserve their relative paths")
+    batch.add_argument("--stop-on-error", action="store_true", help="stop after the first failed file")
+    _conversion_arguments(batch)
 
     verify = sub.add_parser("verify", help="check an output file against its input")
     verify.add_argument("input", help="original video file")
@@ -80,6 +73,37 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _conversion_arguments(parser):
+    parser.add_argument("--fps", type=Fraction, help="output frame rate, e.g. 60 or 60000/1001 (default: automatic)")
+    parser.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL, help="RIFE model")
+    parser.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
+    parser.add_argument("--max-frames", type=int, help="process only the first N input frames")
+    parser.add_argument("--verify", action="store_true", help="check the output after converting")
+    parser.add_argument("--overwrite", action="store_true", help="replace an existing output only after a successful conversion")
+    parser.add_argument("--profile", action="store_true", help="record time spent in each processing stage")
+    parser.add_argument("--serial", action="store_true", help="disable input prefetch for diagnostics")
+    parser.add_argument("--hud-region", type=_hud_region, action="append", default=[], metavar="X,Y,W,H",
+                     help="protect identical pixels inside a static HUD rectangle; repeat for multiple regions")
+    parser.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
+    parser.add_argument("--codec", choices=["h264", "hevc", "av1"], help="NVENC codec (default: hevc; youtube preset: h264)")
+    rate = parser.add_mutually_exclusive_group()
+    rate.add_argument("--quality", type=_quality, help="NVENC quality 1-51, lower is better (default: 19 without --preset)")
+    rate.add_argument("--bitrate", type=_bitrate, help="target video bitrate, e.g. 24M or 24000k; overrides preset bitrate")
+
+
+
+def _options(args, *, verify_output=False):
+    from framedoubler.encode import EncodeSettings
+    from framedoubler.pipeline import Options
+
+    return Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
+                   max_frames=args.max_frames, overwrite=args.overwrite, profile=args.profile,
+                   verify_output=verify_output, prefetch=0 if args.serial else 2,
+                   hud_regions=tuple(args.hud_region),
+                   encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
+                                         quality=args.quality, bitrate=args.bitrate, upload_preset=args.preset))
+
+
 def _analyze(args: argparse.Namespace) -> int:
     from framedoubler.analyze import analyze, format_report
 
@@ -88,8 +112,7 @@ def _analyze(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    from framedoubler.encode import EncodeSettings
-    from framedoubler.pipeline import Options, Progress, run
+    from framedoubler.pipeline import Progress, run
 
     source = Path(args.input)
     output = Path(args.output) if args.output else source.with_name(f"{source.stem}_60fps.mp4")
@@ -104,15 +127,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"\r{p.frames_out}/{p.frames_total} frames  {p.fps:5.1f} fps  "
               f"{remaining:5.0f} s left ", end="", flush=True)
 
-    result = run(source, output, Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
-                                         max_frames=args.max_frames,
-                                         overwrite=args.overwrite,
-                                         profile=args.profile,
-                                         prefetch=0 if args.serial else 2,
-                                         hud_regions=tuple(args.hud_region),
-                                         encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
-                                                               quality=args.quality, bitrate=args.bitrate,
-                                                               upload_preset=args.preset)), on_progress=show)
+    result = run(source, output, _options(args), on_progress=show)
     print()
     print(f"Input   : {result.frames_in} frames at {float(result.source.fps):.3f} fps "
           f"({result.unique} new, {result.duplicates} duplicate, {result.static} static)")
@@ -121,13 +136,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"Time    : {result.elapsed:.1f} s ({result.frames_out / result.elapsed:.1f} fps)")
     print(f"Written : {result.output}")
     if args.profile:
-        print("Stage timings (exclusive seconds, including pipe waits):")
-        for name, seconds in result.timings.seconds.items():
-            print(f"  {name:10s} {seconds:7.3f} s  {seconds / result.timings.total:6.1%}")
-        if result.timings.worker_seconds:
-            print("Input worker (overlaps the main stages):")
-            for name, seconds in result.timings.worker_seconds.items():
-                print(f"  {name:10s} {seconds:7.3f} s")
+        _show_timings(result.timings)
     if args.verify and args.max_frames is None:
         return _verify(argparse.Namespace(input=str(source), output=str(output)))
     return 0
@@ -139,6 +148,42 @@ def _verify(args: argparse.Namespace) -> int:
     report = verify(args.input, args.output)
     print(format_report(report))
     return 0 if report.ok else 2
+
+
+def _show_timings(timings):
+    print("Stage timings (exclusive seconds, including pipe waits):")
+    for name, seconds in timings.seconds.items():
+        print(f"  {name:10s} {seconds:7.3f} s  {seconds / timings.total:6.1%}")
+    if timings.worker_seconds:
+        print("Input worker (overlaps the main stages):")
+        for name, seconds in timings.worker_seconds.items():
+            print(f"  {name:10s} {seconds:7.3f} s")
+
+
+def _batch(args: argparse.Namespace) -> int:
+    from framedoubler.batch import run_folder
+
+    def show(index, total, item, progress):
+        if progress is not None:
+            if progress.stage == "convert":
+                print(f"\r[{index}/{total}] {progress.frames_out}/{progress.frames_total} frames  "
+                      f"{progress.fps:.1f} fps", end="", flush=True)
+        elif item.result is None and item.error is None:
+            print(f"[{index}/{total}] {item.source}\n  -> {item.output}", flush=True)
+        else:
+            print(f"\n  {'FAILED: ' + item.error if item.error else 'OK'}", flush=True)
+            if item.result is not None and item.result.verification is not None:
+                print(item.result.verification_text)
+            if item.result is not None and args.profile:
+                _show_timings(item.result.timings)
+
+    result = run_folder(args.input, args.output,
+                        _options(args, verify_output=args.verify and args.max_frames is None),
+                        recursive=args.recursive, stop_on_error=args.stop_on_error, on_progress=show)
+    failed = sum(item.error is not None for item in result.items)
+    print(f"Batch: {len(result.items) - failed} succeeded, {failed} failed, "
+          f"{result.total - len(result.items)} not processed.")
+    return 130 if result.cancelled else (0 if result.ok else 2)
 
 
 def _gui(args: argparse.Namespace) -> int:
@@ -157,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        return {"analyze": _analyze, "run": _run, "verify": _verify, "gui": _gui}[args.command](args)
+        return {"analyze": _analyze, "run": _run, "batch": _batch, "verify": _verify, "gui": _gui}[args.command](args)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
