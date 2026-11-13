@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation.Peers;
@@ -86,7 +87,33 @@ public partial class MainWindow
                 dialog.Close();
             }
         }
+        // Settings: every category renders with its controls inside the page, in both languages.
+        static System.Collections.Generic.IEnumerable<DependencyObject> Tree(DependencyObject root){
+            for(int i=0;i<System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);i++){var child=System.Windows.Media.VisualTreeHelper.GetChild(root,i);yield return child;foreach(var x in Tree(child))yield return x;}
+        }
+        foreach(string lang in new[]{"ko","en"}){
+            PreviewLanguage(lang);
+            var settings=new SettingsWindow(this){ShowActivated=false};settings.Show();await Idle();
+            Check(settings.Navigation.Items.Count==4,$"Settings categories {lang}");
+            foreach(System.Windows.Controls.ListBoxItem item in settings.Navigation.Items){
+                settings.Navigation.SelectedItem=item;await Idle();settings.UpdateLayout();
+                var view=settings.Page!;string name=System.Windows.Automation.AutomationProperties.GetName(item);
+                var controls=Tree(view).OfType<System.Windows.Controls.Control>().Where(x=>x is System.Windows.Controls.Button or System.Windows.Controls.ComboBox or System.Windows.Controls.CheckBox).ToList();
+                Check(view.ActualHeight>0&&controls.Count>0,$"Settings page has controls {name} {lang}");
+                foreach(var control in controls){
+                    var bounds=control.TransformToAncestor(view).TransformBounds(new Rect(control.RenderSize));
+                    Check(bounds.Left>=0&&bounds.Right<=view.ActualWidth+1,$"Settings control fits {name} {control.GetType().Name} {lang}");
+                }
+            }
+            settings.Close();
+        }
         PreviewLanguage("ko");
+        // A remembered close action skips the dialog and is saved to settings.json.
+        ChangeSettings(p=>p with{CloseAction="tray"});SetupTray();ExitPrompt=null;
+        Check(FrameDoubler.Core.Preferences.Load().CloseAction=="tray","Close action setting is saved");
+        CloseButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
+        Check(!IsVisible,"Remembered close action minimizes to the tray without asking");
+        Restore();await Idle();ChangeSettings(p=>p with{CloseAction="ask"});tray?.Dispose();tray=null;
         return new{Assertions=passed.Count,Passed=passed};
     }
 }

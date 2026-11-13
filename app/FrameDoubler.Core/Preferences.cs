@@ -16,6 +16,10 @@ public sealed record Preferences
     public int Quality{get;init;}=19;
     public bool Verify{get;init;}=false;
     public bool HardwareEncoding{get;init;}=true;
+    public bool CheckUpdates{get;init;}=true;
+    // "ask" | "tray" | "exit" for the close button; "ask" | "tray" | "taskbar" for minimize.
+    public string CloseAction{get;init;}="ask";
+    public string MinimizeAction{get;init;}="ask";
     public static string DirectoryPath=>Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR")
         ??AppContext.BaseDirectory;
     public static Preferences Load(){

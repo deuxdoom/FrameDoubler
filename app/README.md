@@ -9,6 +9,10 @@ Run `FrameDoubler.exe` in `dist/FrameDoubler`. Click the drop area or use Ctrl+O
 to select videos; dropping files works too. Review file and estimated motion fps,
 select an output folder/preset and convert. Existing files are protected.
 Device/encoder/model options are under Advanced; activity logs are collapsible.
+Each queued video shows a representative thumbnail (FFmpeg thumbnail filter).
+The Settings button (gear) opens General, Window and tray, Data and About pages:
+language, update check at startup, close/minimize button actions, data folder,
+time-estimate reset, working-file cleanup, version and device information.
 The frameless title bar supports dragging, resizing, minimizing and maximizing.
 The device menu supports automatic choice, individual Vulkan devices and CPU.
 The encoder menu contains only combinations that passed an actual startup test.

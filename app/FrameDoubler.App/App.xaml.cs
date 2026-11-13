@@ -43,6 +43,8 @@ public partial class App:System.Windows.Application
                             lang=="ko"?$"지금 사용 중인 {FrameDoubler.Core.Updates.Current} 버전이 최신입니다.":$"FrameDoubler {FrameDoubler.Core.Updates.Current} is the latest version.",null,
                             new DialogButton(lang=="ko"?"확인":"OK",DialogChoice.Cancel,"PrimaryButton",true));
                         Render(latest,Path.Combine(e.Args[1],$"up-to-date-{lang}.png"),scale);
+                        foreach(string key in new[]{"general","window","data","about"})
+                            Render(new SettingsWindow(window,key,true),Path.Combine(e.Args[1],$"settings-{key}-{lang}.png"),scale);
                     }
                 }
                 window.Width=820;window.Height=480;window.Advanced.IsExpanded=true;

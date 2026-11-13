@@ -32,7 +32,7 @@ public sealed record DialogButton(string Text,DialogChoice Choice,string Style,b
 // exit/tray confirmation and short notices such as "you are up to date".
 public sealed class BrandDialog:Window
 {
-    public static class Glyphs{public const string Exit="",Tray="",Update="",Done="",Error="";}
+    public static class Glyphs{public const string Exit="",Tray="",Update="",Done="",Error="",Warning="";}
     private readonly CancellationTokenSource closed=new();
     private readonly TextBlock glyph=new(){FontFamily=new FontFamily("Segoe Fluent Icons"),FontSize=20,Foreground=Brush("#FF8C60"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
     private readonly TextBlock heading=new(){FontSize=17,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap};
@@ -41,6 +41,16 @@ public sealed class BrandDialog:Window
     private readonly Border noticeBox=new(){Background=Brush("#2A211B"),BorderBrush=Brush("#5A3A2A"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(8),Padding=new Thickness(12,9,12,9),Margin=new Thickness(0,14,0,0)};
     private readonly StackPanel buttons=new(){Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,24,0,0)};
     public DialogChoice Choice{get;private set;}=DialogChoice.Cancel;
+    private CheckBox? remember;
+    public bool Remember=>remember?.IsChecked==true;
+    // Optional "remember my choice" line above the buttons.
+    public void AddRemember(string text){
+        if(remember is not null)return;
+        remember=new CheckBox{Content=Hangul.KeepWords(text),Margin=new Thickness(0,16,0,0),FontSize=12};
+        System.Windows.Automation.AutomationProperties.SetAutomationId(remember,"DialogRemember");
+        var stack=(StackPanel)buttons.Parent;stack.Children.Insert(stack.Children.IndexOf(buttons),remember);
+        buttons.Margin=new Thickness(0,14,0,0);
+    }
     internal System.Collections.Generic.IReadOnlyList<Button> Choices=>System.Linq.Enumerable.ToList(System.Linq.Enumerable.OfType<Button>(buttons.Children));
     public CancellationToken ClosedToken=>closed.Token;
     public BrandDialog(Window? owner,string title){

@@ -26,6 +26,7 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
     public string? Output{get;set;}
     public ConversionResult? Result{get;set;}
     public TimeEstimate? Estimate{get;set;}
+    public ImageSource? Thumbnail{get;set;}
     public string State{get;set;}="pending";
     public string Metadata{get{if(Analysis is not { } a)return "";string motion=a.MotionFps is { } fps?$"~{fps:0.##}fps":translate("추정 불가","not estimated");
         string range=a.Source.HdrInput is { } hdr?$"{hdr.BitDepth}-bit HDR({hdr.Name}) → SDR":$"{a.Source.BitDepth}-bit SDR";
@@ -42,7 +43,8 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
 
 public partial class MainWindow:Window
 {
-    private readonly ConversionPipeline pipeline=new(AppPaths.Discover());
+    private static readonly AppPaths paths=AppPaths.Discover();
+    private readonly ConversionPipeline pipeline=new(paths);
     public ObservableCollection<QueueEntry> Entries{get;}=new();
     private HardwareInventory? inventory;
     private List<EncoderCapability> encoders=new();
@@ -103,15 +105,29 @@ public partial class MainWindow:Window
         if(minimize)dialog.Configure(BrandDialog.Glyphs.Tray,T("트레이로 최소화할까요?","Minimize to the tray?"),message,warning,cancel,exit,hide);
         else if(canTray)dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,hide,exit);
         else dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,exit);
+        if(canTray)dialog.AddRemember(T("이 선택을 기억하고 다시 묻지 않기 (설정에서 바꿀 수 있습니다)","Remember my choice (change it in Settings)"));
         return dialog;
     }
     private void RequestExit(ExitTrigger trigger){
         if(asking||exitConfirmed)return;
+        bool working=busy||measuring;
+        // A remembered choice (Settings → Window and tray) skips the dialog; exiting while work runs is always confirmed.
+        string remembered=trigger switch{ExitTrigger.Minimize=>preferences.MinimizeAction,ExitTrigger.Close=>preferences.CloseAction,_=>preferences.CloseAction=="exit"?"exit":"ask"};
+        if(ExitPrompt is null){
+            if(remembered=="tray"&&trigger!=ExitTrigger.Tray){HideToTray();return;}
+            if(remembered=="taskbar"&&trigger==ExitTrigger.Minimize){WindowState=WindowState.Minimized;return;}
+            if(remembered=="exit"&&!working){exitConfirmed=true;Close();return;}
+        }
         asking=true;
         try{
-            DialogChoice choice;
+            DialogChoice choice;bool remember=false;
             if(ExitPrompt is not null)choice=ExitPrompt(trigger);
-            else{var dialog=CreateExitDialog(trigger);dialog.ShowDialog();choice=dialog.Choice;}
+            else{var dialog=CreateExitDialog(trigger);dialog.ShowDialog();choice=dialog.Choice;remember=dialog.Remember;}
+            if(remember&&choice!=DialogChoice.Cancel){
+                if(trigger==ExitTrigger.Close)preferences=preferences with{CloseAction=choice==DialogChoice.Secondary?"tray":"exit"};
+                else if(trigger==ExitTrigger.Minimize&&choice==DialogChoice.Secondary)preferences=preferences with{MinimizeAction="tray"};
+                Save();
+            }
             if(choice==DialogChoice.Secondary)HideToTray();
             else if(choice==DialogChoice.Primary){exitConfirmed=true;Close();}
         }finally{asking=false;}
@@ -132,7 +148,7 @@ public partial class MainWindow:Window
             Select(EncoderBox,preferences.Encoder);ready=true;updating=false;
             UpdateHardwareText();
             Log(T("실행 가능한 장치와 인코더를 확인했습니다.","Available devices and encoders checked."));
-            if(useTray)_=CheckUpdatesAsync();
+            if(useTray&&preferences.CheckUpdates)_=CheckUpdatesAsync();
         }catch(Exception ex){Log(ex.Message);HardwareText.Text=ex.Message;updating=false;}
         UpdateControls();
         ScheduleEstimate();
@@ -150,9 +166,9 @@ public partial class MainWindow:Window
         HudLabel.Text=T("고정 HUD 영역 (X,Y,W,H; 선택)","Static HUD region (X,Y,W,H; optional)");ModelLabel.Text=T("RIFE 모델","RIFE model");
         Advanced.Header=T("고급 설정","Advanced");HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 검증","Verify output");VerifyCheck.ToolTip=T("품질·프레임레이트·색상·오디오 동기를 검사합니다.","Check quality, frame rate, color and audio synchronization.");
         RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("변환 시작","Convert");CancelButton.Content=T("취소","Cancel");
-        OpenButton.Content=T("결과 열기","Open result");FolderButton.Content=T("폴더 열기","Open folder");UpdatesButton.ToolTip=T("업데이트","Updates");
+        OpenButton.Content=T("결과 열기","Open result");FolderButton.Content=T("폴더 열기","Open folder");UpdatesButton.ToolTip=T("업데이트","Updates");SettingsButton.ToolTip=T("설정","Settings");
         MinimizeButton.ToolTip=T("최소화","Minimize");MaximizeButton.ToolTip=T("최대화 / 복원","Maximize / restore");CloseButton.ToolTip=T("닫기","Close");BrowseButton.ToolTip=T("저장 폴더 선택","Choose output folder");
-        foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
+        foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton,SettingsButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
         System.Windows.Automation.AutomationProperties.SetName(EmptyPanel,T("영상 파일 선택","Choose video files"));
         OutputBox.ToolTip=T("비워 두면 원본 영상과 같은 폴더에 저장합니다.","Leave empty to save beside the source video.");
         foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(CodecBox,CodecLabel.Text),(DeviceBox,DeviceLabel.Text),
@@ -226,10 +242,21 @@ public partial class MainWindow:Window
             if(!File.Exists(file)||Entries.Any(x=>string.Equals(x.Input,file,StringComparison.OrdinalIgnoreCase)))continue;
             var entry=new QueueEntry(Path.GetFullPath(file),T){State="analyze"};Entries.Add(entry);QueueList.SelectedItem=entry;UpdateControls();
             try{entry.Analysis=await Task.Run(()=>pipeline.AnalyzeAsync(entry.Input,cancel:work.Token));entry.State="ready";
-                if(entry.Analysis.Source.HdrInput is { } hdr)Log(entry.Name+": "+T(ConversionPipeline.ToneMapNotice(hdr),$"HDR ({hdr.Name}) video is tone-mapped to SDR (BT.709, 8-bit) for conversion."));}
+                if(entry.Analysis.Source.HdrInput is { } hdr)Log(entry.Name+": "+T(ConversionPipeline.ToneMapNotice(hdr),$"HDR ({hdr.Name}) video is tone-mapped to SDR (BT.709, 8-bit) for conversion."));
+                _=LoadThumbnailAsync(entry);}
             catch(OperationCanceledException){entry.State="cancelled";}catch(Exception ex){entry.State="error";Log(entry.Name+": "+ex.Message);}
             entry.Refresh();
         }}finally{busy=false;work.Dispose();work=null;StatusText.Text=T("변환 준비","Ready");RefreshOptions();UpdateControls();ScheduleEstimate();if(closing)Close();}
+    }
+    // Loaded after analysis without holding up the queue; a failure simply keeps the placeholder icon.
+    private async Task LoadThumbnailAsync(QueueEntry entry){
+        if(entry.Analysis is not { } analysis)return;
+        try{
+            byte[] png=await Task.Run(()=>Thumbnail.CaptureAsync(paths,analysis.Source,256,lifetime.Token));
+            var image=new System.Windows.Media.Imaging.BitmapImage();
+            image.BeginInit();image.CacheOption=System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;image.StreamSource=new MemoryStream(png);image.EndInit();image.Freeze();
+            entry.Thumbnail=image;entry.Refresh();
+        }catch(Exception ex)when(ex is OperationCanceledException or IOException or TimeoutException or NotSupportedException or InvalidOperationException){}
     }
     public async Task RunQueueAsync(){
         if(busy||!ready)return;
@@ -271,7 +298,7 @@ public partial class MainWindow:Window
         EmptyPanel.IsEnabled=!busy;QueueCount.Text=Entries.Count.ToString();UpdateMetrics();
         SettingsPanel.IsEnabled=!busy;LanguageSwitch.IsEnabled=!busy;CancelButton.IsEnabled=work is not null||measuring;
         StartButton.IsEnabled=ready&&!busy&&!measuring&&Entries.Any(x=>x.Analysis is not null&&x.Output is null);
-        OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);UpdatesButton.IsEnabled=!busy;
+        OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);UpdatesButton.IsEnabled=!busy;SettingsButton.IsEnabled=!busy;
         if(!busy&&Entries.Count==0)StatusText.Text=T("영상을 추가해 주세요.","Add a video to begin.");
         RefreshEstimateText();
     }
@@ -290,6 +317,14 @@ public partial class MainWindow:Window
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();
+    private void SettingsClicked(object sender,RoutedEventArgs e){if(!busy)new SettingsWindow(this).ShowDialog();}
+    // Used by the settings window; changes apply immediately and are saved to settings.json.
+    internal Preferences Settings=>preferences;
+    internal bool Working=>busy||measuring;
+    internal string HardwareSummary=>HardwareText.Text;
+    internal void ChangeSettings(Func<Preferences,Preferences> change){preferences=change(preferences);Save();}
+    internal void ChangeLanguage(string value){if(value==language)return;SetLanguage(value,true);Translate();Save();}
+    internal Task CheckForUpdatesAsync()=>ShowUpdatesAsync();
     private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);MarkUpdate();}
         catch(OperationCanceledException){}catch(Exception ex){Log(T("업데이트 확인: ","Update check: ")+ex.Message);}}
     private void MarkUpdate(){if(availableRelease is null)return;UpdatesButton.ToolTip=T("업데이트 있음","Update available");UpdatesButton.Foreground=(Brush)new BrushConverter().ConvertFromString("#FF8C60")!;}
@@ -335,7 +370,8 @@ public partial class MainWindow:Window
     private void Save(){
         try{preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),Codec=Selected(CodecBox),
             Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),Quality=(int)QualitySlider.Value,
-            Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true};preferences.Save();}catch(Exception ex){Log(ex.Message);}
+            Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true,
+            CheckUpdates=preferences.CheckUpdates,CloseAction=preferences.CloseAction,MinimizeAction=preferences.MinimizeAction};preferences.Save();}catch(Exception ex){Log(ex.Message);}
     }
     private void OnClosing(object? sender,CancelEventArgs e){
         // Alt+F4 and the taskbar's "Close window" also go through the confirmation.

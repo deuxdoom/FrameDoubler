@@ -36,6 +36,12 @@ public static class TimeEstimates
         }catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){return false;}
         finally{if(temporary is not null&&File.Exists(temporary))File.Delete(temporary);}}
     }
+    // Settings → Data: how many measured profiles exist, and a reset that removes them all.
+    public static int Count(){
+        lock(gate){try{return File.Exists(ProfilePath)?(JsonSerializer.Deserialize<PerformanceProfile[]>(File.ReadAllText(ProfilePath))?.Count(Valid)??0):0;}
+        catch(Exception ex)when(ex is IOException or JsonException or UnauthorizedAccessException){return 0;}}
+    }
+    public static void Reset(){lock(gate){if(File.Exists(ProfilePath))File.Delete(ProfilePath);}}
     private static bool Valid(PerformanceProfile? x)=>x is not null&&x.WithVerification is not null&&x.WithoutVerification is not null&&x.DecodePerFrame>0&&double.IsFinite(x.DecodePerFrame)&&x.EncodePerFrame>0&&double.IsFinite(x.EncodePerFrame)
         &&x.InferencePerCall>=0&&double.IsFinite(x.InferencePerCall)&&x.WithVerification.Concat(x.WithoutVerification).All(v=>v>0&&double.IsFinite(v));
     public static string Key(params object?[] values)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))));
