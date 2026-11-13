@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from framedoubler import __version__, pipeline
+from framedoubler.settings import Settings, load_settings, save_settings
 
 
 TEXT = {
@@ -75,6 +76,7 @@ TEXT = {
                       "Duplicates {duplicates:.2%} · length difference {length:+.1f}ms"),
     "no_motion": ("분석 구간에 움직임이 없어 움직임 fps를 추정할 수 없습니다.",
                   "There is not enough motion in the sampled section to estimate its rate."),
+    "settings_error": ("설정을 저장하지 못했습니다.", "Could not save settings."),
 }
 
 STYLE = """
@@ -217,9 +219,11 @@ class ElidedLabel(QLabel):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, language="ko", output_dir=""):
+    def __init__(self, language=None, output_dir=None):
         super().__init__()
-        self.lang = language
+        preferences = load_settings()
+        self.lang = language or preferences.language
+        initial_output = output_dir if output_dir is not None else preferences.output_dir
         self.entries: list[QueueEntry] = []
         self._worker = None
         self._running = self._paused = self._closing = False
@@ -250,7 +254,7 @@ class MainWindow(QMainWindow):
         header.addLayout(heading, 1)
         self.language = QComboBox(objectName="languageCombo")
         self.language.addItems(["한국어", "English"])
-        self.language.setCurrentIndex(0 if language == "ko" else 1)
+        self.language.setCurrentIndex(0 if self.lang == "ko" else 1)
         self.language.setMinimumWidth(116)
         self.language.currentIndexChanged.connect(self.change_language)
         header.addWidget(self.language)
@@ -344,13 +348,15 @@ class MainWindow(QMainWindow):
         self.preset_combo = QComboBox(objectName="presetCombo")
         self.preset_combo.addItem("", "youtube")
         self.preset_combo.addItem("", None)
+        self.preset_combo.setCurrentIndex(0 if preferences.preset == "youtube" else 1)
         right.addWidget(self.preset_combo)
         right.addWidget(self.label("folder", "muted"))
         folder_row = QHBoxLayout()
         self.output_dir = QLineEdit(objectName="outputFolder")
         self.output_dir.textChanged.connect(self.output_dir.setToolTip)
         development_output = Path(r"F:\Temp\FrameDoubler\out")
-        self.output_dir.setText(output_dir or (str(development_output) if development_output.parent.exists() else ""))
+        self.output_dir.setText(initial_output if initial_output is not None else
+                                str(development_output) if development_output.parent.exists() else "")
         folder_row.addWidget(self.output_dir, 1)
         self.browse_button = self.button("browse", self.choose_folder)
         folder_row.addWidget(self.browse_button)
@@ -457,6 +463,27 @@ class MainWindow(QMainWindow):
         layout.addLayout(footer)
         self.retranslate()
         self.update_controls()
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(300)
+        self._save_timer.timeout.connect(self.save_preferences)
+        self.language.currentIndexChanged.connect(self.schedule_save)
+        self.preset_combo.currentIndexChanged.connect(self.schedule_save)
+        self.output_dir.textChanged.connect(self.schedule_save)
+
+    def schedule_save(self, *args):
+        self._save_timer.start()
+
+    def save_preferences(self):
+        folder = self.output_dir.text().strip()
+        if folder and not Path(folder).is_absolute():
+            folder = str(Path(folder).resolve())
+        preferences = Settings(preset="youtube" if self.preset_combo.currentData() == "youtube" else "default",
+                               output_dir=folder, language=self.lang)
+        try:
+            save_settings(preferences)
+        except OSError as exc:
+            self.set_status("settings_error", str(exc))
 
     def t(self, key, **values):
         return TEXT[key][0 if self.lang == "ko" else 1].format(**values)
@@ -817,14 +844,16 @@ class MainWindow(QMainWindow):
             self.cancel_job()
             event.ignore()
         else:
+            self._save_timer.stop()
+            self.save_preferences()
             event.accept()
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="framedoubler-gui")
     parser.add_argument("inputs", nargs="*")
-    parser.add_argument("--lang", choices=("ko", "en"), default="ko")
-    parser.add_argument("--output-dir", default="")
+    parser.add_argument("--lang", choices=("ko", "en"))
+    parser.add_argument("--output-dir")
     args = parser.parse_args(argv)
     app = QApplication.instance() or QApplication([sys.argv[0]])
     app.setApplicationName("FrameDoubler")

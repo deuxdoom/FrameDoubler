@@ -44,6 +44,11 @@ selected folder. The interface supports Korean and English, cancellation and
 explicit overwrite. Verification passed and conversion without verification are
 shown separately.
 
+The last preset, output folder and language are restored on restart. Preferences
+are stored at `%APPDATA%\FrameDoubler\settings.json`; set
+`FRAMEDOUBLER_CONFIG_DIR` to use another directory. Overwrite permission and the
+queue are reset on each launch.
+
 ```powershell
 framedoubler analyze input.mp4            # format, motion rate and processing plan
 framedoubler run -i input.mp4 --verify    # writes input_60fps.mp4 and checks it

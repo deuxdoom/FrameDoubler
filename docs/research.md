@@ -1,5 +1,11 @@
 # 기술 조사 기록
 
+## R14. GUI 설정과 재시작 (2026-11-13, P5-3)
+
+- 프리셋·출력 폴더·언어만 버전 1 JSON으로 저장하고, 같은 폴더의 임시 파일을 동기화한 뒤 원자적으로 교체합니다. 손상된 JSON, 새 버전, 알 수 없는 값은 기본값으로 복구합니다. 작업 대기열과 덮어쓰기 동의는 저장하지 않습니다.
+- 설정/GUI/CLI 39개 통과. 서로 다른 Qt GUI 프로세스에서 쓰기→정상 종료→재실행/읽기를 수행해 영어·HEVC 프리셋·한글 출력 경로가 유지됨을 확인했습니다. 테스트는 `FRAMEDOUBLER_CONFIG_DIR`로 F 드라이브에 격리합니다.
+- 저장 타이머 연결에 자기 참조 람다를 사용했을 때 Python 3.14/Qt 6.12 종료 시 접근 위반이 발생했습니다. 바인딩된 슬롯으로 바꾸고 전체 테스트 186개 및 별도 재시작 검사에서 종료 코드 0을 확인했습니다.
+
 ## R13. Windows GUI 실행 환경과 검증 (2026-11-13, P5-2)
 
 - [PySide6 Essentials 6.12.0](https://pypi.org/project/PySide6-Essentials/)의 Windows cp310-abi3 wheel과 Shiboken6을 Python 3.14.7에서 설치·실행했습니다. Qt Widgets/SVG만 사용하며 LGPL-3.0 동적 라이브러리 방식입니다. [Qt for Python](https://doc.qt.io/qtforpython-6/)의 라이선스와 배포 고지는 `THIRD_PARTY_NOTICES.md`에 반영했습니다.

@@ -73,8 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("output", help="converted video file")
     gui = sub.add_parser("gui", help="open the Windows desktop interface")
     gui.add_argument("inputs", nargs="*", help="videos to add to the queue")
-    gui.add_argument("--lang", choices=("ko", "en"), default="ko")
-    gui.add_argument("--output-dir", default="")
+    gui.add_argument("--lang", choices=("ko", "en"))
+    gui.add_argument("--output-dir")
     return parser
 
 
@@ -134,7 +134,8 @@ def _gui(args: argparse.Namespace) -> int:
         from framedoubler.gui import main as gui_main
     except ImportError as exc:
         raise RuntimeError("The desktop interface needs PySide6. Run scripts\\setup.ps1 or install .[gui].") from exc
-    return gui_main(["--lang", args.lang, "--output-dir", args.output_dir, *args.inputs])
+    options = (["--lang", args.lang] if args.lang else []) + (["--output-dir", args.output_dir] if args.output_dir is not None else [])
+    return gui_main([*options, *args.inputs])
 
 
 def main(argv: list[str] | None = None) -> int:
