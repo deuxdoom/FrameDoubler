@@ -16,6 +16,12 @@ class EncodeError(RuntimeError):
     pass
 
 
+def _seconds(value: Fraction) -> str:
+    """Decimal seconds for FFmpeg, without floating-point timestamp calculations."""
+    whole, sub = divmod(round(abs(value) * 1_000_000_000), 1_000_000_000)
+    return f"{'-' if value < 0 else ''}{whole}.{sub:09d}"
+
+
 @dataclass(frozen=True)
 class EncodeSettings:
     # None selects HEVC normally, H.264 for the YouTube preset.
@@ -80,6 +86,9 @@ class Encoder:
                 raise EncodeError("The YouTube preset requires an .mp4 output file.")
         if source.bit_depth > 8 and codec == "h264_nvenc":
             raise EncodeError("H.264 10-bit encoding is not supported on RTX 4080 SUPER; choose HEVC or AV1.")
+        video_start = source.pts[0] * source.time_base
+        origin = min([video_start, *(stream.start for stream in source.audio)])
+        video_offset = video_start - origin
         self.output = Path(output)
         self._frames = 0
         deep = source.bit_depth > 8
@@ -111,29 +120,30 @@ class Encoder:
             video_args = ["-g", str(max(1, round(fps / 2))), "-flags", "+cgop"]
             if codec == "h264_nvenc":
                 video_args += ["-profile:v", "high", "-bf", "2", "-b_adapt", "0", "-coder", "cabac"]
-            audio_args = ["-c:a", "aac", "-profile:a", "aac_low", "-ar:a", "48000"]
+            audio_args = ["-c:a", "aac", "-profile:a", "aac_low", "-ar:a", "48000",
+                          "-af", "aresample=async=1:first_pts=0"]
             for i, stream in enumerate(source.audio):
                 channels = stream.channels if stream.channels in (1, 2, 6) else 2
                 audio_args += [f"-ac:a:{i}", str(channels), f"-b:a:{i}",
                                str({1: 128_000, 2: 384_000, 6: 512_000}[channels])]
         cmd = [
-            ffmpeg_path(), "-y", "-nostdin", "-loglevel", "error",
+            ffmpeg_path(), "-y", "-nostdin", "-loglevel", "error", "-copyts",
             "-f", "rawvideo", "-pix_fmt", "rgb48le" if deep else "rgb24",
             "-s", f"{source.width}x{source.height}",
-            "-r", f"{fps.numerator}/{fps.denominator}", "-i", "-",
-            "-i", str(source.path),
+            "-framerate", f"{fps.numerator}/{fps.denominator}", "-itsoffset", _seconds(video_offset), "-i", "-",
+            "-itsoffset", _seconds(-origin), "-i", str(source.path),
             "-map", "0:v:0", "-map", "1:a?",
             "-vf", colour_filter,
             "-c:v", codec, "-preset", settings.preset, "-tune", "hq",
             "-rc", "vbr", *rate_args, *video_args,
             *colour_args,
-            "-fps_mode", "cfr",
+            "-fps_mode", "passthrough",
             *audio_args,
             "-movflags", "+faststart",
             str(self.output),
         ]
         if duration is not None:
-            cmd[-1:-1] = ["-t", f"{float(duration):.6f}"]
+            cmd[-1:-1] = ["-t", _seconds(video_offset + duration)]
         if codec == "hevc_nvenc":
             cmd[-1:-1] = ["-tag:v", "hvc1"]  # required for playback in Apple software
         self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)

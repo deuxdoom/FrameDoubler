@@ -21,6 +21,9 @@ class AudioStream:
     codec: str
     channels: int
     sample_rate: int
+    start: Fraction = Fraction(0)
+    duration: Fraction | None = None
+    time_base: Fraction = Fraction(1)
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,14 @@ def _bit_depth(stream: dict) -> int:
     return 8
 
 
+def _stream_time(stream: dict, name: str) -> Fraction | None:
+    ticks = stream.get("start_pts" if name == "start_time" else "duration_ts")
+    if ticks not in (None, "N/A"):
+        return int(ticks) * _fraction(stream.get("time_base"))
+    value = stream.get(name)
+    return _fraction(value) if value not in (None, "N/A") else None
+
+
 def probe(path: str | Path) -> VideoInfo:
     path = Path(path)
     if not path.is_file():
@@ -130,7 +141,8 @@ def probe(path: str | Path) -> VideoInfo:
         is_hdr=transfer in _HDR_TRANSFERS,
         audio=tuple(
             AudioStream(int(s["index"]), s.get("codec_name", ""), int(s.get("channels", 0)),
-                        int(s.get("sample_rate", 0)))
+                        int(s.get("sample_rate", 0)), _stream_time(s, "start_time") or Fraction(0),
+                        _stream_time(s, "duration"), _fraction(s.get("time_base")))
             for s in streams if s.get("codec_type") == "audio"
         ),
         pts=pts,
