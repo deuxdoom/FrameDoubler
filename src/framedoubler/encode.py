@@ -85,9 +85,24 @@ class Encoder:
         deep = source.bit_depth > 8
         self._dtype = np.dtype("<u2") if deep else np.dtype(np.uint8)
         self._shape = (source.height, source.width, 3)
-        # SDR output is always tagged BT.709, converting from RGB with the matching matrix.
-        matrix = "bt709"
+        # Match the decoded YUV matrix/range when converting RGB back to video.
+        matrix = {"bt2020nc": "bt2020", "bt2020ncl": "bt2020"}.get(source.color_space, source.color_space)
+        colour_filter = f"scale=out_range={'pc' if source.color_range == 'pc' else 'tv'}"
+        if matrix and matrix not in ("unknown", "unspecified"):
+            colour_filter += f":out_color_matrix={matrix}"
+        colour_args = []
+        colour_params = []
+        for flag, value in (("-colorspace", source.color_space), ("-color_primaries", source.color_primaries),
+                            ("-color_trc", source.color_transfer), ("-color_range", source.color_range)):
+            if value and value not in ("unknown", "unspecified"):
+                colour_args += [flag, value]
+                name = {"-colorspace": "colorspace", "-color_primaries": "color_primaries",
+                        "-color_trc": "color_trc", "-color_range": "range"}[flag]
+                colour_params.append(f"{name}={value if name != 'range' else ('full' if value == 'pc' else 'limited')}")
         pix_fmt = "p010le" if deep else "yuv420p"
+        colour_filter += f",format={pix_fmt}"
+        if colour_params:
+            colour_filter += ",setparams=" + ":".join(colour_params)
         rate_args = (["-b:v", str(bitrate)] if bitrate is not None else
                      ["-cq", str(settings.quality if settings.quality is not None else 19), "-b:v", "0"])
         video_args = []
@@ -108,10 +123,10 @@ class Encoder:
             "-r", f"{fps.numerator}/{fps.denominator}", "-i", "-",
             "-i", str(source.path),
             "-map", "0:v:0", "-map", "1:a?",
-            "-vf", f"scale=out_color_matrix={matrix}:out_range=tv,format={pix_fmt}",
+            "-vf", colour_filter,
             "-c:v", codec, "-preset", settings.preset, "-tune", "hq",
             "-rc", "vbr", *rate_args, *video_args,
-            "-colorspace", matrix, "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+            *colour_args,
             "-fps_mode", "cfr",
             *audio_args,
             "-movflags", "+faststart",
