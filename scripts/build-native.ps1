@@ -78,7 +78,9 @@ $SourceFiles=@(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'app'),(Join-P
     })
 $Revision=(& git -C $ProjectRoot rev-parse HEAD).Trim()
 $SourceDirty=[bool](& git -C $ProjectRoot status --porcelain -- app poc/ncnn-rife scripts/build-native.ps1)
-$Manifest=[ordered]@{format='framedoubler-native-v1';version='2.0.0';runtime='win-x64 self-contained .NET 10';source_commit=$Revision;source_dirty=$SourceDirty;source_files=$SourceFiles;created_utc=[DateTime]::UtcNow.ToString('o');bytes_without_manifest=$Total;files=$Inventory}
+$AppVersion=([xml](Get-Content -LiteralPath (Join-Path $ProjectRoot 'app\Directory.Build.props') -Raw)).Project.PropertyGroup.Version
+if($AppVersion -notmatch '^\d+\.\d+\.\d+$'){throw "Invalid application version: $AppVersion"}
+$Manifest=[ordered]@{format='framedoubler-native-v1';version=$AppVersion;runtime='win-x64 self-contained .NET 10';source_commit=$Revision;source_dirty=$SourceDirty;source_files=$SourceFiles;created_utc=[DateTime]::UtcNow.ToString('o');bytes_without_manifest=$Total;files=$Inventory}
 $Manifest|ConvertTo-Json -Depth 7 | Set-Content -LiteralPath (Join-Path $Destination 'manifest.json') -Encoding utf8
 $Zip=$Destination+'.zip'
 if(Test-Path -LiteralPath $Zip){throw "Archive already exists: $Zip"}

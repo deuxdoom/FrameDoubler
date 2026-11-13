@@ -13,10 +13,13 @@ public sealed record StagedUpdate(string Directory,Version Version);
 public static class Updates
 {
     public const string ReleasePage="https://github.com/deuxdoom/FrameDoubler/releases/latest";
-    public static Version Current{get;}=new(2,0,0);
+    // The assembly version comes from <Version> in app/Directory.Build.props (single source of truth).
+    public static Version Current{get;}=FromAssembly();
+    private static Version FromAssembly(){var v=typeof(Updates).Assembly.GetName().Version??new Version(0,0,0);return new(v.Major,v.Minor,Math.Max(0,v.Build));}
+    private static string UserAgent=>$"FrameDoubler/{Current}";
     private const long MaximumBytes=640L*1024*1024;
     public static async Task<UpdateRelease?> CheckAsync(CancellationToken cancel=default){
-        using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(10)};client.DefaultRequestHeaders.UserAgent.ParseAdd("FrameDoubler/2.0.0");
+        using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(10)};client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
         using var response=await client.GetAsync("https://api.github.com/repos/deuxdoom/FrameDoubler/releases/latest",cancel);
         if(response.StatusCode==System.Net.HttpStatusCode.NotFound)return null;
         response.EnsureSuccessStatusCode();return Parse(await response.Content.ReadAsStringAsync(cancel));
@@ -55,7 +58,7 @@ public static class Updates
         string cache=Path.Combine(EncoderDetector.WorkRoot,"updates");Directory.CreateDirectory(cache);
         string file=Path.Combine(cache,$"{Guid.NewGuid():N}.zip");
         try{
-            using var client=new HttpClient{Timeout=TimeSpan.FromMinutes(10)};client.DefaultRequestHeaders.UserAgent.ParseAdd("FrameDoubler/2.0.0");
+            using var client=new HttpClient{Timeout=TimeSpan.FromMinutes(10)};client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
             using var response=await client.GetAsync(release.AssetUrl,HttpCompletionOption.ResponseHeadersRead,cancel);response.EnsureSuccessStatusCode();
             using(var output=File.Create(file)){
                 using var input=await response.Content.ReadAsStreamAsync(cancel);byte[] buffer=new byte[131072];long count=0;
