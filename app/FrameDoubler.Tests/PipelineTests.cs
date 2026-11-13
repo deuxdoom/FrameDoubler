@@ -32,6 +32,14 @@ internal static class PipelineTests
         string repeat120=Path.Combine(root,"repeat120.mp4");
         await FF("-i",source,"-vf","fps=120","-c:v","libopenh264","-b:v","2M","-c:a","copy",repeat120);
         assert(!(await Verifier.VerifyAsync(paths,source,repeat120,120)).Ok,"120fps repeated frames must still fail verification");
+        string cuts=Path.Combine(root,"cuts-static-motion.mp4");
+        await FF("-f","lavfi","-i","color=black:s=320x180:r=30:d=0.2","-f","lavfi","-i","color=white:s=320x180:r=30:d=0.2",
+            "-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=0.8","-filter_complex","[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]","-map","[v]","-c:v","libopenh264","-b:v","2M",cuts);
+        var cutResult=await pipeline.RunAsync(cuts,Path.Combine(root,"cuts-static-motion60.mp4"),options);
+        assert(cutResult.SceneCuts>=1&&cutResult.Verification is {Ok:true,ExpectedContentHolds:>0,DuplicateRatio:>.01},"Source-proven cut/static holds are reported separately without false quality failure");
+        string repeatedCuts=Path.Combine(root,"cuts-repeated60.mp4");
+        await FF("-i",cuts,"-vf","fps=60","-c:v","libopenh264","-b:v","2M",repeatedCuts);
+        assert(!(await Verifier.VerifyAsync(paths,cuts,repeatedCuts,60)).Ok,"A clip with genuine cuts still rejects repeated moving frames");
         var high=await pipeline.RunAsync(source,Path.Combine(root,"120.mp4"),options with{Fps=120,Model="v4.26"});
         assert(high.Frames==240&&high.Verification?.Fps==120&&high.Verification.Problems.All(x=>x.Contains("moving frames remain duplicates",StringComparison.Ordinal)),
             "120fps exact timeline; preserve and expose any heuristic quality warning");

@@ -4,7 +4,7 @@ namespace FrameDoubler.Core;
 
 public sealed record VerificationReport(Rational Fps,Rational ExpectedFps,long Frames,double DurationDifference,
     double DuplicateRatio,double InputDuplicateRatio,double MaximumSyncError,List<string> Problems,
-    double EvaluatedDuplicateRatio=0,int ExpectedTerminalHolds=0)
+    double EvaluatedDuplicateRatio=0,int ExpectedTerminalHolds=0,int ExpectedContentHolds=0)
 {public bool Ok=>Problems.Count==0;}
 
 public static class Verifier
@@ -13,7 +13,7 @@ public static class Verifier
     {
         var source=await MediaProbe.ReadAsync(paths,input,cancel);var dest=await MediaProbe.ReadAsync(paths,output,cancel);
         Rational fps=expected??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
-        var before=await CountAsync(paths,source,1,cancel);
+        var before=await CountAsync(paths,source,1,cancel,dest.Fps);
         float threshold=(float)Math.Min(1,60/dest.Fps.ToDouble());
         var after=await CountAsync(paths,dest,threshold,cancel);
         var problems=new List<string>();double tolerance=1.01/fps.ToDouble();
@@ -22,14 +22,17 @@ public static class Verifier
         // only actual trailing duplicates within that exact unavoidable span.
         int expectedHolds=(int)Math.Max(0,((source.Duration-before.LastKept)*dest.Fps).Ceiling()-1);
         int ignored=Math.Min(expectedHolds,after.TrailingDuplicates);
-        double evaluated=(double)Math.Max(0,after.Duplicate-ignored)/Math.Max(1,after.Unique+after.Duplicate-ignored);
+        // Only actual output duplicates at input-proven cut/static hold positions
+        // are exempt. Repeated moving frames outside those positions still fail.
+        int contentHolds=after.DuplicateIndices.Count(x=>x<dest.Pts.Length-ignored&&before.ContentHolds.Contains(x));
+        double evaluated=(double)Math.Max(0,after.Duplicate-ignored-contentHolds)/Math.Max(1,after.Unique+after.Duplicate-ignored-contentHolds);
         double difference=(dest.Duration-source.Duration).ToDouble();
         if(dest.Fps!=fps)problems.Add($"Frame rate {dest.Fps}, expected {fps}");
         if(Math.Abs(difference)>tolerance)problems.Add($"Duration changed by {difference*1000:F2}ms");
         foreach(var (name,a,b) in new[]{("matrix",source.ColorSpace,dest.ColorSpace),("primaries",source.ColorPrimaries,dest.ColorPrimaries),
             ("transfer",source.ColorTransfer,dest.ColorTransfer),("range",source.ColorRange,dest.ColorRange)})
             if(a is not (null or "" or "unknown" or "unspecified")&&a!=b)problems.Add($"Color {name} changed: {a} -> {b}");
-        if(evaluated>.01&&(before.Unique>1||after.Unique>1||after.Static==0))problems.Add($"{evaluated:P2} of moving frames remain duplicates (excluding {ignored} required terminal holds)");
+        if(evaluated>.01&&(before.Unique>1||after.Unique>1||after.Static==0))problems.Add($"{evaluated:P2} of moving frames remain duplicates (excluding {ignored} terminal and {contentHolds} scene/static holds)");
         if(source.Audio.Length!=dest.Audio.Length)problems.Add("Audio track count changed");
         var inAudio=await AudioAsync(paths,source,cancel);var outAudio=await AudioAsync(paths,dest,cancel);
         double maxError=0;
@@ -45,18 +48,30 @@ public static class Verifier
             }
         }
         if(maxError>tolerance)problems.Add($"Audio/video synchronization changed by {maxError*1000:F2}ms");
-        return new(dest.Fps,fps,dest.Pts.Length,difference,after.Ratio,before.Ratio,maxError,problems,evaluated,ignored);
+        return new(dest.Fps,fps,dest.Pts.Length,difference,after.Ratio,before.Ratio,maxError,problems,evaluated,ignored,contentHolds);
     }
-    private static async Task<(int Unique,int Duplicate,int Static,double Ratio,Rational LastKept,int TrailingDuplicates)> CountAsync(AppPaths paths,MediaInfo info,float scale,CancellationToken cancel){
+    private sealed record Scan(int Unique,int Duplicate,int Static,Rational LastKept,int TrailingDuplicates,HashSet<long> DuplicateIndices,HashSet<long> ContentHolds){public double Ratio=>(double)Duplicate/Math.Max(1,Unique+Duplicate);}
+    private static async Task<Scan> CountAsync(AppPaths paths,MediaInfo info,float scale,CancellationToken cancel,Rational? outputFps=null){
         var detector=new CadenceDetector(4*scale,.5f*scale,.5f*scale);int unique=0,duplicate=0,still=0;
         Rational pending=0,lastKept=0;int trailing=0;
+        int pendingIndex=0;Signature? pendingSignature=null;float[]? leftScene=null;Rational leftTime=0;FrameLabel leftLabel=FrameLabel.Unique;
+        var duplicateIndices=new HashSet<long>();var contentHolds=new HashSet<long>();
         void Count(FrameLabel? label){
             if(!label.HasValue)return;
             if(label==FrameLabel.Unique)unique++;else if(label==FrameLabel.Duplicate)duplicate++;else still++;
+            if(label==FrameLabel.Duplicate)duplicateIndices.Add(pendingIndex);
+            if(outputFps is {} fps&&label!=FrameLabel.Duplicate){
+                float[] scene=pendingSignature!.Descriptor();
+                bool hold=label==FrameLabel.Static||leftScene is not null&&Signature.CutScore(leftScene,scene)>.35f;
+                if(leftScene is not null)foreach(var (index,position) in Timeline.Steps(leftTime,pending,fps)){
+                    if(position==0&&leftLabel==FrameLabel.Static||position>0&&position<1&&hold)contentHolds.Add(index);
+                }
+                leftScene=scene;leftTime=pending;leftLabel=label.Value;
+            }
             if(label==FrameLabel.Duplicate)trailing++;else{trailing=0;lastKept=pending;}
         }
-        await foreach(var frame in Decoder.FramesAsync(paths,info,cancel:cancel)){using(frame){Count(detector.Push(Signature.Create(frame,info)));pending=frame.Time;}}
-        Count(detector.Flush());return(unique,duplicate,still,(double)duplicate/Math.Max(1,unique+duplicate),lastKept,trailing);
+        await foreach(var frame in Decoder.FramesAsync(paths,info,cancel:cancel)){using(frame){var signature=Signature.Create(frame,info);Count(detector.Push(signature));pending=frame.Time;pendingSignature=signature;pendingIndex=frame.Index;}}
+        Count(detector.Flush());return new(unique,duplicate,still,lastKept,trailing,duplicateIndices,contentHolds);
     }
     private sealed record Segment(Rational Start,Rational Length);
     private static async Task<List<Segment>[]> AudioAsync(AppPaths paths,MediaInfo info,CancellationToken cancel){

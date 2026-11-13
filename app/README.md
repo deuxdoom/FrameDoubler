@@ -37,8 +37,9 @@ controls encoding; quality scales differ by encoder. The automatic codec respect
 input bit depth and available encoders. YouTube defaults to H.264 when available.
 For >60fps output, low-motion/low-resolution footage can raise a heuristic quality
 warning; a completed file is kept for review and the CLI returns 2. Structural
-timing/audio/color errors stop finalization. Required final-source holds are
-reported separately from residual moving duplicates.
+timing/audio/color errors stop finalization. Actual duplicates at input-proven
+scene/static hold positions and required final-source holds are reported separately
+from residual moving duplicates. The 1% moving-duplicate limit is unchanged.
 
 Native settings use `%APPDATA%/FrameDoubler/native-settings.json`; legacy settings
 are read for initial migration and not overwritten. Minimize to the tray to keep
