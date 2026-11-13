@@ -64,7 +64,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
   <img src="docs/media/compare.gif" alt="왼쪽 원본은 같은 자세가 두 프레임씩 반복되고, 오른쪽 FrameDoubler 결과는 매 프레임 자세가 바뀝니다." width="800">
 </p>
 
-Fire Emblem Fortunes Weave의 4K 녹화(60fps)에서 같은 구간을 0.42배 속도(초당 25프레임)로 재생하여 모든 프레임을 보여 줍니다. 왼쪽 원본은 같은 그림이 두 번씩 나오고, 오른쪽 결과는 프레임마다 움직입니다. 실제 속도의 비교는 [소개 페이지](https://deuxdoom.github.io/FrameDoubler/)에서 볼 수 있습니다.
+파이어엠블렘 만자천홍의 4K 녹화(60fps)에서 같은 구간을 0.42배 속도(초당 25프레임)로 재생하여 모든 프레임을 보여 줍니다. 왼쪽 원본은 같은 그림이 두 번씩 나오고, 오른쪽 결과는 프레임마다 움직입니다. 실제 속도의 비교는 [소개 페이지](https://deuxdoom.github.io/FrameDoubler/)에서 볼 수 있습니다.
 
 <a id="requirements"></a>
 
@@ -118,7 +118,7 @@ Fire Emblem Fortunes Weave의 4K 녹화(60fps)에서 같은 구간을 0.42배 �
 
 | 항목 | 결과 |
 | --- | --- |
-| 입력 | Fire Emblem Fortunes Weave 녹화, 3840×2160, 60fps, 1,283프레임, 약 21.39초 |
+| 입력 | 파이어엠블렘 만자천홍 녹화, 3840×2160, 60fps, 1,283프레임, 약 21.39초 |
 | 추정한 실제 움직임 | 29.81fps |
 | 출력 | 60fps, 1,283프레임 (새로 만든 프레임 610장) |
 | 남은 움직임 중복 | 0.48% (기준 1% 이하) |
