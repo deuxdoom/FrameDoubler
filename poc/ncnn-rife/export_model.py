@@ -32,9 +32,22 @@ class ExportNet(_IFNet):
     def __init__(self):
         super().__init__()
         self.sampler = Warp()
+        self.pre_resize = False
 
     def _warp(self, image, flow):
         return self.sampler(image, flow)
+
+    def _block(self, block, parts, flow, scale):
+        if not self.pre_resize:
+            return block(torch.cat(parts, 1), flow, scale)
+        # Bilinear resize is channel-independent: resizing before concatenation
+        # avoids allocating a full-resolution 15/24-channel intermediate.
+        small = [F.interpolate(p, scale_factor=1. / scale, mode="bilinear", align_corners=False) for p in parts]
+        if flow is not None:
+            small.append(F.interpolate(flow, scale_factor=1. / scale, mode="bilinear", align_corners=False) / scale)
+        output = block.lastconv(block.convblock(block.conv0(torch.cat(small, 1))))
+        output = F.interpolate(output, scale_factor=scale, mode="bilinear", align_corners=False)
+        return output[:, :4] * scale, output[:, 4:5], output[:, 5:]
 
     def forward(self, first, second, time_image):
         scales = [value / self.scale for value in (16, 8, 4, 2, 1)]
@@ -43,12 +56,12 @@ class ExportNet(_IFNet):
         left, right = first, second
         for block, scale in zip((self.block0, self.block1, self.block2, self.block3, self.block4), scales):
             if flow is None:
-                flow, mask, feat = block(torch.cat((first, second, f0, f1, time_image), 1), None, scale)
+                flow, mask, feat = self._block(block, (first, second, f0, f1, time_image), None, scale)
             else:
                 features0 = self._warp(f0, flow[:, :2])
                 features1 = self._warp(f1, flow[:, 2:4])
-                delta, mask, feat = block(torch.cat((left, right, features0, features1,
-                                                    time_image, mask, feat), 1), flow, scale)
+                delta, mask, feat = self._block(block, (left, right, features0, features1,
+                                                       time_image, mask, feat), flow, scale)
                 flow = flow + delta
             left = self._warp(first, flow[:, :2])
             right = self._warp(second, flow[:, 2:4])
@@ -61,6 +74,7 @@ def main():
     parser.add_argument("--model", choices=MODELS, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scale", type=float, choices=(.5, 1.), default=1.)
+    parser.add_argument("--pre-resize", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     path = ensure_model(args.model)
@@ -69,6 +83,7 @@ def main():
         raise RuntimeError("Official weight checksum mismatch")
     model = ExportNet().eval()
     model.scale = args.scale
+    model.pre_resize = args.pre_resize
     state = {k.removeprefix("module."): v for k, v in torch.load(path, weights_only=True, map_location="cpu").items()}
     missing, unused = model.load_state_dict(state, strict=False)
     if missing:
@@ -89,6 +104,7 @@ def main():
     (args.output / "provenance.json").write_text(json.dumps({
         "model": args.model, "source_sha256": actual, "source": "Practical-RIFE official MIT weights",
         "scale": args.scale,
+        "pre_resize": args.pre_resize,
         "ignored_training_keys": unused, "pnnx": "20261020", "torch": torch.__version__,
     }, indent=2), encoding="utf-8")
 

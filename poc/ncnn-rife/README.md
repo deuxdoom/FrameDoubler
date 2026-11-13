@@ -71,13 +71,16 @@ Python이 보간하거나 프레임을 중계하지 않습니다. FFmpeg 설정 
 ## 실행 계약
 
 ```text
-rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 gpu|cpu [SCALE] [sequence]
+rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 auto|gpu:INDEX|cpu [SCALE] [rgb16] [sequence]
 ```
 
-- 실제 검증/지원 경로는 `gpu`입니다. 사용자 정의 warp의 CPU 실행은 실패하도록 만들어
-  의도치 않은 CPU 대체 실행을 숨기지 않습니다. 모든 비구조 레이어의 Vulkan 지원도 확인합니다.
+- `--hardware`는 CPU/논리 프로세서와 Vulkan 장치·기능·메모리를 JSON으로 반환합니다.
+  `gpu`는 자동 GPU 선택의 호환 별칭이며 수동 선택은 `gpu:INDEX`입니다. CPU warp와
+  FP32 대체를 구현했습니다. Vulkan 요청에서는 비구조 레이어의 GPU 지원을 검사합니다.
 - 입력/출력은 색상 변환 없는 packed RGB24입니다. 추론 시 planar RGB/255, replicate padding,
   dense timestep을 사용합니다. 1080p/1440p scale=1, 4K scale=0.5, 정렬은 64/scale입니다.
+- `rgb16`은 little-endian RGB48 입출력(6바이트/화소), FP32 저장/연산 경로입니다.
+  FP16 저장은 실제 장치 기능 확인 후에만 사용합니다. CPU 대체는 크게 느릴 수 있습니다.
 - 기본 요청 모드: `P` 한 바이트, little-endian float32 timestep, RGB A, RGB B를 stdin에 씁니다.
   stdout은 little-endian float64 시간 세 개(준비/extract/후처리), RGB 중간 프레임입니다.
   `Q` 또는 EOF로 종료합니다. 프레임 크기는 WIDTH×HEIGHT×3바이트입니다.
@@ -86,7 +89,9 @@ rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 gpu|cpu [SCALE] [sequence]
 - 버전/scale 조합에 맞는 모델을 지정해야 합니다. 패키지의 모델 폴더는 scale=0.5일 때
   `rife-s05.ncnn.param`을 선택하며 같은 `rife.ncnn.bin`을 공유합니다.
 - HDR/10비트/VFR/오디오/취소/GUI 연동과 장시간 사용은 이 PoC의 완료 범위가 아닙니다.
-  안전한 배포 API·성능 목표 달성·최종 앱 배포 검증도 후속 작업입니다.
+  현재 C# 공통 파이프라인과 GUI/배포는 `app/`에서 이 계약을 사용합니다. 성능 목표와
+  다른 실제 장비의 검증은 `PROGRESS.md`의 상태를 따릅니다. `--pre-resize` 변환 옵션은
+  채널별 resize/concat 순서 교환의 개발 실험이며 현재 배포 모델에는 적용하지 않았습니다.
 
 모든 자체 코드는 저장소의 MIT 라이선스를 따릅니다. 패키지에 ncnn/glslang/LLVM·MinGW runtime/
 Practical-RIFE 고지를 함께 넣습니다. 외부 구성 요소의 실제 고지는 패키지 `licenses/`를 확인합니다.
