@@ -1,5 +1,11 @@
 # 기술 조사 기록
 
+## R12. 공개 보간 엔진 활용 범위 확인 (2026-11-13, 사용자 확인 요청)
+
+- 현재 연결된 엔진은 [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) v4.25/v4.26입니다. 공식 구조에 맞춘 추론 코드를 PyTorch/CUDA에서 실행하고 공식 학습 완료 가중치를 SHA-256 검증 후 불러옵니다. 가중치와 코드의 MIT 고지는 `THIRD_PARTY_NOTICES.md`에 있습니다. 앱의 독립 개발은 보간 모델까지 자체 학습했다는 뜻이 아닙니다.
+- 사용자가 제시한 원본 [RIFE](https://github.com/hzwer/ECCV2022-RIFE)도 개발자에게 Practical-RIFE를 안내합니다. [RIFE-NCNN](https://github.com/nihui/rife-ncnn-vulkan)은 같은 RIFE 계열을 ncnn/Vulkan에서 실행하는 다른 구현이며 현재 사용하지 않습니다. DAIN-NCNN·FLAVR·XVFI도 현재 연결하지 않았습니다.
+- Video2X/Flowframes는 앱 구조와 문제 사례의 참고 자료이며 그 앱들의 코드를 가져오지 않습니다. 공개 모델·런타임 활용과 독립적인 녹화 처리·GUI 개발은 함께 적용하는 정책입니다.
+
 ## R11. 고정 HUD 보호 (2026-11-13, P4-4)
 
 - 두 원본에서 같은 RGB 화소를 원본으로 복원하면 고정 HUD의 보간 오차를 없앨 수 있습니다. 단, 화면 전체의 동일 화소는 정지 영역과 같지 않습니다. 양 끝 프레임에는 배경이지만 중간에는 물체가 지나가는 위치를 복원하면 물체가 지워집니다. 따라서 사용자가 지정하는 고정 HUD 사각형 안에서만 선택적으로 적용하고 기본값은 꺼둡니다. 바뀌는 HUD 화소는 보간합니다.

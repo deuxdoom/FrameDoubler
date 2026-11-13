@@ -4,6 +4,11 @@ RIFE frame interpolation for 30fps game captures. FrameDoubler detects the dupli
 frames in a 59.94/60fps recording of a 30fps game, restores the original motion, and
 interpolates it to real 60fps video for upload.
 
+Interpolation uses the pretrained [Practical-RIFE](https://github.com/hzwer/Practical-RIFE)
+models through an inference-only PyTorch/CUDA implementation. FrameDoubler's
+capture analysis, timeline, processing pipeline and user interface are developed
+independently. Model and dependency notices are in `THIRD_PARTY_NOTICES.md`.
+
 Status: the command line converter works; the GUI is not built yet. See `plan.md` for the design and `todo.md` for progress.
 
 ## Requirements
