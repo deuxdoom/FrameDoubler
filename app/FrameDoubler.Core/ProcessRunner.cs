@@ -23,10 +23,12 @@ public static class ProcessRunner
         limit.CancelAfter(timeout ?? TimeSpan.FromSeconds(30));
         using var process = new Process { StartInfo = StartInfo(executable, arguments) };
         if (!process.Start()) throw new IOException($"Cannot start {executable}");
+        using var terminate=limit.Token.Register(()=>{try{if(!process.HasExited)process.Kill(entireProcessTree:true);}catch(InvalidOperationException){} });
         var output = process.StandardOutput.ReadToEndAsync(limit.Token);
         var error = process.StandardError.ReadToEndAsync(limit.Token);
         try {
             await process.WaitForExitAsync(limit.Token);
+            limit.Token.ThrowIfCancellationRequested();
             return new(process.ExitCode, await output, await error);
         } catch {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }

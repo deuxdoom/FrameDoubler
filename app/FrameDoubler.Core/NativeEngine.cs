@@ -35,6 +35,7 @@ public sealed class NativeEngine : IAsyncDisposable
         await gate.WaitAsync(cancel);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancel);
         deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        using var terminate=deadline.Token.Register(Kill);
         try {
             var input = process.StandardInput.BaseStream;
             byte[] command = new byte[5]; command[0] = (byte)'P';
@@ -54,6 +55,7 @@ public sealed class NativeEngine : IAsyncDisposable
             throw;
         } catch (IOException) {
             Kill();
+            if(deadline.IsCancellationRequested){cancel.ThrowIfCancellationRequested();throw new TimeoutException("Native inference timed out");}
             string text = await errors;
             throw new IOException("Native inference failed: " + (text.Length > 4000 ? text[^4000..] : text));
         } finally { gate.Release(); }

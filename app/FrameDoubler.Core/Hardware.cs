@@ -82,21 +82,24 @@ public static class HardwareDetector
         foreach (var gpu in inventory.Gpus) {
             cancel.ThrowIfCancellationRequested();
             if (!gpu.SupportsWarp) { devices.Add(gpu with { InferencePassed = false, Error = "Required compute size unsupported" }); continue; }
+            using var probe=CancellationTokenSource.CreateLinkedTokenSource(cancel);
+            probe.CancelAfter(TimeSpan.FromSeconds(30));
             try {
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 await using var engine = new NativeEngine(paths, "v4.25", 160, 90,
                     new($"gpu:{gpu.Index}", gpu.Fp16Storage && gpu.Fp16Arithmetic, "probe", gpu), 1);
                 byte[] first = new byte[160*90*3], second = new byte[first.Length];
                 for (int i = 0; i < first.Length; ++i) { first[i] = (byte)(i % 251); second[i] = (byte)((i+17) % 251); }
-                await engine.InterpolateAsync(first, second, .5f, cancel);
+                await engine.InterpolateAsync(first, second, .5f, probe.Token);
                 double total = 0;
                 for (int i = 0; i < 3; ++i) {
                     watch.Restart();
-                    await engine.InterpolateAsync(first, second, .5f, cancel);
+                    await engine.InterpolateAsync(first, second, .5f, probe.Token);
                     total += watch.Elapsed.TotalMilliseconds;
                 }
                 devices.Add(gpu with { InferencePassed = true, MeasuredMilliseconds = total / 3 });
-            } catch (OperationCanceledException) { throw; }
+            } catch (OperationCanceledException) when(!cancel.IsCancellationRequested) { devices.Add(gpu with{InferencePassed=false,Error="Device inference probe timed out"}); }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex) { devices.Add(gpu with { InferencePassed = false, Error = ex.Message }); }
         }
         return inventory with { Gpus = devices };
