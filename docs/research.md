@@ -1,5 +1,14 @@
 # 기술 조사 기록
 
+## R18. 로컬 Windows 패키지 후보 (2026-11-13, P6-5 준비 부분)
+
+- [PyInstaller 6.22.3](https://pypi.org/project/pyinstaller/6.22.3/)의 Python 3.14 지원과 [폴더 번들 spec](https://pyinstaller.org/en/stable/spec-files.html)을 확인했습니다. GUI/CLI 실행 파일이 동일 `_internal` 런타임을 사용합니다. FFmpeg는 `tools/ffmpeg/bin`, Qt 동적 라이브러리는 `_internal/PySide6`에 두어 교체할 수 있게 했습니다. 모델은 묶지 않고 패키지 실행 시 사용자 로컬 데이터 폴더에 다운로드합니다.
+- 실제 빌드가 성공했고 첫 후보는 `F:\Temp\FrameDoubler\package\candidate\dist`에 있습니다. 압축 전 약 3.30GiB, ZIP 약 2.40GiB입니다. 재현 명령은 `pwsh scripts\build.ps1`이며 새 빌드마다 별도 폴더를 만듭니다. `latest-build.txt`에서 최신 번들 경로를 확인합니다. ZIP은 Zip64를 사용하며 최초 후보 CRC 검사에서 오류가 없었습니다.
+- GUI/CLI 각각 `--self-test`로 Python 3.14.7/NumPy 2.5.4/PyTorch 2.14.1+cu130/Qt 6.12.0, 아이콘, Qt 시작·정상 종료, FFmpeg 9.0.2, CUDA 연산을 확인했습니다. 출력 보고서는 `F:\Temp\FrameDoubler\package\self-test-gui.json`, `self-test-cli.json`입니다. GUI 검사는 별도 프로세스와 offscreen Qt로 수행했습니다.
+- 저장소 밖에서 PATH를 Windows 시스템 폴더만으로 제한하고 PYTHONPATH/PYTHONHOME/VIRTUAL_ENV/FFmpeg 경로 오버라이드를 제거한 CLI를 실행했습니다. 빈 `fresh-models`에 모델을 새로 다운로드했고 SHA-256은 등록값 `6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2`와 일치합니다. 실제 1080p 녹화 축소본의 출력 `F:\Temp\FrameDoubler\out\package_1080_verified.mp4`는 478프레임/60fps, 영상·오디오 길이 차이 0ms, 동기 변화 0ms, 잔여 중복 0.42%로 검증을 통과했습니다.
+- 배포 경로/프로세스 관련 36개 및 전체 219개 테스트 통과, 장기 동기 1개는 기본 실행에서 제외했습니다. 로컬 PC에는 개발 환경과 NVIDIA 드라이버가 있으므로 환경변수 격리를 깨끗한 다른 PC의 검사로 간주하지 않습니다. 수동 CI도 아직 원격 실행하지 않았습니다.
+- 라이선스/고지 파일과 버전·파일 해시 매니페스트를 생성합니다. PySide wheel의 메타데이터는 LGPL 선택을 명시하지만 설치된 고지 파일은 상업 라이선스 참조만 있어 LGPL/GPL 전문을 보충했습니다. [CUDA 13.0 EULA](https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html), [cuDNN 조건](https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html)도 스냅샷에 포함합니다. 정확한 DLL별 재배포 조건과 Qt/FFmpeg 대응 소스 제공은 공개 배포 전 확인할 항목입니다. 현재 패키지는 로컬 후보이며 P6-5의 별도 Windows 11 PC 완료 기준을 충족했다고 표시하지 않습니다.
+
 ## R17. 고프레임 출력과 검증 (2026-11-13, P6-4)
 
 - GUI에 119.88/120fps를 추가했습니다. 선택 시 기본 HEVC로 전환하고 60fps 제한인 YouTube 프리셋은 비활성화합니다. CLI는 양의 유리수 fps를 받으며 `run --verify`가 같은 목표 fps로 검증합니다. 기존 파일은 `verify --fps 120`처럼 검사합니다.

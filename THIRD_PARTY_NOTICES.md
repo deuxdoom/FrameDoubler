@@ -45,3 +45,25 @@ SOFTWARE.
 
 Video2X and Flowframes were studied for architecture and known limitations only.
 No source code from either project is included in FrameDoubler.
+
+## Local package candidates
+
+The folder package includes Python (PSF license), the runtime libraries above
+and their transitive dependencies. `licenses/` contains license/notice files
+copied from the build environment, the Python license, LGPL/GPL texts and NVIDIA
+CUDA/cuDNN terms. `manifest.json` records component versions, legal download
+sources and file hashes. An inventory entry may describe a build dependency
+rather than a bundled runtime component; it is not a claim that all components
+listed there are shipped.
+
+PyInstaller 6.22.3 and its hooks are build tools. Its GPL exception permits the
+resulting application to retain its own license; see the
+[PyInstaller license](https://pyinstaller.org/en/stable/license.html). No modified
+PyInstaller source is shipped. Python dependencies collected by the packaging
+hooks retain their respective licenses and notices.
+
+The local candidate is not a completed redistribution audit. Exact Qt/FFmpeg
+corresponding sources/build configurations and NVIDIA DLL redistribution terms
+must be checked before publishing. See [distribution status](docs/distribution.md).
+Qt libraries live under `_internal/PySide6`, and FFmpeg under `tools/ffmpeg/bin`;
+neither is hidden in a self-extracting executable or protected against replacement.

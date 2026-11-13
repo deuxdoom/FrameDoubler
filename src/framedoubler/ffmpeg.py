@@ -1,6 +1,8 @@
 """Locates the FFmpeg executables used for probing, decoding and encoding."""
 
 import os
+import sys
+import subprocess
 import shutil
 from functools import cache
 from pathlib import Path
@@ -17,6 +19,8 @@ def _find(name: str) -> str:
     env_dir = os.environ.get("FRAMEDOUBLER_FFMPEG_DIR")
     if env_dir:
         candidates.append(Path(env_dir) / exe)
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / "tools" / "ffmpeg" / "bin" / exe)
     # Repository layout: <root>/src/framedoubler/ffmpeg.py -> <root>/tools/ffmpeg/bin
     candidates.append(Path(__file__).resolve().parents[2] / "tools" / "ffmpeg" / "bin" / exe)
     for candidate in candidates:
@@ -36,3 +40,8 @@ def ffmpeg_path() -> str:
 
 def ffprobe_path() -> str:
     return _find("ffprobe")
+
+
+def process_options() -> dict:
+    """Keep FFmpeg's console hidden when launched from the desktop executable."""
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}

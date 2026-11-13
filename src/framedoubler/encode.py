@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from framedoubler.ffmpeg import ffmpeg_path
+from framedoubler.ffmpeg import ffmpeg_path, process_options
 from framedoubler.probe import VideoInfo
 
 
@@ -147,7 +147,7 @@ class Encoder:
             cmd[-1:-1] = ["-t", _seconds(video_offset + duration)]
         if codec == "hevc_nvenc":
             cmd[-1:-1] = ["-tag:v", "hvc1"]  # required for playback in Apple software
-        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, **process_options())
         self._errors: list[bytes] = []
         self._drain = threading.Thread(target=lambda: self._errors.append(self._proc.stderr.read()), daemon=True)
         self._drain.start()

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 
-from framedoubler.ffmpeg import ffprobe_path
+from framedoubler.ffmpeg import ffprobe_path, process_options
 
 _HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
 
@@ -58,6 +58,7 @@ def _run(args: list[str]) -> dict:
     proc = subprocess.run(
         [ffprobe_path(), "-v", "error", "-of", "json", *args],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
+        **process_options(),
     )
     if proc.returncode != 0:
         raise ProbeError(proc.stderr.strip() or "ffprobe failed")

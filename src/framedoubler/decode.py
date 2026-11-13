@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import numpy as np
 
-from framedoubler.ffmpeg import ffmpeg_path
+from framedoubler.ffmpeg import ffmpeg_path, process_options
 from framedoubler.probe import VideoInfo
 
 
@@ -30,7 +30,7 @@ def iter_frames(info: VideoInfo, max_frames: int | None = None,
         "-map", "0:v:0", "-fps_mode", "passthrough",
         "-f", "rawvideo", "-pix_fmt", "rgb48le" if deep else "rgb24", "-",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, **process_options())
     errors: list[bytes] = []
     drain = threading.Thread(target=lambda: errors.append(proc.stderr.read()), daemon=True)
     drain.start()

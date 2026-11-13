@@ -1,5 +1,7 @@
 # FrameDoubler
 
+[한국어 안내](README.ko.md)
+
 RIFE frame interpolation for 30fps game captures. FrameDoubler detects the duplicated
 frames in a 59.94/60fps recording of a 30fps game, restores the original motion, and
 interpolates it to real 60fps video for upload.
@@ -15,6 +17,13 @@ The Windows desktop interface and command line converter are available. See `pla
 
 - Windows 11, NVIDIA GPU
 - Python 3.14 (tested development environment)
+
+Local Windows folder bundles can be built with `pwsh scripts\build.ps1` after
+setup. Extract the complete ZIP and launch `FrameDoubler.exe`; use
+`FrameDoubler-cli.exe` for the commands below. Python is bundled. Separate clean
+Windows 11 validation and final redistribution review are still pending; no
+public release is published. See [package preparation](docs/distribution.md).
+Bundled weights download to `%LOCALAPPDATA%\FrameDoubler\models` on first use.
 
 ## Setup
 

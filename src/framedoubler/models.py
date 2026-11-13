@@ -3,6 +3,7 @@
 import hashlib
 import io
 import os
+import sys
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -32,7 +33,12 @@ DEFAULT_MODEL = "v4.25"
 
 def models_dir() -> Path:
     override = os.environ.get("FRAMEDOUBLER_MODELS")
-    return Path(override) if override else Path(__file__).resolve().parents[2] / "models"
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        local = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return local / "FrameDoubler" / "models"
+    return Path(__file__).resolve().parents[2] / "models"
 
 
 def _sha256(path: Path) -> str:
