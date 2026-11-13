@@ -46,7 +46,7 @@ public partial class App:System.Windows.Application
                 if(e.Args.Length>2){window.SelfTestOutputFolder(Path.GetDirectoryName(json)!);await window.AddFilesAsync([e.Args[2]]);await window.RunQueueAsync();
                     if(window.Entries.Count!=1||window.Entries[0].State!="done")throw new IOException("GUI conversion/verification failed");}
                 Render(window,Path.ChangeExtension(json,".png"),1.25);
-                await File.WriteAllTextAsync(json,JsonSerializer.Serialize(new{GuiCreated=true,window.English,Entries=window.Entries.Select(x=>new{x.Input,x.Output,x.State})},new JsonSerializerOptions{WriteIndented=true}));
+                await File.WriteAllTextAsync(json,JsonSerializer.Serialize(new{GuiCreated=true,window.English,Entries=window.Entries.Select(x=>new{x.Input,x.Output,x.State,x.Analysis,x.Result})},new JsonSerializerOptions{WriteIndented=true}));
                 Shutdown(0);return;
             }
             window.Show();await window.InitializeAsync();

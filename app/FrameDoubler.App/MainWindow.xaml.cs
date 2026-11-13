@@ -24,6 +24,7 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
     public string Name=>Path.GetFileName(Input);
     public AnalysisResult? Analysis{get;set;}
     public string? Output{get;set;}
+    public ConversionResult? Result{get;set;}
     public string State{get;set;}="pending";
     public string Metadata{get{if(Analysis is not { } a)return "";string motion=a.MotionFps is { } fps?$"~{fps:0.##}fps":translate("추정 불가","not estimated");
         return $"{a.Source.Width} × {a.Source.Height} · {a.Source.BitDepth}-bit SDR · {translate("파일","File")} {a.Source.Fps.ToDouble():0.##}fps · {translate("움직임","Motion")} {motion}";}}
@@ -186,7 +187,7 @@ public partial class MainWindow:Window
                 });
                 try{
                     var result=await Task.Run(()=>pipeline.RunAsync(entry.Input,output,options,progress,work.Token));
-                    entry.Output=result.Output;entry.State=result.Verification is null?"unverified":result.Verification.Ok?"done":"warning";
+                    entry.Result=result;entry.Output=result.Output;entry.State=result.Verification is null?"unverified":result.Verification.Ok?"done":"warning";
                     Log($"{Path.GetFileName(result.Output)} · {result.Fps}fps · {result.Device} · {result.Encoder} · {result.Seconds:0.0}s");
                 }catch(OperationCanceledException){entry.State="cancelled";entry.Refresh();throw;}
                 catch(Exception ex){entry.State="error";Log(ex.Message);}

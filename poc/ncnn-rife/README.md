@@ -42,7 +42,7 @@ foreach($model in 'v4.25','v4.26') {
 & $py poc/ncnn-rife/stability.py --model v4.25 --iterations 480
 ```
 
-비교 입력은 `samples/Fire Emblem Fortunes Weave 30fps.mp4`입니다. 실제 장치 측정은 순차 실행합니다.
+비교 입력은 `samples/Fire Emblem Fortunes Weave 30fps 2.mp4`입니다. 실제 장치 측정은 순차 실행합니다.
 엔진 `smoke.py`는 numpy만 필요하며 제품 변환·오디오·취소 검증은 C# 테스트를 사용합니다.
 제거한 `video_compare.py`의 과거 결과는 N1 보고서에 보존했습니다.
 
