@@ -14,7 +14,8 @@ class DecodeError(RuntimeError):
     pass
 
 
-def iter_frames(info: VideoInfo, max_frames: int | None = None) -> Iterator[tuple[int, np.ndarray]]:
+def iter_frames(info: VideoInfo, max_frames: int | None = None,
+                stop_event: threading.Event | None = None) -> Iterator[tuple[int, np.ndarray]]:
     """Yields (pts, frame) for every frame in presentation order.
 
     `pts` is in `info.time_base` ticks. Frames are RGB arrays of shape (H, W, 3):
@@ -33,6 +34,20 @@ def iter_frames(info: VideoInfo, max_frames: int | None = None) -> Iterator[tupl
     errors: list[bytes] = []
     drain = threading.Thread(target=lambda: errors.append(proc.stderr.read()), daemon=True)
     drain.start()
+    finished = threading.Event()
+    watcher = None
+    if stop_event is not None:
+        def watch():
+            while not finished.wait(0.05):
+                if stop_event.is_set():
+                    try:
+                        if proc.poll() is None:
+                            proc.kill()
+                    except OSError:
+                        pass
+                    return
+        watcher = threading.Thread(target=watch, name="FrameDoubler-decode-stop", daemon=True)
+        watcher.start()
 
     limit = info.frame_count if max_frames is None else min(max_frames, info.frame_count)
     index = 0
@@ -61,7 +76,15 @@ def iter_frames(info: VideoInfo, max_frames: int | None = None) -> Iterator[tupl
                 f"Decoded {index} frames but the container has {info.frame_count}. {detail}"
             )
     finally:
+        finished.set()
         proc.stdout.close()
-        if proc.poll() is None:
-            proc.kill()
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except OSError:
+            pass
         proc.wait()
+        drain.join(timeout=5)
+        proc.stderr.close()
+        if watcher:
+            watcher.join(timeout=1)

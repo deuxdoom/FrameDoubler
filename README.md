@@ -68,6 +68,9 @@ Add `--profile` to report time spent probing, decoding, identifying duplicates,
 interpolating and encoding. These are wall-clock timings and include pipe waits.
 For reproducible resolution comparisons and device-wide GPU counters, use
 `scripts/benchmark.py`; keep its outputs and JSON reports outside the repository.
+Input decoding and duplicate classification run ahead in a bounded two-frame
+queue. `--serial` disables this overlap for diagnostics. Profile reports show
+the input worker separately because its time overlaps the main processing stages.
 
 The default encoder is HEVC NVENC at quality 19. `--codec` accepts `h264`, `hevc`
 or `av1`. Choose `--quality 1`–`51` (lower is better) or a target VBR `--bitrate`

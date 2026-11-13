@@ -92,6 +92,7 @@ def main():
     parser.add_argument("--label", default="baseline")
     parser.add_argument("--frames", type=int)
     parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--serial", action="store_true")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
     report = {"label": args.label, "python": sys.version, "torch": torch.__version__,
@@ -112,7 +113,8 @@ def main():
 
             output = args.out_dir / f"{args.label}_{info.height}_{repeat + 1}.mp4"
             with GpuSampler() as gpu:
-                result = run(path, output, Options(profile=True, max_frames=args.frames, overwrite=True),
+                result = run(path, output, Options(profile=True, max_frames=args.frames, overwrite=True,
+                                                   prefetch=0 if args.serial else 2),
                              interpolator=engine, on_progress=progress)
             row = {"input": str(path), "output": str(output), "resolution": [info.width, info.height],
                    "frames": result.frames_out, "interpolated": result.interpolated,

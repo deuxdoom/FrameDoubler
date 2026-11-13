@@ -1,15 +1,17 @@
 """Optional exclusive wall-clock timings, including waits at process boundaries."""
 
 import time
+import threading
 from collections import defaultdict
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class TimingReport:
     total: float
     seconds: dict[str, float]
+    worker_seconds: dict[str, float] = field(default_factory=dict)
 
 
 class _TimedContext:
@@ -28,7 +30,10 @@ class Profiler:
         self.enabled, self.clock = enabled, clock
         self.started = clock() if enabled else 0.0
         self.seconds = defaultdict(float)
-        self._stack = []
+        self.worker_seconds = defaultdict(float)
+        self._main_thread = threading.get_ident()
+        self._local = threading.local()
+        self._lock = threading.Lock()
 
     @contextmanager
     def measure(self, name):
@@ -36,15 +41,20 @@ class Profiler:
             yield
             return
         entry = [self.clock(), 0.0]
-        self._stack.append(entry)
+        if not hasattr(self._local, "stack"):
+            self._local.stack = []
+        stack = self._local.stack
+        stack.append(entry)
         try:
             yield
         finally:
             elapsed = self.clock() - entry[0]
-            self._stack.pop()
-            self.seconds[name] += elapsed - entry[1]
-            if self._stack:
-                self._stack[-1][1] += elapsed
+            stack.pop()
+            values = self.seconds if threading.get_ident() == self._main_thread else self.worker_seconds
+            with self._lock:
+                values[name] += elapsed - entry[1]
+            if stack:
+                stack[-1][1] += elapsed
 
     def call(self, name, function, *args, **kwargs):
         with self.measure(name):
@@ -71,6 +81,8 @@ class Profiler:
         if not self.enabled:
             return None
         total = self.clock() - self.started
-        seconds = dict(self.seconds)
+        with self._lock:
+            seconds = dict(self.seconds)
+            workers = dict(self.worker_seconds)
         seconds["other"] = max(0.0, total - sum(seconds.values()))
-        return TimingReport(total, seconds)
+        return TimingReport(total, seconds, workers)

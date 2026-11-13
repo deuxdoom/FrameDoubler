@@ -1,6 +1,6 @@
 """The whole conversion: analyze, drop duplicates, interpolate, encode.
 
-Used by the CLI and, later, the GUI. Everything runs sequentially in one thread.
+Used by the CLI and GUI. Input decoding/classification can run ahead in a bounded worker.
 """
 
 import time
@@ -22,6 +22,7 @@ from framedoubler.hud import Region, restore_static, validate_regions
 from framedoubler.interp.base import Interpolator
 from framedoubler.models import DEFAULT_MODEL
 from framedoubler.probe import VideoInfo, probe
+from framedoubler.prefetch import Prefetch
 from framedoubler.scene import DEFAULT_THRESHOLD, cut_score, descriptor
 from framedoubler.timeline import default_output_fps, output_count, source_rate, steps
 from framedoubler.timing import Profiler, TimingReport
@@ -41,6 +42,7 @@ class Options:
     overwrite: bool = False
     verify_output: bool = False
     profile: bool = False
+    prefetch: int = 2  # 0 selects serial processing for diagnostics
 
     def __post_init__(self) -> None:
         if self.fps is not None and self.fps <= 0:
@@ -49,6 +51,8 @@ class Options:
             raise RuntimeError("max_frames must be positive.")
         if not 0 <= self.scene_threshold <= 1:
             raise RuntimeError("Scene threshold must be between 0 and 1.")
+        if type(self.prefetch) is not int or not 0 <= self.prefetch <= 8:
+            raise RuntimeError("Input prefetch must be an integer from 0 to 8.")
 
 
 @dataclass(frozen=True)
@@ -168,16 +172,20 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
     duration = (info.pts[limit] - info.pts[0]) * info.time_base if partial else info.duration
     total = output_count(duration, fps_out)
 
-    frames = profiler.iterator("decode", iter_frames(info, max_frames=options.max_frames))
-    if options.dedup:
-        labelled = classify(frames, CadenceConfig())
-    else:
-        labelled = ((pts, frame, Label.UNIQUE) for pts, frame in frames)
-    labelled = profiler.iterator("cadence", labelled)
+    started = time.perf_counter()
+
+    def inputs(stop_event=None):
+        frames = profiler.iterator("decode", iter_frames(info, max_frames=options.max_frames, stop_event=stop_event))
+        with closing(frames):
+            labels = classify(frames, CadenceConfig()) if options.dedup else (
+                (pts, frame, Label.UNIQUE) for pts, frame in frames)
+            yield from profiler.iterator("cadence", labels)
+
+    labelled = (profiler.iterator("input_wait", Prefetch(inputs, cancel, options.prefetch))
+                if options.prefetch else inputs())
 
     counts = {label: 0 for label in Label}
     interpolated = cuts = 0
-    started = time.perf_counter()
     last_report = 0.0
 
     def report(force: bool = False) -> None:
@@ -188,7 +196,7 @@ def _convert(input_path, output_path, options, interpolator, on_progress, cancel
             on_progress(Progress(encoder.frames_written, total, now - started))
 
     manager = profiler.call("encode", Encoder, output_path, info, fps_out, options.encode, duration if partial else None)
-    with closing(frames), closing(labelled), profiler.context("encode", manager) as encoder:
+    with closing(labelled), profiler.context("encode", manager) as encoder:
         # `a` is the source frame currently on screen: (time, frame, prepared, descriptor)
         a = None
         for pts, frame, label in labelled:
