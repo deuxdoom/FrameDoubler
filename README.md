@@ -30,10 +30,31 @@ downloads FFmpeg into `tools\ffmpeg`.
 ```powershell
 framedoubler analyze input.mp4            # format, motion rate and processing plan
 framedoubler run -i input.mp4 --verify    # writes input_60fps.mp4 and checks it
+framedoubler run -i input.mp4 --preset youtube --verify
+framedoubler run -i input.mp4 --codec av1 --quality 19
+framedoubler run -i input.mp4 --codec hevc --bitrate 24M
 framedoubler verify input.mp4 output.mp4  # checks an existing conversion
 ```
 
 The RIFE model is downloaded on first use.
+
+The default encoder is HEVC NVENC at quality 19. `--codec` accepts `h264`, `hevc`
+or `av1`. Choose `--quality 1`–`51` (lower is better) or a target VBR `--bitrate`
+in bits/s, with optional `k` or `M` units. Quality values are encoder-specific;
+the same number does not guarantee the same visual quality across codecs.
+
+`--preset youtube` selects H.264 High, 4:2:0, Fast Start MP4 and an automatic
+SDR bitrate: 12/24/68 Mbps for 1080p/1440p/4K above 30fps, or 8/16/45 Mbps up
+to 30fps. It keeps the resolution and output frame rate. The preset supports up
+to 4K and 60fps, including 59.94fps. Video bitrate is a target; simple scenes
+can use fewer bits. Audio is converted to AAC-LC at 48kHz, preserving mono,
+stereo or 5.1; other channel counts are mixed to stereo. Normal conversions copy
+the source audio. Explicit codec, quality or bitrate options override the preset.
+HEVC/AV1 overrides use the same conservative bitrate targets. H.264 encoding of
+10-bit input is unavailable on RTX 4080 SUPER; choose HEVC or AV1.
+
+Targets follow [YouTube's upload recommendations](https://support.google.com/youtube/answer/1722171?hl=en).
+MP4 edit lists remain enabled to preserve AAC timing; details are in `docs/research.md` (R8).
 
 ## License
 

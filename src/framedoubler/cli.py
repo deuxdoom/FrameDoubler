@@ -1,12 +1,33 @@
 """Command line entry point."""
 
 import argparse
+import re
 import sys
 from fractions import Fraction
 from pathlib import Path
 
 from framedoubler import __version__
 from framedoubler.models import DEFAULT_MODEL, MODELS
+
+
+def _quality(value: str) -> int:
+    try:
+        quality = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("quality must be an integer from 1 to 51") from None
+    if not 1 <= quality <= 51:
+        raise argparse.ArgumentTypeError("quality must be an integer from 1 to 51")
+    return quality
+
+
+def _bitrate(value: str) -> int:
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[kKmM]?", value):
+        raise argparse.ArgumentTypeError("bitrate must be positive bits/s, e.g. 12000000, 12000k or 12M")
+    suffix = value[-1].lower()
+    rate = Fraction(value[:-1]) * {"k": 1000, "m": 1_000_000}[suffix] if suffix in "km" else Fraction(value)
+    if rate <= 0 or rate.denominator != 1:
+        raise argparse.ArgumentTypeError("bitrate must be a positive whole number of bits/s")
+    return int(rate)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
     run.add_argument("--max-frames", type=int, help="process only the first N input frames")
     run.add_argument("--verify", action="store_true", help="check the output after converting")
+    run.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
+    run.add_argument("--codec", choices=["h264", "hevc", "av1"], help="NVENC codec (default: hevc; youtube preset: h264)")
+    rate = run.add_mutually_exclusive_group()
+    rate.add_argument("--quality", type=_quality, help="NVENC quality 1-51, lower is better (default: 19 without --preset)")
+    rate.add_argument("--bitrate", type=_bitrate, help="target video bitrate, e.g. 24M or 24000k; overrides preset bitrate")
 
     verify = sub.add_parser("verify", help="check an output file against its input")
     verify.add_argument("input", help="original video file")
@@ -43,6 +69,7 @@ def _analyze(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    from framedoubler.encode import EncodeSettings
     from framedoubler.pipeline import Options, Progress, run
 
     source = Path(args.input)
@@ -56,7 +83,10 @@ def _run(args: argparse.Namespace) -> int:
               f"{remaining:5.0f} s left ", end="", flush=True)
 
     result = run(source, output, Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
-                                         max_frames=args.max_frames), on_progress=show)
+                                         max_frames=args.max_frames,
+                                         encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
+                                                               quality=args.quality, bitrate=args.bitrate,
+                                                               upload_preset=args.preset)), on_progress=show)
     print()
     print(f"Input   : {result.frames_in} frames at {float(result.source.fps):.3f} fps "
           f"({result.unique} new, {result.duplicates} duplicate, {result.static} static)")
