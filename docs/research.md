@@ -7,6 +7,7 @@
 - GUI/CLI 각각 `--self-test`로 Python 3.14.7/NumPy 2.5.4/PyTorch 2.14.1+cu130/Qt 6.12.0, 아이콘, Qt 시작·정상 종료, FFmpeg 9.0.2, CUDA 연산을 확인했습니다. 출력 보고서는 `F:\Temp\FrameDoubler\package\self-test-gui.json`, `self-test-cli.json`입니다. GUI 검사는 별도 프로세스와 offscreen Qt로 수행했습니다.
 - 저장소 밖에서 PATH를 Windows 시스템 폴더만으로 제한하고 PYTHONPATH/PYTHONHOME/VIRTUAL_ENV/FFmpeg 경로 오버라이드를 제거한 CLI를 실행했습니다. 빈 `fresh-models`에 모델을 새로 다운로드했고 SHA-256은 등록값 `6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2`와 일치합니다. 실제 1080p 녹화 축소본의 출력 `F:\Temp\FrameDoubler\out\package_1080_verified.mp4`는 478프레임/60fps, 영상·오디오 길이 차이 0ms, 동기 변화 0ms, 잔여 중복 0.42%로 검증을 통과했습니다.
 - 배포 경로/프로세스 관련 36개 및 전체 219개 테스트 통과, 장기 동기 1개는 기본 실행에서 제외했습니다. 로컬 PC에는 개발 환경과 NVIDIA 드라이버가 있으므로 환경변수 격리를 깨끗한 다른 PC의 검사로 간주하지 않습니다. 수동 CI도 아직 원격 실행하지 않았습니다.
+- 최종 빌드의 고지 다운로드에서 연결 재설정이 발생해 URL/SHA-256으로 검증하는 외부 캐시와 3회 재시도를 추가했습니다. 최초 성공 빌드의 공식 고지 4개를 캐시에 보존했습니다. 배포 테스트 3개에서 연결 실패 후 복구·오프라인 캐시 재사용·손상 캐시 재다운로드를 확인했습니다(전체 실행 이후 회귀 1개 추가).
 - 라이선스/고지 파일과 버전·파일 해시 매니페스트를 생성합니다. PySide wheel의 메타데이터는 LGPL 선택을 명시하지만 설치된 고지 파일은 상업 라이선스 참조만 있어 LGPL/GPL 전문을 보충했습니다. [CUDA 13.0 EULA](https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html), [cuDNN 조건](https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html)도 스냅샷에 포함합니다. 정확한 DLL별 재배포 조건과 Qt/FFmpeg 대응 소스 제공은 공개 배포 전 확인할 항목입니다. 현재 패키지는 로컬 후보이며 P6-5의 별도 Windows 11 PC 완료 기준을 충족했다고 표시하지 않습니다.
 
 ## R17. 고프레임 출력과 검증 (2026-11-13, P6-4)

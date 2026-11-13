@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -25,9 +26,40 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def fetch_notice(url, cache):
+    """Keep a verified local snapshot and tolerate transient documentation outages."""
+    key = hashlib.sha256(url.encode()).hexdigest()
+    target, record = cache / key, cache / f"{key}.json"
+    try:
+        saved = json.loads(record.read_text(encoding="utf-8"))
+        if saved["url"] == url and digest(target) == saved["sha256"]:
+            return target.read_bytes()
+    except (OSError, ValueError, KeyError):
+        pass
+    cache.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading license: {url}", flush=True)
+    for attempt in range(3):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; FrameDoubler-build/0.1)"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read()
+            if len(data) < 1000:
+                raise OSError("License response is unexpectedly short.")
+            partial = target.with_suffix(".part")
+            partial.write_bytes(data)
+            partial.replace(target)
+            record.write_text(json.dumps({"url": url, "sha256": digest(target)}), encoding="utf-8")
+            return data
+        except OSError:
+            if attempt == 2:
+                raise
+            time.sleep(attempt + 1)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle", type=Path, required=True)
+    parser.add_argument("--legal-cache", type=Path, default=Path(r"F:\Temp\FrameDoubler\license-cache"))
     args = parser.parse_args()
     bundle = args.bundle.resolve()
     if bundle.is_relative_to(ROOT) or not (bundle / "FrameDoubler.exe").is_file():
@@ -63,9 +95,7 @@ def main():
     # The GUI wheels expose their LGPL license in metadata but only ship a
     # commercial-license notice. Include the actual LGPL/GPL texts separately.
     for name, url in LEGAL_URLS.items():
-        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; FrameDoubler-build/0.1)"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            (licenses / name).write_bytes(response.read())
+        (licenses / name).write_bytes(fetch_notice(url, args.legal_cache))
     manifest = {
         "status": "LOCAL CANDIDATE: clean Windows 11 and redistribution review pending",
         "python": sys.version,

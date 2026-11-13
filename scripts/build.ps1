@@ -19,7 +19,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not install build tools.' }
 & $Python -m PyInstaller --distpath (Join-Path $BuildRoot 'dist') --workpath (Join-Path $BuildRoot 'work') (Join-Path $PSScriptRoot 'FrameDoubler.spec')
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
 $Bundle = Join-Path $BuildRoot 'dist\FrameDoubler'
-& $Python (Join-Path $PSScriptRoot 'stage_package.py') --bundle $Bundle
+& $Python (Join-Path $PSScriptRoot 'stage_package.py') --bundle $Bundle --legal-cache (Join-Path $OutputRoot 'license-cache')
 if ($LASTEXITCODE -ne 0) { throw 'Package staging failed.' }
 Set-Content -LiteralPath (Join-Path $OutputRoot 'latest-build.txt') -Value $Bundle -Encoding utf8
 Write-Output "Bundle: $Bundle"

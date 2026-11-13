@@ -13,6 +13,11 @@ on first use with SHA-256 validation; the packaged app stores them in
 `%LOCALAPPDATA%\FrameDoubler\models`. `FRAMEDOUBLER_MODELS` overrides this location.
 The archive contains no recordings or pretrained weights.
 
+License downloads retry transient network failures and reuse snapshots from
+`<OutputRoot>/license-cache` only when their stored URL and SHA-256 match.
+To refresh a legal snapshot for a new distribution review, use a new output/cache
+folder. The manifest records the license URLs and hashes of the staged files.
+
 `--self-test <absolute report.json>` on either executable checks packaged imports,
 Qt startup/shutdown, icons, FFmpeg and a small CUDA operation when CUDA is present.
 It does not download weights. Set `FRAMEDOUBLER_CONFIG_DIR` to a disposable folder
