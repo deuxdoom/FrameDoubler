@@ -13,6 +13,7 @@ from framedoubler.cadence import CadenceConfig, Label, classify
 from framedoubler.decode import iter_frames
 from framedoubler.encode import Encoder, EncodeSettings
 from framedoubler.frame_diff import signature
+from framedoubler.hud import Region, restore_static, validate_regions
 from framedoubler.interp.base import Interpolator
 from framedoubler.models import DEFAULT_MODEL
 from framedoubler.probe import VideoInfo, probe
@@ -29,6 +30,7 @@ class Options:
     scene_threshold: float = DEFAULT_THRESHOLD
     encode: EncodeSettings = EncodeSettings()
     max_frames: int | None = None  # process only the first N input frames (for trials)
+    hud_regions: tuple[Region, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,7 @@ def run(input_path: str | Path, output_path: str | Path, options: Options = Opti
     info = probe(input_path)
     if info.is_hdr:
         raise RuntimeError("HDR input is not supported yet.")
+    validate_regions(options.hud_regions, info.width, info.height)
     fps_out = options.fps or default_output_fps(source_rate(info.fps, info.nominal_fps, info.is_vfr))
     if interpolator is None:
         from framedoubler.interp.rife import RifeInterpolator
@@ -116,7 +119,10 @@ def run(input_path: str | Path, output_path: str | Path, options: Options = Opti
                             a = (a[0], a[1], interpolator.prepare(a[1]), a[3])
                         if b[2] is None:
                             b = (t, frame, interpolator.prepare(frame), b[3])
-                        encoder.write(interpolator.interpolate(a[2], b[2], position))
+                        middle = interpolator.interpolate(a[2], b[2], position)
+                        if options.hud_regions:
+                            middle = restore_static(a[1], frame, middle, options.hud_regions)
+                        encoder.write(middle)
                         interpolated += 1
                     report()
             a = b

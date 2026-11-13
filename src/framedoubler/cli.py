@@ -30,6 +30,16 @@ def _bitrate(value: str) -> int:
     return int(rate)
 
 
+def _hud_region(value: str) -> tuple[int, int, int, int]:
+    try:
+        x, y, width, height = map(int, value.split(","))
+        if min(x, y) < 0 or min(width, height) <= 0:
+            raise ValueError
+    except ValueError:
+        raise argparse.ArgumentTypeError("HUD region must be x,y,width,height with positive dimensions") from None
+    return x, y, width, height
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="framedoubler",
@@ -49,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
     run.add_argument("--max-frames", type=int, help="process only the first N input frames")
     run.add_argument("--verify", action="store_true", help="check the output after converting")
+    run.add_argument("--hud-region", type=_hud_region, action="append", default=[], metavar="X,Y,W,H",
+                     help="protect identical pixels inside a static HUD rectangle; repeat for multiple regions")
     run.add_argument("--preset", choices=["youtube"], help="YouTube SDR upload settings, automatic bitrate by resolution/fps")
     run.add_argument("--codec", choices=["h264", "hevc", "av1"], help="NVENC codec (default: hevc; youtube preset: h264)")
     rate = run.add_mutually_exclusive_group()
@@ -84,6 +96,7 @@ def _run(args: argparse.Namespace) -> int:
 
     result = run(source, output, Options(fps=args.fps, model=args.model, dedup=not args.no_dedup,
                                          max_frames=args.max_frames,
+                                         hud_regions=tuple(args.hud_region),
                                          encode=EncodeSettings(codec=f"{args.codec}_nvenc" if args.codec else None,
                                                                quality=args.quality, bitrate=args.bitrate,
                                                                upload_preset=args.preset)), on_progress=show)

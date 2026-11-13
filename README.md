@@ -56,6 +56,12 @@ HEVC/AV1 overrides use the same conservative bitrate targets. H.264 encoding of
 Targets follow [YouTube's upload recommendations](https://support.google.com/youtube/answer/1722171?hl=en).
 MP4 edit lists remain enabled to preserve AAC timing; details are in `docs/research.md` (R8).
 
+For a fixed HUD, add `--hud-region X,Y,W,H` (coordinates in source pixels),
+repeating the option for multiple rectangles. Only pixels identical in both
+source frames are restored. Leave moving scene content outside these regions;
+HUD protection is disabled by default. Restoration is exact before encoding,
+while the output codec still introduces its normal compression loss.
+
 ## License
 
 MIT. Third-party components are listed in `THIRD_PARTY_NOTICES.md`.
