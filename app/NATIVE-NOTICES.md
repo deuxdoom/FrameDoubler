@@ -25,6 +25,5 @@ Encoder availability is tested at runtime; compiled-in support does not imply
 that a matching device or driver is installed. OpenH264, Kvazaar and SVT-AV1
 notices are included separately when fetched by the package build.
 
-This is a local test candidate. Verification on other physical hardware and the
-exact corresponding-source/dependency/build-recipe review remain required before
-a public release. See `app/HARDWARE-TESTS.md` and `PROGRESS.md` in the repository.
+Real-hardware verification so far covers only the development PC. Other GPU
+vendors and multi-GPU systems are untested; see `HARDWARE-TESTS.md`.

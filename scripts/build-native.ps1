@@ -72,10 +72,11 @@ $Inventory=@(Get-ChildItem -LiteralPath $Destination -File -Recurse | Sort-Objec
 })
 if($Inventory.path -match '(?i)(torch|python|cudnn|cublas|cudart|\.pkl$|\.pt$)'){throw 'Forbidden legacy runtime/model file in native package'}
 $Total=($Inventory | Measure-Object -Property bytes -Sum).Sum
-$SourceFiles=@(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'app'),(Join-Path $ProjectRoot 'poc\ncnn-rife') -File -Recurse |
-    Where-Object {$_.Extension -in '.cs','.xaml','.csproj','.cpp','.h','.ps1','.py','.json','.props'} | Sort-Object FullName | ForEach-Object {
-        [ordered]@{path=[IO.Path]::GetRelativePath($ProjectRoot,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}
+$SourceFiles=@(& git -C $ProjectRoot ls-files -- app poc/ncnn-rife |
+    Where-Object {[IO.Path]::GetExtension($_) -in '.cs','.xaml','.csproj','.cpp','.h','.ps1','.py','.json','.props'} | Sort-Object | ForEach-Object {
+        [ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot $_)).Hash.ToLowerInvariant()}
     })
+if($SourceFiles.Count -eq 0){throw 'No tracked source files found'}
 $Revision=(& git -C $ProjectRoot rev-parse HEAD).Trim()
 $SourceDirty=[bool](& git -C $ProjectRoot status --porcelain -- app poc/ncnn-rife scripts/build-native.ps1)
 $AppVersion=([xml](Get-Content -LiteralPath (Join-Path $ProjectRoot 'app\Directory.Build.props') -Raw)).Project.PropertyGroup.Version

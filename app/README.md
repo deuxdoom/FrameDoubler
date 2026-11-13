@@ -70,7 +70,6 @@ The build uses converted MIT models, the existing FFmpeg executables and
 pinned external ncnn/compiler sources described in `poc/ncnn-rife/README.md`.
 The installer-size recommendation is about 500MB including runtime and models.
 FFmpeg remains separate and replaceable. See `THIRD_PARTY_NOTICES.md` and `licenses/`.
-Local test builds are not a claim that all hardware or public-release obligations
-have been verified. Performance relative to CUDA and GPU zero-copy work remain
-recorded in `PROGRESS.md`; the minimal optional Torch baseline is isolated under
-`poc/ncnn-rife/baseline`. Retired app/test/tool paths and backups: `app/CLEANUP.md`.
+Real-hardware verification covers only the development PC; other GPU vendors and
+multi-GPU systems follow `HARDWARE-TESTS.md`. The minimal optional Torch model
+definition used only for model export is isolated under `poc/ncnn-rife/baseline`.

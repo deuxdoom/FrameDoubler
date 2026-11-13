@@ -155,8 +155,6 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 Get-FileHash FrameDoubler.zip -Algorithm SHA256
 ```
 
-> 아직 공개 릴리스는 없습니다. 개발 중의 빌드는 `pwsh scripts/build.ps1`로 만든 `dist/FrameDoubler/FrameDoubler.exe`입니다.
-
 <a id="usage"></a>
 
 ## 🚀 사용 방법
@@ -218,7 +216,7 @@ dotnet run --project app/FrameDoubler.Tests                   # 테스트
 pwsh scripts/build.ps1                                        # dist/FrameDoubler와 dist/FrameDoubler.zip 생성
 ```
 
-빌드 도구와 중간 파일은 `F:/Temp/FrameDoubler`에 둡니다. 모델의 최초 변환과 수치 비교에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md), 개발 진행은 [PROGRESS.md](PROGRESS.md)에 있습니다.
+빌드 도구와 중간 파일은 `F:/Temp/FrameDoubler`에 둡니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 
 <a id="licenses"></a>
 

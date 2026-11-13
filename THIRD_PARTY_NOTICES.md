@@ -25,9 +25,9 @@ Encoder availability is tested at runtime; compiled-in support does not imply
 that a matching device or driver is installed. OpenH264, Kvazaar and SVT-AV1
 notices are included separately when fetched by the package build.
 
-This is a local test candidate. Verification on other physical hardware and the
-exact corresponding-source/dependency/build-recipe review remain required before
-a public release. See `app/HARDWARE-TESTS.md` and `PROGRESS.md` in the repository.
+Real-hardware verification so far covers only the development PC. Other GPU
+vendors and multi-GPU systems are untested; see `app/HARDWARE-TESTS.md` in the
+repository.
 
 
 ## Practical-RIFE notice
@@ -56,8 +56,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Development-only comparison tools
+## Development-only model export
 
-The optional Python/Torch/pnnx tools under `poc/ncnn-rife` are not bundled.
-Their minimal model definition was retained from this project solely for model export and numerical comparison.
-The retired Python/Qt app and its tests/build tools were moved outside the repository; see `app/CLEANUP.md`.
+The optional Python/Torch/pnnx model export tool under `poc/ncnn-rife` is not bundled.
+Its minimal model definition is used only to convert the official weights to ncnn.
