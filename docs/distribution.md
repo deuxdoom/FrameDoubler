@@ -5,6 +5,12 @@ under `F:\Temp\FrameDoubler\package`; `-OutputRoot` selects an external director
 on another build machine. No existing bundle is deleted or overwritten. The
 build uses PyInstaller 6.22.3 and hooks 2026.10, which support Python 3.14.
 
+For a user test build in the checkout, run `pwsh scripts\build.ps1 -DistPath dist`.
+This writes `dist/FrameDoubler/FrameDoubler.exe`, the companion CLI/runtime and
+`dist/FrameDoubler-windows-x64.zip` with its checksum. Intermediate work and caches
+stay outside the checkout. An existing `FrameDoubler` bundle is protected; use an
+empty destination for the next build. `dist` is excluded from Git.
+
 The folder contains `FrameDoubler.exe` (windowed GUI), `FrameDoubler-cli.exe`, a
 shared `_internal` runtime, replaceable `tools\ffmpeg\bin` executables, notices
 and a manifest with versions and SHA-256 hashes. The ZIP and its checksum sit

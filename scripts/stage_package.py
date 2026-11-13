@@ -62,8 +62,9 @@ def main():
     parser.add_argument("--legal-cache", type=Path, default=Path(r"F:\Temp\FrameDoubler\license-cache"))
     args = parser.parse_args()
     bundle = args.bundle.resolve()
-    if bundle.is_relative_to(ROOT) or not (bundle / "FrameDoubler.exe").is_file():
-        raise RuntimeError("Use a built package outside the source repository.")
+    if ((bundle.is_relative_to(ROOT) and not bundle.is_relative_to(ROOT / "dist"))
+            or not (bundle / "FrameDoubler.exe").is_file()):
+        raise RuntimeError("Use a built package outside the source repository or under dist.")
     tools = bundle / "tools/ffmpeg"
     shutil.copytree(ROOT / "tools/ffmpeg/bin", tools / "bin", dirs_exist_ok=True)
     shutil.copyfile(ROOT / "tools/ffmpeg/LICENSE.txt", tools / "LICENSE.txt")
