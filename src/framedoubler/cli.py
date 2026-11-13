@@ -40,6 +40,16 @@ def _hud_region(value: str) -> tuple[int, int, int, int]:
     return x, y, width, height
 
 
+def _fps(value: str) -> Fraction:
+    try:
+        rate = Fraction(value)
+        if rate <= 0:
+            raise ValueError
+    except (ValueError, ZeroDivisionError):
+        raise argparse.ArgumentTypeError("fps must be positive, e.g. 120 or 120000/1001") from None
+    return rate
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="framedoubler",
@@ -53,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="convert a video to real 60fps")
     run.add_argument("-i", "--input", required=True, help="input video file")
-    run.add_argument("-o", "--output", help="output file (default: <input>_60fps.mp4 next to the input)")
+    run.add_argument("-o", "--output", help="output file (default: <input>_<fps>fps.mp4; automatic: 60fps suffix)")
     _conversion_arguments(run)
 
     batch = sub.add_parser("batch", help="convert all videos in a folder sequentially")
@@ -66,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="check an output file against its input")
     verify.add_argument("input", help="original video file")
     verify.add_argument("output", help="converted video file")
+    verify.add_argument("--fps", type=_fps, help="expected output rate (default: automatic from the input)")
     gui = sub.add_parser("gui", help="open the Windows desktop interface")
     gui.add_argument("inputs", nargs="*", help="videos to add to the queue")
     gui.add_argument("--lang", choices=("ko", "en"))
@@ -74,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _conversion_arguments(parser):
-    parser.add_argument("--fps", type=Fraction, help="output frame rate, e.g. 60 or 60000/1001 (default: automatic)")
+    parser.add_argument("--fps", type=_fps, help="output frame rate, e.g. 60, 120 or 120000/1001 (default: automatic)")
     parser.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL, help="RIFE model")
     parser.add_argument("--no-dedup", action="store_true", help="treat every input frame as a new frame")
     parser.add_argument("--max-frames", type=int, help="process only the first N input frames")
@@ -115,7 +126,8 @@ def _run(args: argparse.Namespace) -> int:
     from framedoubler.pipeline import Progress, run
 
     source = Path(args.input)
-    output = Path(args.output) if args.output else source.with_name(f"{source.stem}_60fps.mp4")
+    suffix = (str(args.fps.numerator) if args.fps.denominator == 1 else f"{float(args.fps):.2f}") if args.fps else "60"
+    output = Path(args.output) if args.output else source.with_name(f"{source.stem}_{suffix}fps.mp4")
     if output.resolve() == source.resolve():
         raise RuntimeError("The output file must differ from the input file.")
 
@@ -127,7 +139,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"\r{p.frames_out}/{p.frames_total} frames  {p.fps:5.1f} fps  "
               f"{remaining:5.0f} s left ", end="", flush=True)
 
-    result = run(source, output, _options(args), on_progress=show)
+    result = run(source, output, _options(args, verify_output=args.verify and args.max_frames is None), on_progress=show)
     print()
     print(f"Input   : {result.frames_in} frames at {float(result.source.fps):.3f} fps "
           f"({result.unique} new, {result.duplicates} duplicate, {result.static} static)")
@@ -138,14 +150,15 @@ def _run(args: argparse.Namespace) -> int:
     if args.profile:
         _show_timings(result.timings)
     if args.verify and args.max_frames is None:
-        return _verify(argparse.Namespace(input=str(source), output=str(output)))
+        print(result.verification_text)
+        return 0 if result.verification.ok else 2
     return 0
 
 
 def _verify(args: argparse.Namespace) -> int:
     from framedoubler.verify import format_report, verify
 
-    report = verify(args.input, args.output)
+    report = verify(args.input, args.output, expected_fps=args.fps)
     print(format_report(report))
     return 0 if report.ok else 2
 

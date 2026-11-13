@@ -6,7 +6,7 @@ from contextlib import closing
 from fractions import Fraction
 from pathlib import Path
 
-from framedoubler.cadence import classify, summarize
+from framedoubler.cadence import CadenceConfig, classify, summarize
 from framedoubler.decode import iter_frames
 from framedoubler.probe import VideoInfo, _run, probe
 from framedoubler.timeline import default_output_fps, source_rate
@@ -110,16 +110,21 @@ def verify(input_path: str | Path, output_path: str | Path,
     source, out = probe(input_path), probe(output_path)
     expected = expected_fps or default_output_fps(source_rate(source.fps, source.nominal_fps, source.is_vfr))
 
-    def summary(info):
+    def summary(info, config=CadenceConfig()):
         with closing(iter_frames(info)) as frames:
             def labels():
-                for _, _, label in classify(frames):
+                for _, _, label in classify(frames, config):
                     if check_cancelled:
                         check_cancelled()
                     yield label
             return summarize(labels(), info.fps)
 
-    out_summary, in_summary = summary(out), summary(source)
+    # A 120fps neighbour spans half the time of a 60fps neighbour. Scale the
+    # luma thresholds so small genuine motion is not calibrated as codec noise.
+    # This remains a heuristic; the input detector and <=60fps output stay unchanged.
+    scale = min(1.0, float(Fraction(60) / out.fps))
+    config = CadenceConfig(max_diff=4.0 * scale, initial_floor=0.5 * scale)
+    out_summary, in_summary = summary(out, config), summary(source)
     if check_cancelled:
         check_cancelled()
     audio_in, audio_out = _audio_timelines(source), _audio_timelines(out)

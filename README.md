@@ -55,12 +55,26 @@ framedoubler run -i input.mp4 --verify    # writes input_60fps.mp4 and checks it
 framedoubler run -i input.mp4 --preset youtube --verify
 framedoubler run -i input.mp4 --codec av1 --quality 19
 framedoubler run -i input.mp4 --codec hevc --bitrate 24M
+framedoubler run -i input.mp4 --fps 120 --verify  # local high-frame-rate output
 framedoubler verify input.mp4 output.mp4  # checks an existing conversion
+framedoubler verify input.mp4 input_120fps.mp4 --fps 120
 framedoubler batch "D:\Captures" --preset youtube --verify
 framedoubler batch "D:\Captures" -o "D:\Converted" --recursive
 ```
 
 The RIFE model is downloaded on first use.
+
+`--fps` accepts a positive integer or rational rate such as `120000/1001`
+(119.88fps), `120` or `144`. An explicit rate is also used by `run --verify`;
+pass it to standalone `verify --fps` when checking a high-rate file later.
+Without `-o`, an explicit rate is included in the filename. The desktop interface
+offers 119.88/120fps and switches to the default HEVC preset for these rates.
+The YouTube preset supports up to 60fps. Higher rates increase interpolation work
+and output size; playback depends on the player's codec and display support.
+Duplicate detection is a heuristic. Its luma thresholds scale with the shorter
+frame interval above 60fps; timing and audio checks still use one output frame
+as their tolerance. Non-integral motion multipliers can produce duplicate
+warnings and should be reviewed rather than treated as guaranteed quality.
 
 `batch` snapshots supported videos in a folder and converts them sequentially.
 By default, outputs go into its `FrameDoubler` subfolder with `_smooth.mp4` names.

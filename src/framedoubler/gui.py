@@ -33,6 +33,8 @@ TEXT = {
     "settings": ("출력 설정", "Output settings"), "fps": ("목표 프레임레이트", "Target frame rate"),
     "auto": ("자동 · 입력에 맞춤", "Automatic · follow input"), "preset": ("프리셋", "Preset"),
     "youtube": ("YouTube · H.264", "YouTube · H.264"), "default": ("기본 · HEVC 품질 19", "Default · HEVC quality 19"),
+    "high_fps_hint": ("60fps 초과는 기본 HEVC 프리셋을 사용합니다. YouTube 프리셋은 60fps까지 지원합니다.",
+                      "Rates above 60fps use the default HEVC preset. The YouTube preset supports up to 60fps."),
     "folder": ("출력 폴더", "Output folder"), "browse": ("찾아보기", "Browse"),
     "same_folder": ("원본과 같은 폴더", "Same folder as the input"),
     "advanced": ("고급 설정", "Advanced settings"), "codec": ("영상 코덱", "Video codec"),
@@ -340,6 +342,8 @@ class MainWindow(QMainWindow):
         self.fps_combo.addItem("", None)
         self.fps_combo.addItem("59.94 fps", Fraction(60000, 1001))
         self.fps_combo.addItem("60 fps", Fraction(60))
+        self.fps_combo.addItem("119.88 fps", Fraction(120000, 1001))
+        self.fps_combo.addItem("120 fps", Fraction(120))
         right.addWidget(self.fps_combo)
         self.recommended = QLabel()
         self.recommended.setProperty("role", "muted")
@@ -350,6 +354,10 @@ class MainWindow(QMainWindow):
         self.preset_combo.addItem("", None)
         self.preset_combo.setCurrentIndex(0 if preferences.preset == "youtube" else 1)
         right.addWidget(self.preset_combo)
+        self.high_fps_hint = self.label("high_fps_hint", "muted")
+        self.high_fps_hint.setWordWrap(True)
+        self.high_fps_hint.hide()
+        right.addWidget(self.high_fps_hint)
         right.addWidget(self.label("folder", "muted"))
         folder_row = QHBoxLayout()
         self.output_dir = QLineEdit(objectName="outputFolder")
@@ -470,6 +478,15 @@ class MainWindow(QMainWindow):
         self.language.currentIndexChanged.connect(self.schedule_save)
         self.preset_combo.currentIndexChanged.connect(self.schedule_save)
         self.output_dir.textChanged.connect(self.schedule_save)
+        self.fps_combo.currentIndexChanged.connect(self.update_target_fps)
+
+    def update_target_fps(self, *args):
+        fps = self.fps_combo.currentData()
+        high = fps is not None and fps > 60
+        self.preset_combo.model().item(0).setEnabled(not high)
+        if high and self.preset_combo.currentData() == "youtube":
+            self.preset_combo.setCurrentIndex(1)
+        self.high_fps_hint.setVisible(high)
 
     def schedule_save(self, *args):
         self._save_timer.start()
@@ -655,8 +672,11 @@ class MainWindow(QMainWindow):
         except ValueError:
             raise ValueError(self.t("bad_hud")) from None
         mode = self.rate_mode.currentData()
+        fps = self.fps_combo.currentData()
+        if fps is not None and fps > 60 and self.preset_combo.currentData() == "youtube":
+            raise ValueError(self.t("high_fps_hint"))
         return pipeline.Options(
-            fps=self.fps_combo.currentData(), dedup=self.dedup.isChecked(), hud_regions=tuple(regions),
+            fps=fps, dedup=self.dedup.isChecked(), hud_regions=tuple(regions),
             overwrite=self.overwrite_box.isChecked(), verify_output=self.verify_box.isChecked(),
             encode=pipeline.EncodeSettings(codec=self.codec_combo.currentData(), upload_preset=self.preset_combo.currentData(),
                                             quality=self.quality.value() if mode == "quality" else None,

@@ -138,6 +138,7 @@ class Encoder:
             "-rc", "vbr", *rate_args, *video_args,
             *colour_args,
             "-fps_mode", "passthrough",
+            "-enc_time_base:v", f"{fps.denominator}/{fps.numerator}",
             *audio_args,
             "-movflags", "+faststart",
             str(self.output),
