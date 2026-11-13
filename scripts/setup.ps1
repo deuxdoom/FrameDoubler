@@ -10,7 +10,12 @@ $TorchIndex = 'https://download.pytorch.org/whl/cu130'
 $FfmpegAsset = 'ffmpeg-n9.0-latest-win64-lgpl-9.0.zip'
 $FfmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FfmpegAsset"
 
-if (Test-Path $TempRoot) { $env:PIP_CACHE_DIR = Join-Path $TempRoot 'pip-cache' }
+New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
+$env:PIP_CACHE_DIR = Join-Path $TempRoot 'pip-cache'
+$PipTemp = Join-Path $TempRoot 'pip-temp'
+New-Item -ItemType Directory -Force -Path $PipTemp | Out-Null
+$env:TEMP = $PipTemp
+$env:TMP = $PipTemp
 
 $Python = Join-Path $Root '.venv\Scripts\python.exe'
 if (-not (Test-Path $Python)) {
@@ -18,7 +23,7 @@ if (-not (Test-Path $Python)) {
 }
 & $Python -m pip install --quiet --upgrade pip
 & $Python -m pip install --quiet torch --index-url $TorchIndex
-& $Python -m pip install --quiet -e "$Root[dev]"
+& $Python -m pip install --quiet -e "$Root[dev,gui]"
 if ($LASTEXITCODE -ne 0) { throw 'pip install failed' }
 
 $FfmpegExe = Join-Path $Root 'tools\ffmpeg\bin\ffmpeg.exe'

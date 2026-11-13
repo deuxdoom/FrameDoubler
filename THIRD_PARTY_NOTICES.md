@@ -1,8 +1,8 @@
 # Third-Party Notices
 
 FrameDoubler is released under the MIT License (see `LICENSE`). It depends on the
-third-party components listed below. None of them is stored in this repository;
-they are downloaded during setup. A packaged release that bundles any of them must
+third-party components listed below. Runtime libraries and model weights are
+downloaded during setup or first use; selected icon assets are included. A packaged release that bundles any of them must
 ship the corresponding license texts.
 
 | Component | Use | License | How it is used | Obligations when redistributed |
@@ -12,8 +12,8 @@ ship the corresponding license texts.
 | NVIDIA CUDA runtime libraries (bundled in PyTorch CUDA wheels) | GPU execution | NVIDIA proprietary redistributable license terms | Installed with PyTorch | Review NVIDIA's redistribution terms before bundling in a package |
 | [NumPy](https://numpy.org) | Array handling | BSD-3-Clause | Python dependency | Keep the license notice |
 | [FFmpeg](https://ffmpeg.org) (BtbN LGPL build) | Decoding, encoding (NVENC), muxing | LGPL-3.0-or-later for this build | Run as a separate executable; not linked into FrameDoubler | Ship the LGPL text, state the FFmpeg version and where its source can be obtained, and do not restrict replacing the executable |
-| [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) | GUI icons (planned, Phase 5) | MIT, Copyright (c) Microsoft Corporation | Recoloured SVG assets | Keep the copyright and permission notice |
-| [PySide6 / Qt 6](https://doc.qt.io/qtforpython-6/) | GUI toolkit (planned, Phase 5, not yet confirmed) | LGPL-3.0 | Python dependency, dynamically loaded | Ship the LGPL text and allow replacing the Qt libraries |
+| [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) | GUI checkmark | MIT, Copyright (c) 2020 Microsoft Corporation | Recoloured SVG asset; notice in `assets/icons/LICENSE-fluent.txt` | Keep the copyright and permission notice |
+| [PySide6 Essentials / Qt 6](https://doc.qt.io/qtforpython-6/) and Shiboken6 | GUI toolkit, Qt Widgets/SVG; tested with 6.12.0 on Python 3.14 | LGPL-3.0 (community distribution; see included Qt module notices) | Python dependency, dynamically loaded; no GPL-only Qt modules used | Ship the LGPL text and module notices, provide corresponding source location, and allow replacing the Qt libraries |
 
 ## Practical-RIFE notice
 

@@ -9,12 +9,12 @@ models through an inference-only PyTorch/CUDA implementation. FrameDoubler's
 capture analysis, timeline, processing pipeline and user interface are developed
 independently. Model and dependency notices are in `THIRD_PARTY_NOTICES.md`.
 
-Status: the command line converter works; the GUI is not built yet. See `plan.md` for the design and `todo.md` for progress.
+The Windows desktop interface and command line converter are available. See `plan.md` for the design and `todo.md` for progress and remaining validation.
 
 ## Requirements
 
 - Windows 11, NVIDIA GPU
-- Python 3.12 or later
+- Python 3.14 (tested development environment)
 
 ## Setup
 
@@ -31,6 +31,18 @@ downloads FFmpeg into `tools\ffmpeg`.
 ```
 
 ## Usage
+
+```powershell
+framedoubler gui
+# Or launch .venv\Scripts\framedoubler-gui.exe
+```
+
+Drop videos into the desktop window, review the file and estimated motion rates,
+then start conversion. The default YouTube preset includes output verification.
+The queue processes videos sequentially and saves `<input>_smooth.mp4` in the
+selected folder. The interface supports Korean and English, cancellation and
+explicit overwrite. Verification passed and conversion without verification are
+shown separately.
 
 ```powershell
 framedoubler analyze input.mp4            # format, motion rate and processing plan

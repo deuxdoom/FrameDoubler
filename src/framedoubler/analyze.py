@@ -22,6 +22,12 @@ class Analysis:
     output_fps: Fraction
 
     @property
+    def motion_fps(self) -> float | None:
+        if self.cadence.unique <= 1 and self.cadence.static:
+            return None
+        return self.cadence.motion_fps
+
+    @property
     def kind(self) -> str:
         if self.cadence.has_duplicates:
             return "duplicated"  # low frame rate content stored at a higher container rate
@@ -63,7 +69,8 @@ def format_report(a: Analysis) -> str:
         f"Length      : {float(info.duration):.3f} s, {info.frame_count} frames",
         f"Audio       : {audio}",
         f"Sampled     : first {c.frames} frames -> {c.unique} new, {c.dup} duplicate, {c.static} static",
-        f"Motion rate : {c.motion_fps:.2f} fps ({c.dup_ratio:.0%} of moving frames are duplicates)",
+        "Motion rate : " + (f"{a.motion_fps:.2f} fps ({c.dup_ratio:.0%} of moving frames are duplicates)"
+                            if a.motion_fps is not None else "not enough motion in the sampled section"),
         f"Input type  : {a.kind}",
         f"Plan        : {plans[a.kind]}",
         f"Output rate : {_rate(a.output_fps)}",

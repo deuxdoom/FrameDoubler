@@ -1,5 +1,13 @@
 # 기술 조사 기록
 
+## R13. Windows GUI 실행 환경과 검증 (2026-11-13, P5-2)
+
+- [PySide6 Essentials 6.12.0](https://pypi.org/project/PySide6-Essentials/)의 Windows cp310-abi3 wheel과 Shiboken6을 Python 3.14.7에서 설치·실행했습니다. Qt Widgets/SVG만 사용하며 LGPL-3.0 동적 라이브러리 방식입니다. [Qt for Python](https://doc.qt.io/qtforpython-6/)의 라이선스와 배포 고지는 `THIRD_PARTY_NOTICES.md`에 반영했습니다.
+- GUI는 분석 전용/변환 모드의 `pipeline.run`만 호출하고 QThread의 신호로 화면을 갱신합니다. 기본 YouTube 프리셋과 검증을 켜며, 처리 성공과 검증 통과를 구별합니다. 출력 fps·프레임 수·잔여 중복·길이 차이를 요약하고 전체 검증 보고서를 열 수 있습니다.
+- 실제 Windows 창에서 4K 샘플의 분석(파일 60fps, 움직임 약 30fps) 후 변환 버튼 한 번으로 `F:\Temp\FrameDoubler\out\gui-check\Fire Emblem Fortunes Weave 30fps_smooth.mp4`를 만들었습니다. 3840×2160 H.264 60fps/AAC와 ‘검증 통과’를 확인했고 한영 전환도 직접 조작했습니다.
+- GUI 8개와 분석 9개 테스트 통과. 파일 드롭/순차 처리/덮어쓰기 오류 후 재시도/취소/검증 표시, 실제 29.97fps 원본과 59.94fps 중복 녹화 표시를 검사했습니다. 정지 구간만 분석했으면 움직임 fps를 추정 불가로 표시합니다.
+- 한영·긴 이름·1000×760 논리 크기를 125/150/200%로 각각 렌더해 확인했습니다(운영체제 배율 설정을 바꾸지 않는 Qt 배율 검사). 분석/설정 패널의 스크롤과 파일명 줄임·전체 경로 툴팁으로 잘림을 해결했습니다. 기본 창은 대기열을 포함하여 1280×900이며 화면 작업 영역에 맞춥니다. 실제 모든 모니터 조합의 접근성 인증을 뜻하지는 않습니다.
+
 ## R12. 공개 보간 엔진 활용 범위 확인 (2026-11-13, 사용자 확인 요청)
 
 - 현재 연결된 엔진은 [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) v4.25/v4.26입니다. 공식 구조에 맞춘 추론 코드를 PyTorch/CUDA에서 실행하고 공식 학습 완료 가중치를 SHA-256 검증 후 불러옵니다. 가중치와 코드의 MIT 고지는 `THIRD_PARTY_NOTICES.md`에 있습니다. 앱의 독립 개발은 보간 모델까지 자체 학습했다는 뜻이 아닙니다.

@@ -71,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="check an output file against its input")
     verify.add_argument("input", help="original video file")
     verify.add_argument("output", help="converted video file")
+    gui = sub.add_parser("gui", help="open the Windows desktop interface")
+    gui.add_argument("inputs", nargs="*", help="videos to add to the queue")
+    gui.add_argument("--lang", choices=("ko", "en"), default="ko")
+    gui.add_argument("--output-dir", default="")
     return parser
 
 
@@ -125,6 +129,14 @@ def _verify(args: argparse.Namespace) -> int:
     return 0 if report.ok else 2
 
 
+def _gui(args: argparse.Namespace) -> int:
+    try:
+        from framedoubler.gui import main as gui_main
+    except ImportError as exc:
+        raise RuntimeError("The desktop interface needs PySide6. Run scripts\\setup.ps1 or install .[gui].") from exc
+    return gui_main(["--lang", args.lang, "--output-dir", args.output_dir, *args.inputs])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -132,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        return {"analyze": _analyze, "run": _run, "verify": _verify}[args.command](args)
+        return {"analyze": _analyze, "run": _run, "verify": _verify, "gui": _gui}[args.command](args)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

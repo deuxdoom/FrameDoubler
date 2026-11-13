@@ -1,6 +1,8 @@
 """Output verification: frame rate, length, audio and leftover duplicate frames."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
+from contextlib import closing
 from fractions import Fraction
 from pathlib import Path
 
@@ -103,12 +105,26 @@ class Report:
 
 
 def verify(input_path: str | Path, output_path: str | Path,
-           expected_fps: Fraction | None = None) -> Report:
+           expected_fps: Fraction | None = None,
+           check_cancelled: Callable[[], None] | None = None) -> Report:
     source, out = probe(input_path), probe(output_path)
     expected = expected_fps or default_output_fps(source_rate(source.fps, source.nominal_fps, source.is_vfr))
-    out_summary = summarize((label for _, _, label in classify(iter_frames(out))), out.fps)
-    in_summary = summarize((label for _, _, label in classify(iter_frames(source))), source.fps)
+
+    def summary(info):
+        with closing(iter_frames(info)) as frames:
+            def labels():
+                for _, _, label in classify(frames):
+                    if check_cancelled:
+                        check_cancelled()
+                    yield label
+            return summarize(labels(), info.fps)
+
+    out_summary, in_summary = summary(out), summary(source)
+    if check_cancelled:
+        check_cancelled()
     audio_in, audio_out = _audio_timelines(source), _audio_timelines(out)
+    if check_cancelled:
+        check_cancelled()
     shift = out.pts[0] * out.time_base - source.pts[0] * source.time_base
     sync = tuple(SyncPoint(i, portion, after.time_at(after.duration * portion)
                            - before.time_at(before.duration * portion) - shift)

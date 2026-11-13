@@ -24,6 +24,7 @@ from framedoubler.models import DEFAULT_MODEL
 from framedoubler.probe import VideoInfo, probe
 from framedoubler.scene import DEFAULT_THRESHOLD, cut_score, descriptor
 from framedoubler.timeline import default_output_fps, output_count, source_rate, steps
+from framedoubler.verify import Report, format_report, verify
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class Options:
     max_frames: int | None = None  # process only the first N input frames (for trials)
     hud_regions: tuple[Region, ...] = ()
     overwrite: bool = False
+    verify_output: bool = False
 
     def __post_init__(self) -> None:
         if self.fps is not None and self.fps <= 0:
@@ -76,6 +78,11 @@ class Result:
     interpolated: int
     scene_cuts: int
     elapsed: float
+    verification: Report | None = None
+
+    @property
+    def verification_text(self) -> str:
+        return format_report(self.verification) if self.verification is not None else ""
 
 
 def run(input_path: str | Path, output_path: str | Path | None = None, options: Options = Options(),
@@ -110,6 +117,11 @@ def run(input_path: str | Path, output_path: str | Path | None = None, options: 
         staging = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.partial{output.suffix}")
         result = _convert(input_path, staging, options, interpolator, on_progress, token)
         token.check()
+        if options.verify_output:
+            stage("verify")
+            result = replace(result, verification=verify(input_path, staging, expected_fps=result.fps,
+                                                         check_cancelled=token.check))
+            token.check()
         if options.overwrite:
             staging.replace(output)
         elif os.name == "nt":

@@ -14,9 +14,13 @@ dependencies = ["numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+gui = ["PySide6-Essentials>=6.10,<7"]
 
 [project.scripts]
 framedoubler = "framedoubler.cli:main"
+
+[project.gui-scripts]
+framedoubler-gui = "framedoubler.gui:main"
 
 [tool.hatch.version]
 path = "src/framedoubler/__init__.py"
