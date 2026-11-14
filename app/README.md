@@ -26,6 +26,7 @@ Failed workers are retired individually before automatic CPU fallback is conside
 Time estimates measure the selected pool's throughput and keep separate profiles per worker count.
 Large-frame RGB input/output conversion also uses a bounded number of CPU threads;
 inference resolution and per-pixel calculations remain unchanged.
+Smaller outputs are resized only by the encoder, after interpolation at the source resolution.
 
 No Python, PyTorch, CUDA Toolkit, separate SDK or separately installed .NET is
 required by the self-contained package. GPU drivers are provided by the operating
