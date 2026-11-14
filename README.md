@@ -74,7 +74,6 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 - Windows 11 64비트 (x64)
 - Vulkan을 지원하는 GPU와 최신 드라이버 권장 (NVIDIA, AMD, Intel). 제조사나 모델명이 아니라 실제로 동작하는 기능을 확인하여 사용합니다.
 - Vulkan을 쓸 수 없으면 CPU로 추론하고, 하드웨어 인코더가 없으면 소프트웨어 인코더를 사용합니다. 이 경우 크게 느려지며 화면에 표시합니다.
-- 개발과 실제 검증은 RTX 4080 SUPER와 i7-14700KF에서 했습니다. 필수 사양은 아니며, 다른 제조사의 GPU와 복수 GPU는 아직 실제 장비로 검증하지 않았습니다([하드웨어 검사 절차](app/HARDWARE-TESTS.md)).
 - SDR과 HDR(HLG·PQ) 영상. HDR 영상은 SDR(BT.709)로 변환하여 출력합니다.
 
 <a id="features"></a>
