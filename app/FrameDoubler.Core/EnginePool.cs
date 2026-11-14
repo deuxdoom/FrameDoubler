@@ -16,6 +16,7 @@ public static class EngineWorkerPolicy
     }
     public static ulong RequiredGpuBytes(MediaInfo source)=>PerEngine(source).Gpu;
     public static int Count(MediaInfo source,DeviceChoice device,ulong? availableRam,int? requested=null){
+        if(device.Backend==Acceleration.Id)return 1; // Separate backend; concurrency is not inferred from Vulkan measurements.
         if(device.Device=="cpu"||device.Gpu?.BudgetBytes is not ulong budget||availableRam is not ulong ram)return 1;
         const double gib=1024d*1024*1024;
         var estimate=PerEngine(source,device.HalfStorage);
@@ -73,13 +74,16 @@ public sealed class EnginePool:IAsyncDisposable
             try{
                 worker.Engine??=create(worker.Device);
                 return await worker.Engine.InterpolateAsync(first,second,timestep,cancel);
-            }catch(Exception ex)when(ex is IOException or TimeoutException){
+            }catch(Exception ex)when(ex is IOException or TimeoutException or System.ComponentModel.Win32Exception){
                 cancel.ThrowIfCancellationRequested();healthy=false;
                 if(worker.Engine is not null){await worker.Engine.DisposeAsync();worker.Engine=null;}
                 lock(sync){
                     count--;
                     if(count==0){
-                        if(allowCpuFallback&&Choice.Device!="cpu"){
+                        if(Choice.Backend==Acceleration.Id){
+                            Choice=Choice with{Backend="vulkan",RuntimeDirectory=null,Explanation="GPU 가속 추가 기능에 실패하여 ncnn Vulkan으로 대체합니다."};
+                            var fallback=new Worker(Choice);workers.Add(fallback);count=1;idle.Writer.TryWrite(fallback);
+                        }else if(allowCpuFallback&&Choice.Device!="cpu"){
                             Choice=DevicePolicy.Choose([],"cpu");var cpu=new Worker(Choice);workers.Add(cpu);count=1;idle.Writer.TryWrite(cpu);
                         }else idle.Writer.TryComplete(ex);
                     }

@@ -85,6 +85,7 @@ internal static class InstallerTests
             // 1. Normal update: ready while the app is open, nothing moved before it exits, a short lock is retried.
             string shared=Path.Combine(root,"공유 폴더");
             var a=Start(shared,"first");
+            Directory.CreateDirectory(Path.Combine(a.Target,"accel","rtx"));File.WriteAllText(Path.Combine(a.Target,"accel","rtx","runtime.keep"),"preserved");
             assert(await Until(()=>a.Has("ready.json")||a.Apply.IsCompleted,30)&&!a.Apply.IsCompleted,"Installer verifies the payload and reports ready while the app is still open");
             TimeEstimates.PreservePortableFiles(a.Target,a.Stage);   // what the update window does after ready
             byte[] settings=File.ReadAllBytes(Path.Combine(a.Target,Preferences.FileName)),speeds=File.ReadAllBytes(Path.Combine(a.Target,"performance.json"));
@@ -95,6 +96,7 @@ internal static class InstallerTests
             Stop(a.Parent);await Task.Delay(2500);held.Dispose();
             var first=await a.Apply.WaitAsync(TimeSpan.FromSeconds(120));
             assert(first.Success&&a.Version=="first"&&File.ReadAllText(Path.Combine(first.Backup,"version.txt"))=="old","Update installs after the app exits and keeps the previous version as a backup");
+            assert(File.ReadAllText(Path.Combine(a.Target,"accel","rtx","runtime.keep"))=="preserved"&&!Directory.Exists(Path.Combine(first.Backup,"accel")),"Optional acceleration moves into the new installation without a second copy");
             assert(a.Events.Items.Any(x=>x.Phase=="retry"),"A file still locked after the app exits is retried instead of failing the update");
             assert(a.Phases.SequenceEqual(new[]{"verify","handoff","waiting","backup","install","starting","done"}),"Installer phases run in order: "+string.Join(",",a.Phases));
             assert(File.ReadAllBytes(Path.Combine(a.Target,Preferences.FileName)).SequenceEqual(settings)&&File.ReadAllBytes(Path.Combine(a.Target,"performance.json")).SequenceEqual(speeds),"settings.ini and performance.json are carried over byte for byte");
@@ -117,10 +119,12 @@ internal static class InstallerTests
             // 3. The new version does not confirm startup: roll back and reopen the previous version.
             Environment.SetEnvironmentVariable(BootVariable,"exit");
             var c=Start(Path.Combine(root,"boot failure"),"broken");
+            Directory.CreateDirectory(Path.Combine(c.Target,"accel","rtx"));File.WriteAllText(Path.Combine(c.Target,"accel","rtx","runtime.keep"),"rollback");
             assert(await Until(()=>c.Has("ready.json"),30),"Boot-failure case gets ready");
             c.Signal("commit.json");Stop(c.Parent);
             var rolled=await c.Apply.WaitAsync(TimeSpan.FromSeconds(120));
             Environment.SetEnvironmentVariable(BootVariable,null);
+            assert(File.ReadAllText(Path.Combine(c.Target,"accel","rtx","runtime.keep"))=="rollback"&&!Directory.Exists(Path.Combine(c.Workspace,"failed-install","accel")),"Failed startup restores the acceleration directory to the rolled-back installation");
             assert(!rolled.Success&&rolled.Phase=="rolled-back"&&c.Version=="old"&&File.ReadAllText(Path.Combine(c.Workspace,"failed-install","version.txt"))=="broken"&&!Backups(c.Target),
                 "A new version that exits before confirming startup is rolled back to the previous installation");
             assert(await Until(()=>Restarts().Contains(c.Target),10),"After a rollback the previous version is reopened");

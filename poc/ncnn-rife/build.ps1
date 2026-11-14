@@ -3,7 +3,8 @@ param(
     [switch]$ProfileLayers
 )
 $ErrorActionPreference = 'Stop'
-$TaskTemp = Join-Path $WorkRoot 'tmp'
+$TaskBuildRoot = if($env:FRAMEDOUBLER_TEMP_ROOT){Join-Path $env:FRAMEDOUBLER_TEMP_ROOT 'ncnn-build'}else{$WorkRoot}
+$TaskTemp = Join-Path $TaskBuildRoot 'tmp'
 New-Item -ItemType Directory -Force -Path $TaskTemp | Out-Null
 $env:TEMP = $TaskTemp
 $env:TMP = $TaskTemp
@@ -14,10 +15,10 @@ $Cmake = Join-Path $BuildTools 'cmake.exe'
 $Ninja = Join-Path $BuildTools 'ninja.exe'
 if(-not(Test-Path -LiteralPath $Cmake)){throw 'Run pwsh scripts/setup-dev.ps1 before building'}
 $env:PATH = "$CompilerBin;$BuildTools;$env:PATH"
-$Build = Join-Path $WorkRoot 'build-native'
+$Build = Join-Path $TaskBuildRoot 'build-native'
 $Source = Join-Path $WorkRoot 'native\ncnn-20261020'
 $Destination = Join-Path $WorkRoot 'deploy-vulkan'
-if ($ProfileLayers) { $Build = Join-Path $WorkRoot 'build-profile'; $Destination = Join-Path $WorkRoot 'deploy-profile' }
+if ($ProfileLayers) { $Build = Join-Path $TaskBuildRoot 'build-profile'; $Destination = Join-Path $WorkRoot 'deploy-profile' }
 $ProfileMode = if ($ProfileLayers) { 'ON' } else { 'OFF' }
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 & $Cmake -S $PSScriptRoot -B $Build -G Ninja "-DCMAKE_MAKE_PROGRAM=$Ninja" "-DNCNN_SOURCE_DIR=$Source" '-DCMAKE_C_COMPILER=clang.exe' '-DCMAKE_CXX_COMPILER=clang++.exe' '-DCMAKE_BUILD_TYPE=Release' '-DNCNN_VULKAN=ON' '-DNCNN_SIMPLEVK=ON' '-DNCNN_SHARED_LIB=OFF' '-DNCNN_OPENMP=OFF' '-DNCNN_BUILD_TOOLS=OFF' '-DNCNN_BUILD_EXAMPLES=OFF' '-DNCNN_BUILD_BENCHMARK=OFF' '-DNCNN_AVX512=OFF' '-DNCNN_AVX=OFF' '-DNCNN_AVX2=OFF' '-DNCNN_FMA=OFF' '-DNCNN_XOP=OFF' '-DNCNN_INT8=OFF' '-DNCNN_BF16=OFF' '-DGLSLANG_TESTS=OFF' '-DENABLE_GLSLANG_BINARIES=OFF' '-DENABLE_OPT=OFF' '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'

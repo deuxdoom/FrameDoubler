@@ -79,18 +79,18 @@ public partial class MainWindow:Window
         OutputBox.Text=preferences.OutputDirectory;
         HardwareCheck.IsChecked=preferences.HardwareEncoding;VerifyCheck.IsChecked=preferences.Verify;
         Translate();Select(PresetBox,preferences.Preset);Select(FpsBox,preferences.Fps);updating=false;
-        StateChanged+=(_,_)=>{WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";
+        StateChanged+=(_,_)=>{if(WindowState==WindowState.Maximized&&!immersive){WindowState=WindowState.Normal;FitFixedWindow(false);return;}WindowBorder.CornerRadius=new(12);
             if(WindowState!=WindowState.Minimized)restoreState=WindowState;
             if(WindowState==WindowState.Minimized&&preferences.MinimizeAction=="tray")HideToTray();};
-        SizeChanged+=(_,_)=>AdaptLayout(ActualHeight);
+        SizeChanged+=(_,_)=>{UpdateCompactLayout();AdaptLayout(ActualHeight/Math.Max(.1,UiScale));};
         DragLeave+=(_,_)=>DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;
         foreach(var box in new[]{FpsBox,ModelBox,DeviceBox,EncoderBox})box.SelectionChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
         VerifyCheck.Checked+=(_,_)=>{if(!updating)ScheduleEstimate();};VerifyCheck.Unchecked+=(_,_)=>{if(!updating)ScheduleEstimate();};
         HudBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
+        InitializeCapture();
     }
-    protected override void OnSourceInitialized(EventArgs e){base.OnSourceInitialized(e);WindowFrame.Attach(this);}
+    protected override void OnSourceInitialized(EventArgs e){base.OnSourceInitialized(e);WindowFrame.Attach(this);InitializeFixedWindow();}
     private void MinimizeClicked(object sender,RoutedEventArgs e){if(preferences.MinimizeAction=="tray")HideToTray();else WindowState=WindowState.Minimized;}
-    private void MaximizeClicked(object sender,RoutedEventArgs e){if(WindowState==WindowState.Maximized)SystemCommands.RestoreWindow(this);else SystemCommands.MaximizeWindow(this);}
     private void CloseClicked(object sender,RoutedEventArgs e)=>RequestExit(ExitTrigger.Close);
     public enum ExitTrigger{Close,Tray}
     // Test seam, like FilePicker: answers the exit/tray confirmation without showing the dialog.
@@ -102,13 +102,13 @@ public partial class MainWindow:Window
     internal BrandDialog CreateExitDialog(ExitTrigger trigger){
         var dialog=new BrandDialog(this,"FrameDoubler",400);
         var cancel=new DialogButton(T("취소","Cancel"),DialogChoice.Cancel,"TextButton");
-        dialog.Configure(BrandDialog.Glyphs.Exit,busy||measuring?T("진행 중인 작업을 취소하고 종료할까요?","Cancel the running job and exit?"):T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),
+        dialog.Configure(BrandDialog.Glyphs.Exit,CaptureRecording?T("녹화를 저장하고 종료할까요?","Save the recording and exit?"):busy||measuring?T("진행 중인 작업을 취소하고 종료할까요?","Cancel the running job and exit?"):T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),
             "",null,cancel,new DialogButton(T("종료","Exit"),DialogChoice.Primary,"PrimaryButton",true));
         return dialog;
     }
     private void RequestExit(ExitTrigger trigger){
         if(asking||exitConfirmed)return;
-        bool working=busy||measuring;
+        bool working=busy||measuring||CaptureRecording;
         // A remembered choice (Settings → Window and tray) skips the dialog; exiting while work runs is always confirmed.
         string remembered=trigger==ExitTrigger.Close?preferences.CloseAction:preferences.CloseAction=="exit"?"exit":"ask";
         if(ExitPrompt is null){
@@ -146,6 +146,7 @@ public partial class MainWindow:Window
     }
     private void Translate(){
         bool old=updating;updating=true;
+        TranslateCapture();
         Tagline.Text=T("30fps 게임 녹화를 60fps로 변환","Convert 30fps game recordings to 60fps");AddButton.Content=T("영상 추가","Add videos");QueueTitle.Text=T("입력 영상","Input videos");
         Subtitle.Text=T("반복된 중복 프레임을 찾아내고, 그 자리를 RIFE AI 보간 프레임으로 채웁니다.","Finds repeated duplicate frames and fills them with RIFE AI-interpolated frames.");
         DropText.Text=T("영상을 끌어 놓으세요","Drop your videos here");DropHint.Text=T("또는 클릭하여 파일을 선택하세요","Or click here to choose files");
@@ -185,7 +186,7 @@ public partial class MainWindow:Window
     }
     private string UserMessage(string message,string stage){
         if(!English)return message;
-        if(stage=="fallback")return "CPU fallback: inference can be much slower.";
+        if(stage=="fallback")return message.Contains("ncnn",StringComparison.Ordinal)?"GPU add-on failed; retrying with ncnn Vulkan.":"Inference worker changed; CPU fallback can be much slower.";
         if(stage=="encoder_fallback")return "Retrying with software encoding; performance can be lower.";
         if(stage=="encoder_tuning_fallback")return "Quality acceleration is unavailable for this job; retrying the base encoder settings.";
         if(stage=="hardware")return "Inspecting device/encoder capabilities and transfer cost.";
@@ -367,7 +368,7 @@ public partial class MainWindow:Window
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();
-    private void SettingsClicked(object sender,RoutedEventArgs e){if(!busy)new SettingsWindow(this).ShowDialog();}
+    private void SettingsClicked(object sender,RoutedEventArgs e){if(!busy)OpenSettings(null);}
     // Export presets: the four built-ins; the selection is saved in settings.ini.
     internal OutputPreset CurrentPreset=>OutputPresets.Find(Selected(PresetBox));
     private void RefreshPresets(string? select){
@@ -378,7 +379,9 @@ public partial class MainWindow:Window
     // Used by the settings window; changes apply immediately and are saved to settings.ini.
     internal Preferences Settings=>preferences;
     internal bool Working=>busy||measuring;
-    internal void ChangeSettings(Func<Preferences,Preferences> change){preferences=change(preferences);Save();}
+    internal bool CanManageAcceleration=>!busy&&!measuring;
+    internal void RefreshAcceleration()=>ScheduleEstimate(true);
+    internal void ChangeSettings(Func<Preferences,Preferences> change){string accelerator=preferences.Accelerator;preferences=change(preferences);Save();if(accelerator!=preferences.Accelerator)ScheduleEstimate(true);}
     // Settings → Advanced shows the main window's own advanced controls, so device/encoder lists,
     // estimates and saving keep working unchanged. They return to the hidden host when the page closes.
     internal FrameworkElement BorrowAdvanced(){Detach(AdvancedPanel);return AdvancedPanel;}
@@ -418,7 +421,7 @@ public partial class MainWindow:Window
             new UpdateWindow(this,release).ShowDialog();
         }finally{checkingUpdates=false;}
     }
-    private async void OnDrop(object sender,DragEventArgs e){DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
+    private async void OnDrop(object sender,DragEventArgs e){DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;if(e.Data.GetData(DataFormats.FileDrop) is string[] files){ShowPage("convert");await AddFilesAsync(files);}}
     private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString(e.Effects==DragDropEffects.Copy?"#FF8C60":"#3A454C")!;e.Handled=true;}
     private void SetupTray(){
         if(tray is not null)return;
@@ -437,9 +440,9 @@ public partial class MainWindow:Window
         target.Activate();SingleInstance.Foreground(target);
     }
     private Preferences CurrentPreferences(){
-        preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),
+        preferences=preferences with{Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),
             Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),
-            Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true,
+            Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true,Accelerator=preferences.Accelerator,
             CheckUpdates=preferences.CheckUpdates,CloseAction=preferences.CloseAction,MinimizeAction=preferences.MinimizeAction};
         return preferences;
     }
@@ -450,6 +453,7 @@ public partial class MainWindow:Window
         // Running jobs are cancelled first; their FFmpeg/engine processes are killed and incomplete output removed,
         // then the queue/estimate completion calls Close() again. The job object is the last safety net.
         if(busy||measuring){e.Cancel=true;closing=true;StatusText.Text=T("작업을 취소하고 정리한 뒤 종료합니다…","Cancelling and cleaning up before exit…");work?.Cancel();estimateCancel?.Cancel();return;}
+        capture?.Shutdown();
         lifetime.Cancel();Save();DisposeTray();
     }
     public void PreviewLanguage(string value){SetLanguage(value,false);Translate();}

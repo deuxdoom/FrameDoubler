@@ -2,8 +2,58 @@
 
 C#/.NET 10 + independently authored C++ ncnn/Vulkan. Windows 11 x64.
 Intel/AMD CPUs and NVIDIA/AMD/Intel Vulkan GPUs are the support targets.
-Actual physical validation currently covers i7-14700KF + RTX 4080 SUPER only;
-see `HARDWARE-TESTS.md` in the repository for the matrix and procedure.
+Physical validation is limited to the hardware listed in `HARDWARE-TESTS.md`;
+see that file for the matrix and procedure.
+
+## Capture preview
+
+FrameDoubler opens on the capture preview (switch to "Convert files" in the title bar; the last
+page is remembered). It automatically starts the selected supported capture card, including
+on first launch. Choose another card or exact mode as needed (NV12, YUY2, UYVY or RGB32;
+compressed MJPG modes are not listed and HDR/P010 remains unavailable). Media Foundation
+is preferred; devices exposed only through DirectShow are also listed. The picture is processed on the GPU:
+
+Frame generation and duplicate removal are **off by default**. Enable either in the side panel
+when wanted; saved choices are remembered. Actual game fps is shown only with duplicate removal on.
+
+- Duplicate removal compares every captured picture with the last new one, so a 30 or 40 fps game
+  inside a 60 Hz signal keeps only its real frames, each placed at the time it really changed.
+- Frame generation fills the gaps: NVIDIA DLSS Frame Generation (RTX GPUs whose driver offers
+  it, up to the multiplier the driver allows), NVIDIA VFX (RTX, after its runtime is downloaded
+  in Settings > Capture) or FrameDoubler's own motion interpolation. Automatic tries them in
+  that order. The default 2×, 3× and 4× settings
+  multiply the actual content rate: a 30 fps game becomes 60, 90 or 120 fps. With duplicate
+  removal off they multiply the input signal rate. Frame generation off displays the latest
+  picture directly. A recording requested during startup waits up to one second for rate detection.
+  DLSS uses hardware optical flow where the driver offers it, retaining the source resolution;
+  otherwise it uses FrameDoubler's block motion. Detected hard scene cuts reset the history
+  and show an original picture instead of generating across the cut.
+- Anti-aliasing (low/medium/high) runs once per unique frame at the source size, before frame
+  generation. Colour range and matrix can be set; the processing-order strip shows active steps.
+- Display: automatic sync (newest frame without tearing), VSync or tearing allowed; fit, fill
+  or stretch; split or original-only comparison; hold V to see the original; output cap.
+- Sound from the card's audio input is played with a delay matched to the picture.
+  Output can follow the Windows default device or stay pinned to one endpoint. Changing
+  it reopens only the output; video and the recording's input audio continue. Failed output
+  opens retry at most three times, then wait for a selection or device change.
+- Video input waits up to five seconds for its first frame and three seconds after packets
+  stop. Format changes or capture errors request a restart. Static pictures and silent audio
+  remain valid while packets arrive; an audio input packet timeout leaves video running.
+- Screenshots (PNG) and recordings (MP4, H.264/HEVC + AAC) go to Pictures\FrameDoubler and
+  Videos\FrameDoubler by default. H.264 uses fragmented MP4; HEVC completes the file when
+  recording stops. Change both folders
+  under Settings → Capture. Shortcuts (F7 screenshot, F8 record, F11 full screen, F6 frame
+  generation, F10 statistics, V original) can be changed under Settings → Shortcuts and,
+  optionally, made global.
+
+The preview occupies a centered 16:9 rectangle and double-clicking it toggles full screen.
+The compact main window has a fixed size that fits the monitor's work area and Windows
+scale; its controls scale separately from the native preview. Minimize and move remain available.
+The two panels below show signal and processing time, and smoothness: displayed/game fps,
+generated frames per second, live processing/latency/GPU-budget bars and the last minute
+of output fps. Only the development PC's capture card has been tested; other cards and GPUs are unverified.
+
+## Converting files
 
 Run `FrameDoubler.exe` in `dist/FrameDoubler`. Click the drop area or use Ctrl+O
 to select videos; dropping files works too. Review file and estimated motion fps,
@@ -27,11 +77,38 @@ Failed workers are retired individually before automatic CPU fallback is conside
 Time estimates measure the selected pool's throughput and keep separate profiles per worker count.
 Large-frame RGB input/output conversion also uses a bounded number of CPU threads;
 inference resolution and per-pixel calculations remain unchanged.
+Large FP32 Vulkan jobs move RGB8/RGB16 conversion and timestep filling to GPU
+shaders and reuse the previous GPU input when its bytes match. A failed GPU
+conversion retries the same request through CPU conversion and Vulkan inference.
 Smaller outputs are resized only by the encoder, after interpolation at the source resolution.
 Both RIFE models use FP32 activation storage and arithmetic, including for 8-bit
 video. FP16 storage capability does not enable a lower-precision path. Device
 selection and worker limits account for the FP32 memory footprint; automatic
 device selection falls back to CPU when GPU memory is insufficient, without reducing precision.
+
+## Optional GPU acceleration
+
+Settings → Advanced → GPU acceleration add-on can install or remove the optional
+TensorRT RTX runtime. Installation asks for consent to the official PyPI download
+(about 128 MB), license terms and about 310 MB of additional disk space. It checks
+fixed SHA-256 values, the actual execution-provider device, and both models against
+ncnn CPU inference before committing the installation. Python is not installed.
+
+Auto uses an installed compatible add-on for RGB8 input, preserving source
+resolution and FP32 network/warp arithmetic. The measured RTX policy uses one
+worker; Vulkan's worker count is not reused. The default Vulkan selection remains
+available, RGB16 uses ncnn FP32, and a failed add-on retries the request with ncnn.
+Device matching is checked by actual adapter identifiers; ambiguous identical
+adapters use ncnn. GPU memory admission keeps the conservative ncnn fallback budget.
+
+The package includes shared FP32 model weights and the small standalone loader,
+and downloads the runtime only when installed. Updates preserve `accel/` and restore
+it on rollback. Provider/runtime fingerprints keep time-estimate histories separate.
+License links and downloaded notices remain with the installed add-on.
+
+CLI: `accel status`, `accel install --accept-licenses`, `accel remove`, and
+`run ... --accelerator auto|vulkan|rtx`. The install command explicitly downloads the
+runtime under its MIT / Apache-2.0 / NVIDIA runtime terms described by `accel status`.
 
 No Python, PyTorch, CUDA Toolkit, separate SDK or separately installed .NET is
 required by the self-contained package. GPU drivers are provided by the operating

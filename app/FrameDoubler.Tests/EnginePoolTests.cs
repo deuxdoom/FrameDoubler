@@ -25,6 +25,13 @@ internal static class EnginePoolTests
         check(DevicePolicy.Choose([gpu.Gpu! with{BudgetBytes=4UL<<30}],requiredBytes:EngineWorkerPolicy.RequiredGpuBytes(source)).Device=="cpu","Auto selection excludes a device below the FP32 single-engine estimate");
         check(EngineWorkerPolicy.Count(source,gpu with{HalfStorage=false},32UL<<30,3)==2,"Worker override respects the large-FP32 memory ceiling");
         check(EngineWorkerPolicy.Count(source with{Width=1920,Height=1080},gpu with{HalfStorage=false},32UL<<30)==3,"Smaller FP32 frames can still use three workers within budget");
+        var transitions=new List<string>();
+        await using(var fallback=new EnginePool(1,gpu with{Backend="rtx"},d=>{
+            transitions.Add(d.Backend+":"+d.Device);
+            return new Fake(_=>d.Backend=="rtx"?Task.FromException<byte[]>(new IOException("plugin failed")):Task.FromResult(new byte[]{7}));
+        },false)){
+            check((await fallback.InterpolateAsync(new byte[1],new byte[1],.5f))[0]==7&&fallback.Choice.Backend=="vulkan"&&transitions.SequenceEqual(new[]{"rtx:gpu:0","vulkan:gpu:0"}),"Optional accelerator failure retries the same request on ncnn even with a manual GPU");
+        }
         var frame=new VideoFrame(12,0,0);frame.Memory.Span.Fill(27);var lease=frame.Retain();frame.Dispose();frame.Dispose();
         check(frame.Memory.Span[0]==27,"A queued lease survives owner disposal");lease.Dispose();lease.Dispose();
         bool released=false;try{frame.Retain();}catch(ObjectDisposedException){released=true;}check(released,"Released frames cannot be retained again");
@@ -65,6 +72,20 @@ internal static class EnginePoolTests
     }
     public static async Task IntegrationAsync(AppPaths paths,DeviceChoice device,Action<bool,string> check){
         if(device.Device=="cpu")return;
+        string? gpuRgb=Environment.GetEnvironmentVariable("FRAMEDOUBLER_GPU_RGB");
+        try{
+            foreach(string model in new[]{"v4.25","v4.26"})foreach(bool deep in new[]{false,true}){
+                const int width=642,height=362;int bytes=width*height*3*(deep?2:1);
+                byte[] a=new byte[bytes],b=new byte[bytes],c=new byte[bytes];for(int i=0;i<bytes;i++){a[i]=(byte)(i%199+15);b[i]=(byte)((i+17)%199+15);c[i]=(byte)((i+37)%199+15);}
+                var pairs=new[]{(a,b,.25f),(b,c,.75f),(c,a,.25f),(a,b,.5f)};var expected=new List<byte[]>();
+                Environment.SetEnvironmentVariable("FRAMEDOUBLER_GPU_RGB","0");
+                await using(var baseline=new NativeEngine(paths,model,width,height,device,1,deep))foreach(var (first,last,step) in pairs)expected.Add(await baseline.InterpolateAsync(first,last,step));
+                Environment.SetEnvironmentVariable("FRAMEDOUBLER_GPU_RGB","1");
+                await using var optimized=new NativeEngine(paths,model,width,height,device,1,deep);bool same=true;
+                for(int i=0;i<pairs.Length;i++){var (first,last,step)=pairs[i];same&=(await optimized.InterpolateAsync(first,last,step)).SequenceEqual(expected[i]);}
+                check(same,$"GPU RGB cache reuses chained frames without stale inputs or timesteps: {model}, RGB{(deep?16:8)}");
+            }
+        }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_GPU_RGB",gpuRgb);}
         foreach(string model in new[]{"v4.25","v4.26"})foreach(bool deep in new[]{false,true}){
             byte[] a=new byte[160*90*3*(deep?2:1)],b=new byte[a.Length];
             for(int i=0;i<a.Length;i++){a[i]=(byte)(i%251);b[i]=(byte)((i+17)%251);}

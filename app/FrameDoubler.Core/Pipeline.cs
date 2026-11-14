@@ -8,6 +8,7 @@ public sealed record ConversionOptions
     public Rational? Fps{get;init;}
     public string Model{get;init;}="v4.25";
     public string Device{get;init;}="auto";
+    public string Accelerator{get;init;}="auto";
     public string Encoder{get;init;}="auto";
     public string? Codec{get;init;}
     public bool Deduplicate{get;init;}=true;
@@ -50,6 +51,7 @@ public sealed record ConversionResult(string Output,Rational Fps,long Frames,int
     double Seconds,string Device,string Encoder,VerificationReport? Verification){
     public double OverallSeconds{get;init;}
     public int InferenceWorkers{get;init;}
+    public string Backend{get;init;}="vulkan";
 }
 
 public sealed partial class ConversionPipeline(AppPaths paths)
@@ -95,6 +97,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         ulong required=EngineWorkerPolicy.RequiredGpuBytes(source);
         var choice=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8&&choice.Gpu is not null)choice=choice with{HalfStorage=false,Explanation=$"{choice.Gpu.Name} / Vulkan / FP32 저장·연산 (고비트 심도)"};
+        choice=await ChooseAccelerationAsync(options,source,choice,cancel);
         var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);
         if(options.MatchSource&&bitrate is null)progress?.Report(new("analyze",0,total,0,"원본 비트레이트 정보가 없어 품질 기준으로 인코딩합니다."));
         var encoder=EncoderPolicy.Choose(devices.Encoders,codec,options.Encoder,source.BitDepth>8,options.HardwareEncoding);
@@ -106,7 +109,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         using var pendingCancel=CancellationTokenSource.CreateLinkedTokenSource(cancel);
         var pending=new Queue<(Task<byte[]>? Inference,VideoFrame? Original,IDisposable? Lease)>();
         int workers=EngineWorkerPolicy.For(source,choice);
-        bool calibrated=options.Device!="auto"||devices.Hardware.Gpus.Count(x=>x.InferencePassed==true&&x.SupportsWarp)<=1;
+        bool calibrated=choice.Backend==Acceleration.Id||options.Device!="auto"||devices.Hardware.Gpus.Count(x=>x.InferencePassed==true&&x.SupportsWarp)<=1;
         int interpolated=0,cuts=0,duplicates=0;var watch=Stopwatch.StartNew();double lastReport=-1;
         VerificationReport? verification=null;
         try {
@@ -182,7 +185,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
             progress?.Report(new(verification?.Ok==false?"warning":"done",total,total,watch.Elapsed.TotalSeconds,
                 choice.Explanation+" · "+encoder.Explanation+(verification?.Ok==false?" · "+string.Join("; ",verification.Problems):"")));
             RecordPerformance(source,options,choice,encoder.Encoder,total,interpolated,overall.Elapsed.TotalSeconds,engine?.Count??workers);
-            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds,InferenceWorkers=engine?.Count??0};
+            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds,InferenceWorkers=engine?.Count??0,Backend=choice.Device=="cpu"?"cpu":choice.Backend};
         }catch(EncodingException)when(encoder.Encoder.HighQualityTuning){
             if(engine is not null)await engine.DisposeAsync();left?.Dispose();if(File.Exists(temp))File.Delete(temp);
             progress?.Report(new("encoder_tuning_fallback",0,total,watch.Elapsed.TotalSeconds,"화질 가속 옵션을 지원하지 않아 기본 인코더 설정으로 다시 시도합니다."));

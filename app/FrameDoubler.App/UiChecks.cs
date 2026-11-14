@@ -18,7 +18,7 @@ public partial class MainWindow
         var passed=new List<string>();
         void Check(bool condition,string name){if(!condition)throw new InvalidOperationException("UI: "+name);passed.Add(name);}
         async Task Idle(){await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);}
-        Check(WindowStyle==WindowStyle.None&&WindowChrome.GetWindowChrome(this).ResizeBorderThickness.Left>0,"Frameless and resizable chrome");
+        Check(WindowStyle==WindowStyle.None&&ResizeMode==ResizeMode.CanMinimize&&WindowChrome.GetWindowChrome(this).ResizeBorderThickness.Left==0,"Frameless fixed-size window with minimize");
         Check(VerifyCheck.IsChecked==false,"Verification starts unchecked");
         int picks=0;FilePicker=()=>{picks++;return[];};
         var peer=new ButtonAutomationPeer(EmptyPanel);((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();await Idle();
@@ -63,10 +63,10 @@ public partial class MainWindow
         KoreanButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
         Check(!English&&AddButton.Content as string=="영상 추가","Language switch selects Korean");
         Check(LanguageThumb.ActualWidth>20&&Math.Abs(LanguageThumb.ActualWidth*2-(LanguageSwitch.ActualWidth-6))<4,"Language switch halves");
-        MaximizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();
-        Check(WindowState==WindowState.Maximized,"Maximize button");
-        Check(ActualWidth<=SystemParameters.WorkArea.Width+2&&ActualHeight<=SystemParameters.WorkArea.Height+2,"Maximize respects taskbar work area");
-        MaximizeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();Check(WindowState==WindowState.Normal,"Restore button");
+        Check(MaximizeButton.Visibility==Visibility.Collapsed&&!MaximizeButton.IsEnabled,"Fixed window hides maximize");
+        WindowState=WindowState.Maximized;await Idle();
+        Check(WindowState==WindowState.Normal,"System maximize request preserves fixed mode");
+        Check(ActualWidth<=SystemParameters.WorkArea.Width+2&&ActualHeight<=SystemParameters.WorkArea.Height+2,"Fixed window fits the monitor work area");
         // Plain encoder names and the RIFE model help.
         Check(EncoderName(new FrameDoubler.Core.EncoderCapability("h264_nvenc","h264","nvenc",true,false,null))=="NVENC (GPU)"
             &&EncoderName(new FrameDoubler.Core.EncoderCapability("hevc_amf","hevc","amf",true,true,null))=="AMF (GPU)"
@@ -144,7 +144,7 @@ public partial class MainWindow
         foreach(string lang in new[]{"ko","en"}){
             PreviewLanguage(lang);
             var settings=new SettingsWindow(this){ShowActivated=false};settings.Show();await Idle();
-            Check(settings.Navigation.Items.Count==5,$"Settings categories {lang}");
+            Check(settings.Navigation.Items.Count==7,$"Settings categories include capture and shortcuts {lang}");
             foreach(System.Windows.Controls.ListBoxItem item in settings.Navigation.Items){
                 settings.Navigation.SelectedItem=item;await Idle();settings.UpdateLayout();
                 var view=settings.Page!;string name=System.Windows.Automation.AutomationProperties.GetName(item);
@@ -152,6 +152,12 @@ public partial class MainWindow
                 Check(view.ActualHeight>0&&controls.Count>0,$"Settings page has controls {name} {lang}");
                 if(controls.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(x=>System.Windows.Automation.AutomationProperties.GetAutomationId(x)=="SettingMinimizeAction") is {} minimize)
                     Check(minimize.Items.OfType<Choice>().Select(x=>x.Value).SequenceEqual(new[]{"taskbar","tray"}),$"Minimize offers only default taskbar or explicit tray {lang}");
+                if(controls.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(x=>System.Windows.Automation.AutomationProperties.GetAutomationId(x)=="SettingAccelerator") is {} accelerator){
+                    Check(accelerator.Items.OfType<Choice>().Select(x=>x.Value).SequenceEqual(new[]{"auto","vulkan","rtx"}),$"Acceleration offers auto, Vulkan and optional RTX {lang}");
+                    accelerator.SelectedItem=accelerator.Items.OfType<Choice>().Single(x=>x.Value=="vulkan");await Idle();
+                    Check(CurrentOptions().Accelerator=="vulkan"&&FrameDoubler.Core.Preferences.Load().Accelerator=="vulkan",$"Acceleration selection reaches conversion options and portable INI {lang}");
+                    accelerator.SelectedItem=accelerator.Items.OfType<Choice>().Single(x=>x.Value=="auto");await Idle();
+                }
                 foreach(var control in controls){
                     var bounds=control.TransformToAncestor(view).TransformBounds(new Rect(control.RenderSize));
                     Check(bounds.Left>=0&&bounds.Right<=view.ActualWidth+1,$"Settings control fits {name} {control.GetType().Name} {lang}");

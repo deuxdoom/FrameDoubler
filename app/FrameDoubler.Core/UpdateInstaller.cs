@@ -128,7 +128,7 @@ public static class UpdateInstaller
         InstallRequest request=ReadRequest(file,runnerRoot);
         string backup=request.Target+".previous-"+Path.GetFileName(request.Workspace)[".FrameDoubler-install-".Length..];
         string failed=Path.Combine(request.Workspace,"failed-install");
-        bool moved=false,installed=false,parentExited=false;Process? launched=null;
+        bool moved=false,installed=false,parentExited=false,accelerationMoved=false;Process? launched=null;
         string phase="prepare";
         // Logs are best effort: a full disk must never skip the rollback that follows.
         void Log(string name,object value){try{WriteJson(Path.Combine(request.Workspace,name),value);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){}}
@@ -164,6 +164,11 @@ public static class UpdateInstaller
             parentExited=true;cancel.ThrowIfCancellationRequested();Thread.Sleep(350);
             State("backup");Retry(()=>Directory.Move(request.Target,backup),TimeSpan.FromSeconds(30),progress);moved=true;
             State("install");Retry(()=>Directory.Move(request.Stage,request.Target),TimeSpan.FromSeconds(30),progress);installed=true;
+            string savedAcceleration=Path.Combine(backup,"accel");
+            if(Directory.Exists(savedAcceleration)){
+                if((File.GetAttributes(savedAcceleration)&FileAttributes.ReparsePoint)!=0)throw new IOException("Additional runtime directory must not be a link");
+                Retry(()=>Directory.Move(savedAcceleration,Path.Combine(request.Target,"accel")),TimeSpan.FromSeconds(30),progress);accelerationMoved=true;
+            }
             State("starting");
             var start=new ProcessStartInfo(Path.Combine(request.Target,"FrameDoubler.exe")){UseShellExecute=false,WorkingDirectory=request.Target};
             start.ArgumentList.Add("--updated");start.ArgumentList.Add(file);
@@ -180,6 +185,7 @@ public static class UpdateInstaller
                 try{
                     State("rollback",cause);
                     if(launched is not null&&!launched.HasExited){launched.Kill(entireProcessTree:true);launched.WaitForExit(10000);}
+                    if(accelerationMoved)Retry(()=>Directory.Move(Path.Combine(request.Target,"accel"),Path.Combine(backup,"accel")),TimeSpan.FromSeconds(30),progress);
                     if(installed)Retry(()=>Directory.Move(request.Target,failed),TimeSpan.FromSeconds(30),progress);
                     Retry(()=>Directory.Move(backup,request.Target),TimeSpan.FromSeconds(30),progress);
                     State("rolled-back",cause);

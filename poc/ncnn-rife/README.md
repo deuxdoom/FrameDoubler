@@ -71,6 +71,7 @@ rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 auto|gpu:INDEX|cpu [SCALE] [rgb16] [se
 
 - RGB 0~1, 64/scale replicate padding, dense timestep. 제품은 두 모델 모두 FP32 중간 텐서 저장·연산을 사용합니다. 4K scale=0.5.
 - 100만 픽셀 이상에서는 RGB 입출력 변환의 행을 최대 4개 CPU 스레드로 나눕니다(논리 프로세서 수의 1/4 상한). 픽셀별 계산·패딩·출력 순서는 유지합니다. 더 작은 프레임은 한 스레드입니다.
+- 100만 픽셀 이상 FP32 Vulkan은 공개 C++ API와 자체 RGB8/RGB16 셰이더를 사용합니다. RGB 패딩·정규화·양자화와 dense timestep 채우기는 GPU에서 처리하고, 직전 B가 다음 A와 바이트 단위로 같으면 GPU 입력을 재사용합니다. CPU time 평면 전송은 없습니다. 비유한 값은 GPU 그룹별 플래그로 거부합니다. 준비·실행 실패 때 같은 요청을 기존 CPU 변환+Vulkan 그래프로 다시 처리합니다. `FRAMEDOUBLER_GPU_RGB=0/1`은 비교용 강제 해제/활성화이며 작은 프레임·CPU·FP16 비교 경로는 기존 구현을 유지합니다.
 - `rgb16`은 RGB48 little-endian이며 FP32 저장/연산입니다. `fp16` 명령줄 옵션은 기존 수치·성능 비교용으로 남기며, 제품은 장치의 지원 여부와 관계없이 `fp32`를 선택합니다. 가중치 파일의 저장 형식과 실행 중 텐서 정밀도는 별개입니다.
 - `P` + little-endian float32 timestep + RGB A/B 요청. 응답은 float64 시간 세 개 + RGB 중간 프레임.
   `Q`/EOF로 종료합니다. `sequence`는 연속 RGB30→RGB60 스트림이며 마지막 프레임을 유지합니다.

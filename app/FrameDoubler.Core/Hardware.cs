@@ -43,7 +43,12 @@ public sealed record HardwareInventory
     };
 }
 
-public sealed record DeviceChoice(string Device, bool HalfStorage, string Explanation, GpuDevice? Gpu);
+public sealed record DeviceChoice(string Device, bool HalfStorage, string Explanation, GpuDevice? Gpu)
+{
+    public string Backend{get;init;}="vulkan";
+    public int AccelerationIndex{get;init;}
+    public string? RuntimeDirectory{get;init;}
+}
 
 public static class DevicePolicy
 {

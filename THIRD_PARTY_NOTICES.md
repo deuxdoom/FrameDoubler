@@ -9,6 +9,7 @@ Bundled components and notice locations:
 
 - FrameDoubler: MIT, `licenses/FrameDoubler-MIT.txt`.
 - Practical-RIFE official weights, independently converted: MIT, `licenses/Practical-RIFE-MIT.txt`.
+- ONNX Runtime C API declarations used by the optional native loader: MIT, `licenses/ONNXRuntime-MIT.txt`. The default package also contains the independently converted FP32 ONNX model data, with shared external weights.
 - Tencent ncnn 20261020: BSD-3-Clause and its listed components, `licenses/ncnn.txt`.
 - glslang pinned by the ncnn build: `licenses/glslang.txt` and `licenses/glslang/`.
 - LLVM/MinGW C++ and C runtime support linked into the engine: Apache-2.0 with
@@ -61,7 +62,55 @@ SOFTWARE.
 The optional Python/Torch/pnnx model export tool under `poc/ncnn-rife` is not bundled.
 Its minimal model definition converts the official weights to ncnn or ONNX.
 The ONNX export tools additionally use ONNX (Apache-2.0) and ONNX Script (MIT).
-Development comparisons use ONNX Runtime (MIT). The optional TensorRT-RTX EP plugin
+Development comparisons use ONNX Runtime (MIT). Torch, Python, ONNX and ONNX Script
+are development dependencies and are not included in the native package.
+
+## Optional downloaded GPU runtime
+
+The optional add-on downloads pinned official PyPI wheels only after the user
+chooses to install it. ONNX Runtime is MIT licensed; the TensorRT-RTX EP plugin
 is Apache-2.0, while its included NVIDIA runtime has a separate
 [NVIDIA software license agreement](https://docs.nvidia.com/deeplearning/tensorrt-rtx/latest/reference/sla.html).
-These development dependencies and generated ONNX models are not included in the native package.
+These runtime DLLs are not in the default ZIP. Their license notices, distribution
+metadata, source URLs and fixed SHA-256 values are retained under `accel/rtx/`.
+The app does not install Python from those wheels. The official distributions are
+[ONNX Runtime](https://pypi.org/project/onnxruntime/1.32.0/) and
+[TensorRT RTX EP](https://pypi.org/project/onnxruntime-ep-nv-tensorrt-rtx-cu13/0.5.0/).
+
+## NVIDIA DLSS Frame Generation library
+
+`engine/dlss/nvngx_dlssg.dll` is NVIDIA's unmodified DLSS Frame Generation feature library from
+the official https://github.com/NVIDIA/DLSS repository (`lib/Windows_x86_64/rel`). It is NVIDIA
+proprietary software under the NVIDIA RTX SDKs License in `licenses/nvidia-dlss/LICENSE.txt` and
+is not covered by FrameDoubler's MIT license. FrameDoubler loads the NGX core that is part of
+the installed NVIDIA driver and calls its public entry points; no NVIDIA file is modified and
+no hardware check is bypassed, so the feature runs only where the driver offers it and only up
+to the multiplier the driver reports. Otherwise FrameDoubler's own interpolation is used.
+Deleting `engine/dlss/` removes the library.
+
+## NVIDIA Optical Flow interface headers (optional build dependency)
+
+The optional hardware optical-flow path uses NVIDIA Optical Flow SDK interface headers
+`nvOpticalFlowCommon.h` and `nvOpticalFlowD3D11.h`, copyright (c) 2018-2023 and 2019-2023
+NVIDIA Corporation respectively. Each header is MIT licensed, with the same permission and
+warranty text reproduced above. The complete copyright and permission notices remain in
+the original headers. The optical-flow DLL is loaded from the installed display driver;
+no SDK runtime, sample binaries or CUDA Toolkit is bundled.
+
+## NVIDIA Video Effects runtime (frame generation)
+
+The package does not contain NVIDIA's Video Effects runtime. When the user asks for it in
+Settings > Capture and accepts NVIDIA's license, FrameDoubler downloads the official
+`nvidia-vfx` 0.2.0.0 package from https://pypi.nvidia.com/nvidia-vfx/ , checks its size and
+SHA-256, and keeps five unmodified DLLs of the Video Effects SDK runtime 1.3.0.0
+(`NVVideoEffects.dll`, `nvVFXVideoFrameGeneration.dll`, `NVCVImage.dll`, `nvngxruntime.dll`,
+`cudart64_12.dll`) with NVIDIA's license texts in `accel/nvvfx/`. They are NVIDIA proprietary
+software and are not covered by FrameDoubler's MIT license. FrameDoubler loads them through the
+public C API only and falls back to its own interpolation when they are missing or cannot run.
+The Remove button in the same place deletes them. The runtime needs the Microsoft Visual C++
+runtime (MSVCP140/VCRUNTIME140), which is not included.
+
+Reference: Veyra-NRVideo documents the same public VFX API and separate, unmodified
+runtime packaging in its [NVIDIA Video Frame Generation notice](https://github.com/Likely7/Veyra-NRVideo/blob/main/THIRD_PARTY_NOTICES.md#nvidia-video-frame-generation-local-integration-2026-10-03).
+This reference does not relicense NVIDIA's runtime under FrameDoubler's MIT license
+or Veyra's GPL-3.0 license. NVIDIA's original terms and third-party notices remain applicable.

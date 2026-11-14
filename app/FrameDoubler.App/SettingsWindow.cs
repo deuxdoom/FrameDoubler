@@ -26,9 +26,9 @@ public sealed class SettingsWindow:Window
     internal ListBox Navigation=>nav;
     internal FrameworkElement? Page=>page.Content as FrameworkElement;
     public SettingsWindow(MainWindow owner,string? category=null,bool preview=false){
-        this.owner=owner;if(!preview)Owner=owner;Width=780;Height=560;MinWidth=640;MinHeight=460;
-        Style=(Style)FindResource(typeof(Window));WindowStartupLocation=WindowStartupLocation.CenterOwner;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.CanResize;
-        WindowChrome.SetWindowChrome(this,new WindowChrome{CaptionHeight=48,ResizeBorderThickness=new Thickness(6),GlassFrameThickness=new Thickness(0),CornerRadius=new CornerRadius(12),UseAeroCaptionButtons=false});
+        this.owner=owner;if(!preview)Owner=owner;Width=740;Height=520;
+        Style=(Style)FindResource(typeof(Window));WindowStartupLocation=WindowStartupLocation.CenterOwner;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;
+        WindowChrome.SetWindowChrome(this,new WindowChrome{CaptionHeight=48,ResizeBorderThickness=new Thickness(0),GlassFrameThickness=new Thickness(0),CornerRadius=new CornerRadius(12),UseAeroCaptionButtons=false});
         SourceInitialized+=(_,_)=>WindowFrame.Attach(this);
         PreviewKeyDown+=(_,e)=>{if(e.Key==Key.Escape){Close();e.Handled=true;}};
         Closed+=(_,_)=>owner.ReturnAdvanced();
@@ -37,7 +37,7 @@ public sealed class SettingsWindow:Window
     internal void Select(string key){foreach(ListBoxItem item in nav.Items)if(((Section)item.Tag).Key==key){nav.SelectedItem=item;break;}}
     private void Build(string key){
         english=owner.English;Title=T("설정","Settings");
-        var sections=new[]{new Section("general","",T("일반","General"),General),new Section("window","",T("창과 트레이","Window and tray"),WindowAndTray),new Section("advanced","",T("고급","Advanced"),AdvancedPage),
+        var sections=new[]{new Section("general","",T("일반","General"),General),new Section("capture","\uE714",T("캡처","Capture"),CapturePage),new Section("shortcuts","\uE765",T("단축키","Shortcuts"),ShortcutsPage),new Section("window","",T("창과 트레이","Window and tray"),WindowAndTray),new Section("advanced","",T("고급","Advanced"),AdvancedPage),
             new Section("data","",T("데이터","Data"),Data),new Section("about","",T("정보","About"),About)};
         nav=new ListBox{Background=Brushes.Transparent,BorderThickness=new Thickness(0),Padding=new Thickness(0),Margin=new Thickness(16,4,12,16)};
         System.Windows.Automation.AutomationProperties.SetAutomationId(nav,"SettingsNav");
@@ -108,6 +108,126 @@ public sealed class SettingsWindow:Window
     }
     private TextBlock Note(string text)=>new(){Text=Hangul.KeepWords(text),Foreground=(Brush)FindResource("MutedBrush"),FontSize=12,LineHeight=18,Margin=new Thickness(2,0,0,0)};
 
+    // Capture preview: where screenshots and recordings go, the recording format, start page.
+    private UIElement CapturePage(){
+        var stack=new StackPanel();
+        UIElement Folder(Func<Preferences,string> current,Func<Preferences,string> effective,Func<Preferences,string,Preferences> set,string title){
+            var path=new TextBlock{Foreground=(Brush)FindResource("MutedBrush"),FontSize=12,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,8)};
+            var buttons=new StackPanel{Orientation=Orientation.Horizontal};
+            void Refresh()=>path.Text=effective(owner.Settings)+(current(owner.Settings).Length==0?T("  (기본값)","  (default)"):"");
+            buttons.Children.Add(ActionButton(T("변경…","Change…"),()=>{
+                using var dialog=new System.Windows.Forms.FolderBrowserDialog{SelectedPath=effective(owner.Settings),UseDescriptionForTitle=true,Description=title,ShowNewFolderButton=true};
+                if(dialog.ShowDialog()==System.Windows.Forms.DialogResult.OK){owner.ChangeSettings(p=>set(p,dialog.SelectedPath));Refresh();}}));
+            var open=ActionButton(T("열기","Open"),()=>{try{Directory.CreateDirectory(effective(owner.Settings));Process.Start(new ProcessStartInfo("explorer.exe",'"'+effective(owner.Settings)+'"'){UseShellExecute=true});}catch(Exception){}});
+            open.Margin=new Thickness(8,0,0,0);buttons.Children.Add(open);
+            var reset=ActionButton(T("기본값","Default"),()=>{owner.ChangeSettings(p=>set(p,""));Refresh();},"TextButton");reset.Margin=new Thickness(12,0,0,0);buttons.Children.Add(reset);
+            Refresh();
+            var block=new StackPanel();block.Children.Add(new TextBlock{Text=Hangul.KeepWords(title),FontWeight=FontWeights.SemiBold});block.Children.Add(path);block.Children.Add(buttons);
+            return block;
+        }
+        stack.Children.Add(Card(
+            Folder(p=>p.ScreenshotDirectory,p=>p.EffectiveScreenshotDirectory,(p,v)=>p with{ScreenshotDirectory=v},T("스크린샷 저장 위치","Screenshot folder")),
+            Folder(p=>p.RecordingDirectory,p=>p.EffectiveRecordingDirectory,(p,v)=>p with{RecordingDirectory=v},T("녹화 저장 위치","Recording folder"))));
+        var codec=Choices(owner.Settings.RecordingCodec,v=>owner.ChangeSettings(p=>p with{RecordingCodec=v}),
+            new Choice("h264",T("H.264 (호환성 우선)","H.264 (most compatible)")),new Choice("hevc",T("HEVC (작은 파일)","HEVC (smaller files)")));
+        var rates=new[]{new Choice("0",T("자동 (해상도·fps 기준)","Automatic (size and rate)"))}
+            .Concat(new[]{20,40,60,80,120}.Select(m=>new Choice(m.ToString(System.Globalization.CultureInfo.InvariantCulture),m+" Mbps"))).ToArray();
+        var bitrate=Choices(owner.Settings.RecordingBitrate.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            v=>owner.ChangeSettings(p=>p with{RecordingBitrate=int.Parse(v,System.Globalization.CultureInfo.InvariantCulture)}),rates);
+        var start=Choices(owner.Settings.StartPage,v=>owner.ChangeSettings(p=>p with{StartPage=v}),
+            new Choice("capture",T("캡처 미리보기","Capture preview")),new Choice("convert",T("파일 변환","Convert files")));
+        stack.Children.Add(Card(
+            Row(T("녹화 코덱","Recording codec"),T("화면과 소리를 MP4에 기록합니다. H.264는 조각 MP4, HEVC는 정지 후 파일 저장이 완료됩니다.","Records picture and sound to MP4. H.264 uses fragmented MP4; HEVC finishes saving when stopped."),codec,"SettingRecordCodec"),
+            Row(T("녹화 비트레이트","Recording bitrate"),T("자동은 4K60 H.264에서 약 55Mbps입니다.","Automatic is about 55 Mbps for 4K60 H.264."),bitrate,"SettingRecordBitrate"),
+            Row(T("시작 화면","Start page"),T("마지막으로 쓴 화면을 기억합니다.","The last used page is remembered."),start,"SettingStartPage")));
+        stack.Children.Add(Note(T("새 위치와 형식은 다음 스크린샷·녹화부터 적용됩니다.","New folders and formats apply from the next screenshot or recording.")));
+        if(LiveEngine.Available)stack.Children.Add(VfxCard());
+        return stack;
+    }
+    // NVIDIA VFX frame generation is an optional download: nothing is fetched before the user accepts NVIDIA's license.
+    private UIElement VfxCard(){
+        string engine=LiveEngine.Directory;
+        bool bundled=VfxRuntime.Complete(Path.Combine(engine,"nvvfx"));
+        string Status()=>bundled?T("이 빌드에 포함되어 있습니다.","Included in this build.")
+            :VfxRuntime.Downloaded(engine)?T("설치됨 · 프레임 생성 방식에서 NVIDIA VFX를 고를 수 있습니다.","Installed · NVIDIA VFX can be selected as the frame generation method.")
+            :T("미설치 · 설치하지 않아도 프레임 생성은 동작합니다.","Not installed · frame generation works without it.");
+        var state=Note(Status());
+        var bar=new ProgressBar{Height=4,Minimum=0,Maximum=1,Margin=new Thickness(0,8,0,0),Visibility=Visibility.Collapsed};
+        var install=ActionButton(T("받기…","Download…"),()=>{});var remove=ActionButton(T("제거","Remove"),()=>{});remove.Margin=new Thickness(8,0,0,0);
+        var cancel=ActionButton(T("취소","Cancel"),()=>{});cancel.Margin=new Thickness(8,0,0,0);
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new Thickness(0,8,0,0)};actions.Children.Add(install);actions.Children.Add(remove);actions.Children.Add(cancel);
+        System.Threading.CancellationTokenSource? download=null;bool working=false;
+        void Buttons(){bool have=VfxRuntime.Downloaded(engine);install.IsEnabled=!working&&!bundled&&!have;remove.IsEnabled=!working&&have;
+            cancel.Visibility=working?Visibility.Visible:Visibility.Collapsed;bar.Visibility=working?Visibility.Visible:Visibility.Collapsed;}
+        cancel.Click+=(_,_)=>download?.Cancel();
+        Closing+=(_,e)=>{if(working){e.Cancel=true;download?.Cancel();}};
+        install.Click+=async(_,_)=>{
+            try{
+                string terms=T($"NVIDIA 공식 패키지 저장소(pypi.nvidia.com)에서 NVIDIA VFX 런타임 {VfxRuntime.DownloadBytes/1_000_000d:0}MB를 받고, 프레임 생성에 필요한 파일 {VfxRuntime.InstalledBytes/1_000_000d:0}MB만 남깁니다.\n\n이 런타임은 NVIDIA의 독점 소프트웨어이며 NVIDIA Software License Agreement와 AI 제품별 조건이 적용됩니다. 라이선스 문서는 설치 폴더의 licenses에 함께 저장합니다. NVIDIA RTX GPU와 최신 드라이버가 필요합니다.\n\n파일의 SHA-256을 확인한 뒤 설치합니다. NVIDIA 라이선스에 동의하고 받을까요?",
+                    $"Download the NVIDIA VFX runtime ({VfxRuntime.DownloadBytes/1_000_000d:0} MB) from NVIDIA's official package index (pypi.nvidia.com); only the {VfxRuntime.InstalledBytes/1_000_000d:0} MB needed for frame generation is kept.\n\nThe runtime is NVIDIA proprietary software under the NVIDIA Software License Agreement and the product-specific terms for AI products. The license documents are saved in the licenses folder next to it. An NVIDIA RTX GPU and a current driver are required.\n\nSHA-256 is checked before installing. Accept NVIDIA's license and download?");
+                if(!Confirm(T("NVIDIA VFX 런타임 받기","Download NVIDIA VFX runtime"),terms))return;
+                working=true;download=new();Buttons();
+                var progress=new Progress<(double Fraction,string Stage)>(x=>{bar.Value=x.Fraction;
+                    state.Text=Hangul.KeepWords(x.Stage=="download"?T($"받는 중… {x.Fraction/.9*100:0}%",$"Downloading… {x.Fraction/.9*100:0}%"):T("파일 확인 중…","Verifying files…"));});
+                string target=engine;await System.Threading.Tasks.Task.Run(()=>VfxRuntime.InstallAsync(target,progress,download.Token));
+                state.Text=Hangul.KeepWords(T("설치 완료 · 미리보기를 다시 시작하면 적용됩니다.","Installed · applies when the preview is restarted."));
+            }catch(OperationCanceledException){state.Text=T("받기를 취소했습니다.","Download cancelled.");}
+            catch(Exception ex){state.Text=Hangul.KeepWords(ex.Message);}
+            finally{working=false;download?.Dispose();download=null;Buttons();owner.Capture?.SettingsChanged();}
+        };
+        remove.Click+=(_,_)=>{
+            try{VfxRuntime.Remove(engine);state.Text=Hangul.KeepWords(Status());}
+            catch(Exception){state.Text=Hangul.KeepWords(T("사용 중이라 제거하지 못했습니다. 프로그램을 다시 시작한 뒤 미리보기를 켜기 전에 제거하세요.","In use; restart the program and remove it before starting the preview."));}
+            Buttons();owner.Capture?.SettingsChanged();};
+        var body=new StackPanel();
+        body.Children.Add(new TextBlock{Text=Hangul.KeepWords(T("NVIDIA VFX 프레임 생성 (선택)","NVIDIA VFX frame generation (optional)")),FontWeight=FontWeights.SemiBold});
+        body.Children.Add(Note(T("NVIDIA의 영상용 AI 프레임 생성 모델입니다. 용량이 커서 패키지에 넣지 않고, 원할 때만 받습니다.","NVIDIA's AI frame generation model for video. It is large, so it is downloaded only on request.")));
+        body.Children.Add(state);body.Children.Add(bar);body.Children.Add(actions);Buttons();return Card(body);
+    }
+    // Capture shortcuts: click a box, then press the keys. Esc cancels, Delete clears.
+    private sealed record ShortcutAction(string Key,string Ko,string En,string HelpKo,string HelpEn,Func<Preferences,string> Get,Func<Preferences,string,Preferences> Set);
+    private UIElement ShortcutsPage(){
+        var stack=new StackPanel();
+        var actions=new[]{
+            new ShortcutAction("screenshot","스크린샷","Screenshot","처리된 화면을 PNG로 저장합니다.","Saves the processed picture as PNG.",p=>p.ShortcutScreenshot,(p,v)=>p with{ShortcutScreenshot=v}),
+            new ShortcutAction("record","녹화 시작 / 중지","Start / stop recording","처리된 화면과 소리를 MP4로 녹화합니다.","Records the processed picture and sound to MP4.",p=>p.ShortcutRecord,(p,v)=>p with{ShortcutRecord=v}),
+            new ShortcutAction("fullscreen","전체 화면","Full screen","Esc로도 빠져나옵니다.","Esc also leaves it.",p=>p.ShortcutFullscreen,(p,v)=>p with{ShortcutFullscreen=v}),
+            new ShortcutAction("fg","프레임 생성 켜기 / 끄기","Frame generation on / off","바로 비교해 볼 때 씁니다.","For quick comparisons.",p=>p.ShortcutFrameGeneration,(p,v)=>p with{ShortcutFrameGeneration=v}),
+            new ShortcutAction("stats","통계 패널","Statistics panels","신호·GPU·프레임 속도 패널을 접거나 폅니다.","Shows or hides the statistics panels.",p=>p.ShortcutStats,(p,v)=>p with{ShortcutStats=v}),
+            new ShortcutAction("original","원본 보기 (누르는 동안)","Show original (while held)","누르고 있는 동안 처리 전 캡처 화면을 보여 줍니다.","Shows the unprocessed capture while held.",p=>p.ShortcutOriginal,(p,v)=>p with{ShortcutOriginal=v})};
+        var boxes=new System.Collections.Generic.Dictionary<string,Button>();
+        void RefreshAll(){foreach(var a in actions)boxes[a.Key].Content=string.IsNullOrEmpty(a.Get(owner.Settings))?T("없음","None"):a.Get(owner.Settings);}
+        var rows=new System.Collections.Generic.List<UIElement>();
+        foreach(var a in actions){
+            var box=new Button{Style=(Style)FindResource("SecondaryButton"),MinWidth=150,MinHeight=34,Padding=new Thickness(12,4,12,4),FontFamily=new FontFamily("Cascadia Mono, Consolas")};
+            boxes[a.Key]=box;bool capturing=false;
+            box.Click+=(_,_)=>{capturing=true;box.Content=T("키를 누르세요…","Press keys…");box.Focus();};
+            box.LostKeyboardFocus+=(_,_)=>{if(capturing){capturing=false;RefreshAll();}};
+            box.PreviewKeyDown+=(_,e)=>{
+                if(!capturing)return;
+                var key=e.Key==Key.System?e.SystemKey:e.Key;e.Handled=true;
+                if(Shortcut.IsModifier(key))return;
+                capturing=false;
+                if(key==Key.Escape){RefreshAll();return;}
+                string value=key is Key.Delete or Key.Back?"":Shortcut.Format(Keyboard.Modifiers,key);
+                // One action per combination: a key taken from another action clears it there.
+                owner.ChangeSettings(p=>{foreach(var other in actions)if(other.Key!=a.Key&&value.Length>0&&other.Get(p)==value)p=other.Set(p,"");return a.Set(p,value);});
+                RefreshAll();
+            };
+            rows.Add(Row(T(a.Ko,a.En),T(a.HelpKo,a.HelpEn),box,"Shortcut"+a.Key));
+        }
+        RefreshAll();
+        stack.Children.Add(Card(rows.ToArray()));
+        var global=new CheckBox{IsChecked=owner.Settings.GlobalShortcuts,Content=""};
+        global.Checked+=(_,_)=>owner.ChangeSettings(p=>p with{GlobalShortcuts=true});global.Unchecked+=(_,_)=>owner.ChangeSettings(p=>p with{GlobalShortcuts=false});
+        var defaults=ActionButton(T("기본값으로","Restore defaults"),()=>{var d=new Preferences();owner.ChangeSettings(p=>p with{ShortcutScreenshot=d.ShortcutScreenshot,ShortcutRecord=d.ShortcutRecord,
+            ShortcutFullscreen=d.ShortcutFullscreen,ShortcutFrameGeneration=d.ShortcutFrameGeneration,ShortcutStats=d.ShortcutStats,ShortcutOriginal=d.ShortcutOriginal});RefreshAll();});
+        stack.Children.Add(Card(Row(T("다른 창에서도 동작","Work in other windows"),T("게임이나 다른 프로그램이 앞에 있어도 스크린샷·녹화·전체 화면·프레임 생성·통계 단축키가 동작합니다. 원본 보기는 누르는 동안 동작해야 해서 FrameDoubler 창에서만 씁니다.",
+            "Screenshot, record, full screen, frame generation and statistics shortcuts also work while a game or another program is in front. Show original needs the key to be held, so it stays in the FrameDoubler window."),global,"SettingGlobalShortcuts"),
+            Row(T("기본 단축키","Default keys"),"F7 · F8 · F11 · F6 · F10 · V",defaults)));
+        stack.Children.Add(Note(T("상자를 누른 뒤 원하는 키 조합을 누르세요. Esc는 취소, Delete는 지우기입니다.","Click a box, then press the key combination. Esc cancels, Delete clears.")));
+        return stack;
+    }
     private UIElement General(){
         var updates=new CheckBox{IsChecked=owner.Settings.CheckUpdates,Content=""};
         updates.Checked+=(_,_)=>owner.ChangeSettings(p=>p with{CheckUpdates=true});updates.Unchecked+=(_,_)=>owner.ChangeSettings(p=>p with{CheckUpdates=false});
@@ -134,7 +254,39 @@ public sealed class SettingsWindow:Window
         stack.Children.Add(new Border{Background=(Brush)FindResource("SurfaceBrush"),CornerRadius=new CornerRadius(10),Padding=new Thickness(18,16,18,14),Margin=new Thickness(0,0,0,14),Child=owner.BorrowAdvanced()});
         stack.Children.Add(Note(T("추론 장치, 인코더, 코덱은 이 PC에서 실제로 동작을 확인한 항목만 보여 줍니다. 바꾼 값은 다음 변환과 예상 소요 시간에 바로 반영됩니다.",
             "Only devices, encoders and codecs that actually worked on this PC are listed. Changes apply to the next conversion and the time estimate.")));
+        if(File.Exists(Acceleration.Engine(AppPaths.Discover())))stack.Children.Add(AccelerationCard());
         return stack;
+    }
+    private UIElement AccelerationCard(){
+        var paths=AppPaths.Discover();
+        var selected=Choices(owner.Settings.Accelerator,value=>owner.ChangeSettings(p=>p with{Accelerator=value}),
+            new Choice("auto",T("자동 (설치한 기능 사용)","Auto (use installed add-on)")),new Choice("vulkan",T("기본 Vulkan","Default Vulkan")),new Choice("rtx","TensorRT RTX"));
+        var state=Note(Acceleration.Installed(paths)?T("추가 기능 설치됨 · RGB8 영상에서 사용합니다.","Add-on installed · used for RGB8 video."):T("추가 기능 미설치 · 기본 Vulkan으로 처리합니다.","Add-on absent · using default Vulkan."));
+        var install=ActionButton(T("설치…","Install…"),()=>{});var remove=ActionButton(T("제거","Remove"),()=>{});
+        var cancel=ActionButton(T("취소","Cancel"),()=>{});cancel.Visibility=Visibility.Collapsed;
+        var actions=new StackPanel{Orientation=Orientation.Horizontal};actions.Children.Add(install);actions.Children.Add(remove);actions.Children.Add(cancel);
+        System.Threading.CancellationTokenSource? download=null;bool working=false;
+        void Buttons(){install.IsEnabled=!working&&owner.CanManageAcceleration&&!Acceleration.Installed(paths);remove.IsEnabled=!working&&owner.CanManageAcceleration&&Acceleration.Installed(paths);selected.IsEnabled=!working;cancel.Visibility=working?Visibility.Visible:Visibility.Collapsed;}
+        cancel.Click+=(_,_)=>download?.Cancel();
+        Closing+=(_,e)=>{if(working){e.Cancel=true;download?.Cancel();}};
+        install.Click+=async(_,_)=>{
+            try{
+                if(!owner.CanManageAcceleration){state.Text=T("현재 작업이 끝난 뒤 설치할 수 있습니다.","Wait for the current operation before installing.");return;}
+                await Acceleration.CheckHostAsync();
+                string terms=T($"공식 PyPI에서 {Acceleration.DownloadBytes/1_000_000d:0.0}MB를 다운로드합니다. 설치 후 약 310MB를 추가 사용합니다.\n\nONNX Runtime: MIT\nRTX EP: Apache-2.0\nTensorRT RTX 런타임: NVIDIA Software License Agreement\nhttps://docs.nvidia.com/deeplearning/tensorrt-rtx/latest/reference/sla.html\n\n받는 곳: pypi.org / files.pythonhosted.org\n파일별 SHA-256을 확인하고 실제 GPU 추론을 검사합니다. 위 라이선스에 동의하고 설치할까요?",
+                    $"Download {Acceleration.DownloadBytes/1_000_000d:0.0} MB from official PyPI; about 310 MB installed.\n\nONNX Runtime: MIT\nRTX EP: Apache-2.0\nTensorRT RTX runtime: NVIDIA Software License Agreement\nhttps://docs.nvidia.com/deeplearning/tensorrt-rtx/latest/reference/sla.html\n\nSources: pypi.org / files.pythonhosted.org\nSHA-256 and real GPU inference are checked. Accept these licenses and install?");
+                if(!Confirm(T("GPU 가속 추가 기능 설치","Install GPU acceleration add-on"),terms))return;
+                working=true;download=new();Buttons();
+                await Acceleration.InstallAsync(paths,new Progress<string>(text=>state.Text=Hangul.KeepWords(text)),download.Token);
+                state.Text=T("설치 완료 · 다음 변환부터 적용합니다.","Installed · applies to the next conversion.");
+                owner.RefreshAcceleration();
+            }catch(OperationCanceledException){state.Text=T("설치를 취소했습니다.","Installation cancelled.");}
+            catch(Exception ex){state.Text=Hangul.KeepWords(ex.Message);}
+            finally{working=false;download?.Dispose();download=null;Buttons();}
+        };
+        remove.Click+=(_,_)=>{try{if(!owner.CanManageAcceleration){state.Text=T("현재 작업이 끝난 뒤 제거할 수 있습니다.","Wait for the current operation before removing.");return;}Acceleration.Remove(paths);state.Text=T("제거 완료 · 기본 Vulkan을 사용합니다.","Removed · using default Vulkan.");owner.RefreshAcceleration();}catch(Exception ex){state.Text=Hangul.KeepWords(ex.Message);}Buttons();};
+        var body=new StackPanel();body.Children.Add(Row(T("GPU 가속 추가 기능","GPU acceleration add-on"),T("선택 기능 · 원본 해상도와 FP32 정밀도 유지","Optional · preserves source resolution and FP32 precision"),selected,"SettingAccelerator"));
+        body.Children.Add(state);body.Children.Add(actions);Buttons();return Card(body);
     }
     private UIElement Data(){
         string settings=Path.GetFullPath(Preferences.DirectoryPath),work=Path.GetFullPath(EncoderDetector.WorkRoot);

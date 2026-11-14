@@ -15,7 +15,7 @@ public partial class MainWindow
     private bool measuring;
     private string? estimateError;
     // Encoding choices come from the selected export preset; processing choices from Settings → Advanced.
-    internal ConversionOptions CurrentOptions()=>OutputPresets.Apply(CurrentPreset,new ConversionOptions{Fps=Selected(FpsBox)=="auto"?null:Rational.Parse(Selected(FpsBox)),
+    internal ConversionOptions CurrentOptions()=>OutputPresets.Apply(CurrentPreset,new ConversionOptions{Fps=Selected(FpsBox)=="auto"?null:Rational.Parse(Selected(FpsBox)),Accelerator=preferences.Accelerator,
         Device=Selected(DeviceBox),Encoder=Selected(EncoderBox),Model=Selected(ModelBox),
         HardwareEncoding=HardwareCheck.IsChecked==true,Verify=VerifyCheck.IsChecked==true,Hud=ParseHud()});
     private void EstimateAgainClicked(object sender,RoutedEventArgs e)=>ScheduleEstimate(true);

@@ -40,7 +40,9 @@ public sealed partial class ConversionPipeline
     private string PerformanceKey(MediaInfo source,ConversionOptions options,DeviceChoice device,EncoderCapability encoder,Rational fps,int workers){
         engineFingerprint??=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths.Engine)));
         var gpu=device.Gpu;
-        return TimeEstimates.Key("estimate-v4-fp32",engineFingerprint,device.Device=="cpu"?"ncnn-cpu":"ncnn-vulkan",workers,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
+        string backendFingerprint=device.Backend==Acceleration.Id?Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Acceleration.Engine(paths)))):engineFingerprint;
+        string runtimeFingerprint=device.Backend==Acceleration.Id?Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(Acceleration.Runtime(paths),"installed.json")))):"";
+        return TimeEstimates.Key("estimate-v6-backends",backendFingerprint,runtimeFingerprint,device.Device=="cpu"?"ncnn-cpu":device.Backend,workers,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
             // Tone-mapped HDR decodes slower; mark only those keys so existing SDR history stays valid.
             device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.HdrInput is { } hdr?$"{source.Codec}+tonemap-{hdr.Name}":source.Codec,source.Fps.ToString(),fps.ToString(),
             // Platform/size/quality-only are folded into the encoder part so existing YouTube and quality keys stay valid.
@@ -59,6 +61,7 @@ public sealed partial class ConversionPipeline
         ulong required=EngineWorkerPolicy.RequiredGpuBytes(source);
         var device=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8)device=device with{HalfStorage=false};
+        device=await ChooseAccelerationAsync(options,source,device,cancel);
         var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);
         var encoder=EncoderPolicy.Choose(devices.Encoders,codec,options.Encoder,source.BitDepth>8,options.HardwareEncoding).Encoder;
         if(!options.HighQualityEncoding)encoder=encoder with{HighQualityTuning=false};

@@ -1,1 +1,3 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><InternalsVisibleTo Include="FrameDoubler.Tests" /></ItemGroup>
+</Project>

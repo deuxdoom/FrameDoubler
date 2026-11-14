@@ -32,7 +32,7 @@ public partial class MainWindow
             WindowState=WindowState.Minimized;
             check(await Duplicate()==0&&IsVisible&&WindowState==WindowState.Normal,"A duplicate exits after restoring the minimized primary window");
             WindowState=WindowState.Maximized;WindowState=WindowState.Minimized;
-            check(await Duplicate()==0&&WindowState==WindowState.Maximized,"Activating a minimized maximized window preserves its maximized state");
+            check(await Duplicate()==0&&WindowState==WindowState.Normal,"Activating restores the fixed-size window without maximizing");
             WindowState=WindowState.Normal;
             SetupTray();Hide();
             check(await Duplicate()==0&&IsVisible&&WindowState==WindowState.Normal,"A duplicate restores the hidden tray window without a second GUI");

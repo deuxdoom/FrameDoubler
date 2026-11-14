@@ -7,6 +7,7 @@ int passed = 0;
 void Assert(bool test, string message) { if (!test) throw new Exception(message); passed++; }
 void Throws(Action action, string message) { try { action(); } catch (InvalidOperationException) { passed++; return; } throw new Exception(message); }
 await EnginePoolTests.RunAsync(Assert);
+await AccelerationTests.RunAsync(Assert);
 
 GpuDevice Device(int index, uint vendor, double speed, ulong memory, bool half = true) => new() {
     Index=index, VendorId=vendor, Name=$"Test {index}", MaxWorkgroupInvocations=256,
@@ -54,6 +55,8 @@ Assert(labels.Count(x=>x==FrameLabel.Static)==5,"Long static holds stop interpol
 var black=new Signature(32,32,new float[1024]).Descriptor();var white=new Signature(32,32,Enumerable.Repeat(255f,1024).ToArray()).Descriptor();
 Assert(Signature.CutScore(black,white)>.99 && Signature.CutScore(black,black)==0,"Histogram cuts");
 PreferenceTests.Run(Assert);
+LiveTests.Run(Assert);
+GpuUsageTests.Run(Assert);
 var hudInfo=new MediaInfo("",2,2,"","rgb24",8,1,30,30,false,1,[0],null,null,null,null,[]);
 using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     Array.Fill(a.Buffer,(byte)10,0,12);Array.Fill(b.Buffer,(byte)10,0,12);b.Buffer[3]=20;
@@ -110,6 +113,7 @@ if (args.Contains("--integration")) {
     Assert(detected.LogicalProcessors>0,"CPU inventory");
     Assert(detected.Gpus.All(x=>x.InferencePassed==true),"Available real GPU probes");
     await EnginePoolTests.IntegrationAsync(paths,DevicePolicy.Choose(detected.Gpus),Assert);
+    await AccelerationTests.IntegrationAsync(paths,DevicePolicy.Choose(detected.Gpus),Assert);
     byte[] first = new byte[160*90*3], second = new byte[first.Length];
     for(int i=0;i<first.Length;i++){first[i]=(byte)(i%251);second[i]=(byte)((i+5)%251);}
     await using(var cpu = new NativeEngine(paths,"v4.25",160,90,DevicePolicy.Choose([],"cpu"),1)) {

@@ -18,6 +18,7 @@
 #include <atomic>
 #include <windows.h>
 #include "hardware.h"
+#include "gpu_frames.h"
 
 using Clock = std::chrono::steady_clock;
 extern "C" void fd_register_warp(ncnn_net_t net);
@@ -81,6 +82,7 @@ struct Tensor {
     }
     ~Tensor() { ncnn_mat_destroy(value); }
     float* channel(int index) { return static_cast<float*>(ncnn_mat_get_channel_data(value, index)); }
+    void reset(int w,int h,int c){ncnn_mat_destroy(value);value=ncnn_mat_create_3d(w,h,c,nullptr);if(!ncnn_mat_get_data(value))throw std::runtime_error("tensor allocation failed");}
     Tensor(const Tensor&) = delete;
     Tensor& operator=(const Tensor&) = delete;
 };
@@ -96,6 +98,7 @@ int wmain(int argc, wchar_t** wide) {
     std::vector<char*> pointers;for(auto& value:arguments)pointers.push_back(value.data());
     char** argv=pointers.data();
     ncnn_net_t net = nullptr;
+    FDGpuFrames* gpu_frames=nullptr;
     try {
         if (argc == 2 && std::string(argv[1]) == "--hardware") {
             std::cout << fd_hardware_json() << '\n';
@@ -141,7 +144,11 @@ int wmain(int argc, wchar_t** wide) {
         const bool actual_gpu = ncnn_option_get_use_vulkan_compute(option);
         if (gpu && !actual_gpu) throw std::runtime_error("Vulkan was requested but disabled");
         if (gpu && fd_audit_layers(net)) throw std::runtime_error("unexpected CPU fallback in graph");
-        Tensor a(padded_w, padded_h, 3), b(padded_w, padded_h, 3), time(padded_w, padded_h, 1);
+        const char* gpu_rgb_override=std::getenv("FRAMEDOUBLER_GPU_RGB");
+        bool gpu_rgb=gpu&&!half&&(gpu_rgb_override?std::string(gpu_rgb_override)=="1":width*height>=1000000);
+        if(gpu_rgb)try{gpu_frames=fd_gpu_frames_create(net,width,height,padded_w,padded_h,deep);}
+        catch(const std::exception& error){std::cerr<<"GPU_RGB fallback: "<<error.what()<<"\n";gpu_rgb=false;}
+        Tensor a(gpu_rgb?1:padded_w, gpu_rgb?1:padded_h, 3), b(gpu_rgb?1:padded_w, gpu_rgb?1:padded_h, 3), time(gpu_rgb?1:padded_w, gpu_rgb?1:padded_h, 1);
         std::vector<unsigned char> first(static_cast<size_t>(width) * height * 3 * (deep?2:1)), second(first.size()), output(first.size());
         float* planes_a[3] = {a.channel(0), a.channel(1), a.channel(2)};
         float* planes_b[3] = {b.channel(0), b.channel(1), b.channel(2)};
@@ -166,6 +173,22 @@ int wmain(int argc, wchar_t** wide) {
                 read_exact(first.data(), first.size()); read_exact(second.data(), second.size());
             }
             if (!(step > 0 && step < 1)) throw std::runtime_error("invalid timestep");
+            if(gpu_frames){
+              double durations[3];bool converted=true;
+              try{
+                fd_gpu_frames_run(gpu_frames,first.data(),second.data(),step,output.data(),durations);
+              }catch(const std::exception& error){
+                std::cerr<<"GPU_RGB fallback: "<<error.what()<<"\n";fd_gpu_frames_destroy(gpu_frames);gpu_frames=nullptr;converted=false;
+                a.reset(padded_w,padded_h,3);b.reset(padded_w,padded_h,3);time.reset(padded_w,padded_h,1);
+                for(int c=0;c<3;c++){planes_a[c]=a.channel(c);planes_b[c]=b.channel(c);}
+              }
+              if(converted){
+                if(sequence){if(std::fwrite(first.data(),1,first.size(),stdout)!=first.size())throw std::runtime_error("output failed");}
+                else if(std::fwrite(durations,1,sizeof(durations),stdout)!=sizeof(durations))throw std::runtime_error("output failed");
+                if(std::fwrite(output.data(),1,output.size(),stdout)!=output.size()||std::fflush(stdout))throw std::runtime_error("output failed");
+                if(sequence)first.swap(second);continue;
+              }
+            }
             auto start = Clock::now();
             parallel_rows(width,height,[&](int begin,int end){for (int y = begin; y < end; ++y) {
                 const size_t src = size_t(y) * width * 3 * (deep?2:1), dst = size_t(y) * padded_w;
@@ -226,11 +249,11 @@ int wmain(int argc, wchar_t** wide) {
             std::fflush(stdout);
             if (sequence) first.swap(second);
         }
-        ncnn_net_destroy(net);
+        fd_gpu_frames_destroy(gpu_frames);gpu_frames=nullptr;ncnn_net_destroy(net);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "ERROR: " << error.what() << "\n";
-        if (net) ncnn_net_destroy(net);
+        fd_gpu_frames_destroy(gpu_frames);if (net) ncnn_net_destroy(net);
         return 1;
     }
 }

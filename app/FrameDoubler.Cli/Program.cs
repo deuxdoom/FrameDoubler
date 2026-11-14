@@ -6,7 +6,7 @@ Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancel.Cancel();};
 try{
     var paths=AppPaths.Discover();var pipeline=new ConversionPipeline(paths);
     if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | estimate FILE [--verify] | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER\n"+
-        "  --preset source|source-scaled|youtube-2160|youtube-1080  --height N");return 0;}
+        "  --preset source|source-scaled|youtube-2160|youtube-1080  --height N  --accelerator auto|vulkan|rtx\n  accel status|install --accept-licenses|remove (optional runtime from official PyPI)");return 0;}
     string? Get(string name){int i=Array.IndexOf(args,name);if(i<0)return null;if(i+1>=args.Length)throw new ArgumentException("Missing value: "+name);return args[i+1];}
     bool Has(string name)=>args.Contains(name);
     var json=new JsonSerializerOptions{WriteIndented=true};
@@ -18,6 +18,7 @@ try{
         var preset=key is null?OutputPresets.Find("source"):OutputPresets.FindExact(key)??throw new ArgumentException("Unknown preset: "+key);
         var options=OutputPresets.Apply(preset,new ConversionOptions{Fps=Get("--fps") is { } fps?Rational.Parse(fps):null,
             Model=Get("--model")??"v4.25",Device=Get("--device")??"auto",Encoder=Get("--encoder")??"auto",
+            Accelerator=Get("--accelerator")??"auto",
             Deduplicate=!Has("--no-dedup"),Verify=!Has("--no-verify"),Overwrite=Has("--overwrite"),HardwareEncoding=!Has("--software"),
             MaxFrames=Get("--max-frames") is { } max?int.Parse(max):null,
             Hud=args.Select((x,i)=>(x,i)).Where(x=>x.x=="--hud-region").Select(x=>{
@@ -30,6 +31,18 @@ try{
         return options;
     }
     switch(args[0]){
+        case "accel":{
+            if(args.Length<2||args[1]=="status")Print(new{Installed=Acceleration.Installed(paths),EngineAvailable=File.Exists(Acceleration.Engine(paths)),Acceleration.DownloadBytes,Packages=Acceleration.Packages,Acceleration.LicenseTerms});
+            else if(args[1]=="install"){
+                if(!Has("--accept-licenses")){
+                    Print(new{Acceleration.DownloadBytes,Packages=Acceleration.Packages,Acceleration.LicenseTerms});
+                    Console.Error.WriteLine("출처·크기·라이선스를 확인한 뒤 accel install --accept-licenses 로 설치하세요.");return 1;
+                }
+                await Acceleration.InstallAsync(paths,new Progress<string>(Console.Error.WriteLine),cancel.Token);
+            }
+            else if(args[1]=="remove")Acceleration.Remove(paths);
+            else throw new ArgumentException("Unknown accel command");break;
+        }
         case "hardware":{var found=await pipeline.HardwareAsync(cancel.Token);Print(new{found.Hardware,found.Encoders});break;}
         case "analyze":Print(await pipeline.AnalyzeAsync(args[1],progress,cancel.Token));break;
         case "estimate":{var analysis=await pipeline.AnalyzeAsync(args[1],cancel:cancel.Token);Print(new{Analysis=analysis,Estimate=await pipeline.EstimateAsync(analysis,Options() with{Verify=Has("--verify")},cancel.Token)});break;}

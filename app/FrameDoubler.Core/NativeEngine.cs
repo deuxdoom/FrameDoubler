@@ -22,10 +22,18 @@ public sealed class NativeEngine : IInterpolationEngine
         if (width < 2 || height < 2 || width > 8192 || height > 8192) throw new ArgumentOutOfRangeException(nameof(width));
         if (scale is not (.5 or 1)) throw new ArgumentOutOfRangeException(nameof(scale));
         bytes = checked(width * height * 3 * (deep?2:1));
-        var arguments = new List<string>{paths.Model(model), width.ToString(), height.ToString(),
+        bool accelerated=device.Backend==Acceleration.Id;
+        if(accelerated&&deep)throw new ArgumentException("RTX worker accepts RGB8 only");
+        var arguments = new List<string>{accelerated?Acceleration.Model(paths,model,scale):paths.Model(model), width.ToString(), height.ToString(),
             device.HalfStorage&&!deep ? "fp16" : "fp32", device.Device, scale.ToString(System.Globalization.CultureInfo.InvariantCulture)};
+        if(accelerated){
+            arguments[4]="gpu:"+device.AccelerationIndex;
+            arguments.Add(device.RuntimeDirectory??Acceleration.Runtime(paths));
+            arguments.Add(Path.Combine(EncoderDetector.WorkRoot,"rtx-cache",model,scale==.5?"s05":"s1",$"{width}x{height}"));
+        }
         if(deep)arguments.Add("rgb16");
-        var info = ProcessRunner.StartInfo(paths.Engine, arguments);
+        var info = ProcessRunner.StartInfo(accelerated?Acceleration.Engine(paths):paths.Engine, arguments);
+        if(accelerated){string cache=Path.Combine(EncoderDetector.WorkRoot,"cuda-cache");Directory.CreateDirectory(cache);info.Environment["CUDA_CACHE_PATH"]=cache;}
         info.RedirectStandardInput = true;
         process = ProcessRunner.Start(info, "native engine");
         errors = process.StandardError.ReadToEndAsync();

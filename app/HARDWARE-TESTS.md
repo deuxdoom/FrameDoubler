@@ -6,6 +6,7 @@ i7-14700KF와 RTX 4080 SUPER 16GB 한 대입니다.
 | 구성 | 실제 상태 |
 |---|---|
 | NVIDIA GPU + Intel CPU | Vulkan 4.25/4.26, FP32/FP16 저장, CPU 대체, NVENC 및 소프트웨어 인코더 확인 |
+| 같은 기준 PC의 선택형 RTX | C API 네이티브 엔진·실제 설치 자체 검사·두 모델/두 scale/세 시간값·홀수 RGB 행·취소·ncnn 대체·sample 2 전체 출력 확인. 다른 장비는 미검증 |
 | NVIDIA GPU + AMD CPU | 장비 없음, 미검증 |
 | AMD Radeon GPU | 장비 없음, 미검증. AMF 목록은 현재 PC에서 실행 불가 |
 | Intel Arc / Intel 내장 GPU | 장비 없음, 미검증. QSV 목록은 현재 PC에서 실행 불가 |
@@ -15,6 +16,11 @@ i7-14700KF와 RTX 4080 SUPER 16GB 한 대입니다.
 실행 확인이 모든 영상의 품질을 보증하지는 않습니다. 두 모델의 FP16 중간 텐서 저장에서 확인한
 수치 기준 미달을 보완하기 위해 제품은 FP32 저장·연산을 사용합니다. sample 2 전 구간에서 고른
 실제 프레임 쌍과 두 모델 전체 변환, 비정렬 RGB8/RGB16·CPU/GPU 경로를 추가 검증했습니다.
+
+CUDA·DirectML·PyTorch CUDA는 같은 PC에서 개발 비교만 했으며 제품 백엔드가 아닙니다.
+선택형 RTX는 `accel status`와 실제 설치 자체 검사를 확인한 뒤 `--accelerator rtx`·`auto`·`vulkan`을
+비교합니다. RGB16·수동 CPU·가속 파일 오류 때 대체 경로와 처리 기록도 확인합니다.
+복수 동일 GPU의 장치 대응과 실제 저메모리 장치는 검증하지 않았습니다.
 
 각 장비에서는 다음을 실행하고 OS/CPU/GPU/드라이버, 결과 JSON과 오류 원문을 보관합니다.
 
