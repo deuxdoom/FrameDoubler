@@ -45,10 +45,11 @@ def main():
         "FrameDoubler independent C++ ncnn/Vulkan compatibility PoC. Not a GUI app.\n"
         "Requires Windows x64 and a Vulkan-capable GPU driver (tested RTX 4080 SUPER).\n"
         "No Python, PyTorch, CUDA runtime, FFmpeg or .NET is bundled or required by this engine.\n"
-        "Raw RGB8 30->60fps stream: rife-poc models/v4.25 WIDTH HEIGHT fp16 gpu SCALE sequence\n"
+        "Raw RGB8 30->60fps stream: rife-poc models/v4.25 WIDTH HEIGHT fp32 gpu SCALE sequence\n"
         "Use scale 1 at 1080p/1440p, 0.5 at 4K. Model variants share identical weights.\n"
         "stdin/stdout are binary raw RGB24; use an external decoder and encoder.\n"
-        "fp16 means storage only; arithmetic is FP32. Last source frame is held twice.\n"
+        "Use FP32 activation storage/arithmetic, as in the app. fp16 is a legacy comparison option.\n"
+        "Last source frame is held twice.\n"
         "Converted from official MIT Practical-RIFE weights. No Video2X/librife code or assets.\n"
         "See licenses and repository poc/ncnn-rife for sources and validation limitations.\n", encoding="utf-8")
     files = [{"path": p.relative_to(dest).as_posix(), "bytes": p.stat().st_size,

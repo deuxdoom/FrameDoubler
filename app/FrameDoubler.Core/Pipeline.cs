@@ -92,7 +92,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         progress?.Report(new("hardware",0,total,0,"장치와 인코더를 확인합니다."));
         var devices=await HardwareAsync(cancel);
         // Conservative working-set estimate, not a claim of exact VRAM consumption.
-        ulong required=checked((ulong)source.Width*(ulong)source.Height*(source.BitDepth>8?768UL:384UL));
+        ulong required=EngineWorkerPolicy.RequiredGpuBytes(source);
         var choice=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8&&choice.Gpu is not null)choice=choice with{HalfStorage=false,Explanation=$"{choice.Gpu.Name} / Vulkan / FP32 저장·연산 (고비트 심도)"};
         var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);

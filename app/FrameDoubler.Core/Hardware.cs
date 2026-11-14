@@ -63,9 +63,12 @@ public static class DevicePolicy
                 .ThenByDescending(x => x.BudgetBytes ?? 0).ThenBy(x => x.Index).FirstOrDefault();
         } else throw new ArgumentException("Device must be auto, gpu:INDEX or cpu");
         return selected is null
-            ? new("cpu", false, "사용 가능한 Vulkan GPU가 없어 CPU로 대체합니다. 처리 속도가 크게 느려질 수 있습니다.", null)
-            : new($"gpu:{selected.Index}", selected.Fp16Storage && selected.Fp16Arithmetic,
-                  $"{selected.Name} / Vulkan / {(selected.Fp16Storage && selected.Fp16Arithmetic ? "FP16 저장" : "FP32 저장")}·FP32 연산", selected);
+            ? new("cpu", false, list.Count>0
+                ?"GPU 메모리 예산이 부족해 CPU로 대체합니다. 처리 속도가 크게 느려질 수 있습니다."
+                :"사용 가능한 Vulkan GPU가 없어 CPU로 대체합니다. 처리 속도가 크게 느려질 수 있습니다.", null)
+            // FP16 activation storage failed the real-frame numerical limits for
+            // both RIFE models. Device capability alone cannot establish fidelity.
+            : new($"gpu:{selected.Index}", false, $"{selected.Name} / Vulkan / FP32 저장·연산", selected);
     }
 }
 
@@ -87,7 +90,7 @@ public static class HardwareDetector
             try {
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 await using var engine = new NativeEngine(paths, "v4.25", 160, 90,
-                    new($"gpu:{gpu.Index}", gpu.Fp16Storage && gpu.Fp16Arithmetic, "probe", gpu), 1);
+                    new($"gpu:{gpu.Index}", false, "probe", gpu), 1);
                 byte[] first = new byte[160*90*3], second = new byte[first.Length];
                 for (int i = 0; i < first.Length; ++i) { first[i] = (byte)(i % 251); second[i] = (byte)((i+17) % 251); }
                 await engine.InterpolateAsync(first, second, .5f, probe.Token);

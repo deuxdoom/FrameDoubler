@@ -8,14 +8,23 @@ internal static class EnginePoolTests
     }
     public static async Task RunAsync(Action<bool,string> check){
         var source=new MediaInfo("",3840,2160,"h264","yuv420p",8,1,30,30,false,1,[],null,null,null,null,[]);
-        var gpu=DevicePolicy.Choose([new GpuDevice{Index=0,BudgetBytes=16UL<<30,MaxWorkgroupInvocations=256}]);
+        // Explicit legacy half-storage choice for the memory-estimate comparison.
+        var gpu=new DeviceChoice("gpu:0",true,"test",new GpuDevice{Index=0,BudgetBytes=16UL<<30,MaxWorkgroupInvocations=256});
         check(EngineWorkerPolicy.Count(source,gpu,32UL<<30)==3,"Large measured budgets allow three workers");
         check(EngineWorkerPolicy.Count(source,gpu with{Gpu=gpu.Gpu! with{BudgetBytes=4UL<<30}},32UL<<30)==1,"4K workers respect GPU reserve");
         check(EngineWorkerPolicy.Count(source,gpu,6UL<<30)==1&&EngineWorkerPolicy.Count(source,gpu,32UL<<30,2)==2,"RAM reserve and explicit worker ceiling");
         check(EngineWorkerPolicy.Count(source,gpu with{Gpu=gpu.Gpu! with{BudgetBytes=null}},32UL<<30)==1&&EngineWorkerPolicy.Count(source,gpu,null)==1,"Unknown memory stays single worker");
-        check(EngineWorkerPolicy.Count(source with{BitDepth=10},gpu,32UL<<30)==3&&EngineWorkerPolicy.Count(source,DevicePolicy.Choose([],"cpu"),32UL<<30,3)==1,"Deep frames use larger budgets and CPU is single worker");
+        check(EngineWorkerPolicy.Count(source with{BitDepth=10},gpu,32UL<<30)==2&&EngineWorkerPolicy.Count(source,DevicePolicy.Choose([],"cpu"),32UL<<30,3)==1,"Large deep frames are bounded to two workers and CPU to one");
         var smaller=gpu with{Gpu=gpu.Gpu! with{BudgetBytes=8UL<<30}};
         check(EngineWorkerPolicy.Count(source,smaller,32UL<<30)==2&&EngineWorkerPolicy.Count(source with{BitDepth=10},smaller,32UL<<30)==1,"RGB16 memory estimate can reduce the GPU pool size");
+        var full=smaller with{HalfStorage=false};
+        check(EngineWorkerPolicy.Count(source,full,32UL<<30)==1,"RGB8 with FP32 activations uses the larger memory estimate");
+        check(EngineWorkerPolicy.PerEngine(source)==EngineWorkerPolicy.PerEngine(source with{BitDepth=10}),"RGB8 and RGB16 both account for FP32 activation storage");
+        check(EngineWorkerPolicy.RequiredGpuBytes(source)>EngineWorkerPolicy.PerEngine(source,true).Gpu,"Device admission and worker counts use the same FP32 footprint");
+        check(DevicePolicy.Choose([gpu.Gpu! with{Fp16Storage=true,Fp16Arithmetic=true}]).HalfStorage==false,"Supported FP16 features do not bypass the numerical precision policy");
+        check(DevicePolicy.Choose([gpu.Gpu! with{BudgetBytes=4UL<<30}],requiredBytes:EngineWorkerPolicy.RequiredGpuBytes(source)).Device=="cpu","Auto selection excludes a device below the FP32 single-engine estimate");
+        check(EngineWorkerPolicy.Count(source,gpu with{HalfStorage=false},32UL<<30,3)==2,"Worker override respects the large-FP32 memory ceiling");
+        check(EngineWorkerPolicy.Count(source with{Width=1920,Height=1080},gpu with{HalfStorage=false},32UL<<30)==3,"Smaller FP32 frames can still use three workers within budget");
         var frame=new VideoFrame(12,0,0);frame.Memory.Span.Fill(27);var lease=frame.Retain();frame.Dispose();frame.Dispose();
         check(frame.Memory.Span[0]==27,"A queued lease survives owner disposal");lease.Dispose();lease.Dispose();
         bool released=false;try{frame.Retain();}catch(ObjectDisposedException){released=true;}check(released,"Released frames cannot be retained again");

@@ -69,9 +69,9 @@ rife-poc --hardware
 rife-poc MODEL_DIR WIDTH HEIGHT fp16|fp32 auto|gpu:INDEX|cpu [SCALE] [rgb16] [sequence]
 ```
 
-- RGB 0~1, 64/scale replicate padding, dense timestep, FP16 저장/FP32 연산. 4K scale=0.5.
+- RGB 0~1, 64/scale replicate padding, dense timestep. 제품은 두 모델 모두 FP32 중간 텐서 저장·연산을 사용합니다. 4K scale=0.5.
 - 100만 픽셀 이상에서는 RGB 입출력 변환의 행을 최대 4개 CPU 스레드로 나눕니다(논리 프로세서 수의 1/4 상한). 픽셀별 계산·패딩·출력 순서는 유지합니다. 더 작은 프레임은 한 스레드입니다.
-- `rgb16`은 RGB48 little-endian이며 FP32 저장/연산. FP16 저장은 실제 장치 기능 확인 후 선택합니다.
+- `rgb16`은 RGB48 little-endian이며 FP32 저장/연산입니다. `fp16` 명령줄 옵션은 기존 수치·성능 비교용으로 남기며, 제품은 장치의 지원 여부와 관계없이 `fp32`를 선택합니다. 가중치 파일의 저장 형식과 실행 중 텐서 정밀도는 별개입니다.
 - `P` + little-endian float32 timestep + RGB A/B 요청. 응답은 float64 시간 세 개 + RGB 중간 프레임.
   `Q`/EOF로 종료합니다. `sequence`는 연속 RGB30→RGB60 스트림이며 마지막 프레임을 유지합니다.
 - scale별 param 두 개가 같은 bin을 공유합니다. 일반 ncnn GridSample의 CPU 대체를 피하려고

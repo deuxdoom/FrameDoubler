@@ -21,12 +21,17 @@ The encoder menu contains only combinations that passed an actual startup test.
 NVENC/AMF/QSV and software H.264/HEVC/AV1 are considered independently of the
 inference GPU. CPU/software fallbacks are shown and can be much slower.
 Interpolation and ordered encoding overlap. With sufficient GPU and available system
-memory, up to three isolated inference workers run concurrently; CPU uses one.
+memory, up to three isolated inference workers run concurrently; large FP32
+working sets use at most two, and CPU uses one.
 Failed workers are retired individually before automatic CPU fallback is considered.
 Time estimates measure the selected pool's throughput and keep separate profiles per worker count.
 Large-frame RGB input/output conversion also uses a bounded number of CPU threads;
 inference resolution and per-pixel calculations remain unchanged.
 Smaller outputs are resized only by the encoder, after interpolation at the source resolution.
+Both RIFE models use FP32 activation storage and arithmetic, including for 8-bit
+video. FP16 storage capability does not enable a lower-precision path. Device
+selection and worker limits account for the FP32 memory footprint; automatic
+device selection falls back to CPU when GPU memory is insufficient, without reducing precision.
 
 No Python, PyTorch, CUDA Toolkit, separate SDK or separately installed .NET is
 required by the self-contained package. GPU drivers are provided by the operating

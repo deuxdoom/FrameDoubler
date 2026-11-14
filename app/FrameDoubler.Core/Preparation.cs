@@ -40,7 +40,7 @@ public sealed partial class ConversionPipeline
     private string PerformanceKey(MediaInfo source,ConversionOptions options,DeviceChoice device,EncoderCapability encoder,Rational fps,int workers){
         engineFingerprint??=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths.Engine)));
         var gpu=device.Gpu;
-        return TimeEstimates.Key("estimate-v3",engineFingerprint,device.Device=="cpu"?"ncnn-cpu":"ncnn-vulkan",workers,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
+        return TimeEstimates.Key("estimate-v4-fp32",engineFingerprint,device.Device=="cpu"?"ncnn-cpu":"ncnn-vulkan",workers,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
             // Tone-mapped HDR decodes slower; mark only those keys so existing SDR history stays valid.
             device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.HdrInput is { } hdr?$"{source.Codec}+tonemap-{hdr.Name}":source.Codec,source.Fps.ToString(),fps.ToString(),
             // Platform/size/quality-only are folded into the encoder part so existing YouTube and quality keys stay valid.
@@ -56,7 +56,7 @@ public sealed partial class ConversionPipeline
         var source=analysis.Source;var devices=await HardwareAsync(cancel);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
         if(fps<=0||fps>1000||options.Platform is not null&&fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
-        ulong required=checked((ulong)source.Width*(ulong)source.Height*(source.BitDepth>8?768UL:384UL));
+        ulong required=EngineWorkerPolicy.RequiredGpuBytes(source);
         var device=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8)device=device with{HalfStorage=false};
         var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);

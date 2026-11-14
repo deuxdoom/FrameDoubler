@@ -5,13 +5,25 @@ namespace FrameDoubler.Core;
 
 public static class EngineWorkerPolicy
 {
+    // Conservative committed memory estimates. FP32 activations are used by the
+    // product even for RGB8; RGB16 additionally changes the transport, not this policy.
+    public static (ulong Gpu,ulong Ram) PerEngine(MediaInfo source,bool halfStorage=false){
+        const double gib=1024d*1024*1024;
+        double pixels=source.Width*(double)source.Height/1_000_000;
+        double storage=source.BitDepth>8||!halfStorage?1.8:1;
+        return ((ulong)Math.Ceiling((.7+.2*pixels)*storage*gib),
+                (ulong)Math.Ceiling((.9+.25*pixels)*storage*gib));
+    }
+    public static ulong RequiredGpuBytes(MediaInfo source)=>PerEngine(source).Gpu;
     public static int Count(MediaInfo source,DeviceChoice device,ulong? availableRam,int? requested=null){
         if(device.Device=="cpu"||device.Gpu?.BudgetBytes is not ulong budget||availableRam is not ulong ram)return 1;
         const double gib=1024d*1024*1024;
-        double pixels=source.Width*(double)source.Height/1_000_000,deep=source.BitDepth>8?1.8:1;
-        double gpuPer=(.7+.2*pixels)*deep*gib,ramPer=(.9+.25*pixels)*deep*gib;
-        int count=(int)Math.Clamp(Math.Min((budget-gib)/gpuPer,(ram-4*gib)/ramPer),1,3);
-        return Math.Min(count,Math.Clamp(requested??3,1,3));
+        var estimate=PerEngine(source,device.HalfStorage);
+        // Large FP32 working sets showed no whole-video throughput gain with a
+        // third worker, while retaining another multi-GB GPU/host allocation.
+        int maximum=(source.BitDepth>8||!device.HalfStorage)&&estimate.Gpu>=(3UL<<30)?2:3;
+        int count=(int)Math.Clamp(Math.Min((budget-gib)/estimate.Gpu,(ram-4*gib)/estimate.Ram),1,maximum);
+        return Math.Min(count,Math.Clamp(requested??maximum,1,maximum));
     }
     public static int For(MediaInfo source,DeviceChoice device)=>Count(source,device,AvailableRam(),
         int.TryParse(Environment.GetEnvironmentVariable("FRAMEDOUBLER_ENGINE_WORKERS"),out int n)?n:null);
