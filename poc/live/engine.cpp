@@ -325,7 +325,7 @@ void Session::applyOptions(const Settings& s) {
     if (s.count("volume")) options_.volume = float(std::clamp(getDouble(s, "volume", 100) / 100.0, 0.0, 1.0));
     if (s.count("mute")) options_.mute = get(s, "mute") == "1";
     if (s.count("audioOffsetMs")) options_.audioOffsetMs = std::clamp(getInt(s, "audioOffsetMs", 0), -200, 500);
-    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "audioOutput"}) if (s.count(key)) config_[key] = get(s, key);
+    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "dlssMotion", "dlssLite", "audioOutput"}) if (s.count(key)) config_[key] = get(s, key);
 }
 
 void Session::command(const Settings& s) {
@@ -349,16 +349,23 @@ void Session::command(const Settings& s) {
 void Session::startDlss() {
     if (dlssTried_.exchange(true)) return;   // one attempt per session; the result does not change
     std::wstring dir, data;
-    { std::lock_guard<std::mutex> lock(optionsMutex_); dir = wide(get(config_, "dlssDir")); data = wide(get(config_, "dlssDataDir")); }
+    DlssOptions options;
+    {
+        std::lock_guard<std::mutex> lock(optionsMutex_);
+        dir = wide(get(config_, "dlssDir")); data = wide(get(config_, "dlssDataDir"));
+        // DLSS-G 310 estimates the motion itself; vectors only cost time unless asked for.
+        options.motion = parseDlssMotion(get(config_, "dlssMotion", "none"));
+        options.lite = get(config_, "dlssLite") == "1";
+    }
     dlssLoading_ = true;
     log_.add("info", "DLSS frame generation: loading");
-    dlssLoader_ = std::thread([this, dir, data] {
+    dlssLoader_ = std::thread([this, dir, data, options] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         std::string error; bool ok;
         auto generator = std::make_unique<DlssGenerator>();
         {
             std::lock_guard<std::mutex> gpuLock(gpu_.lock());
-            ok = generator->create(gpu_, dir, data, error);
+            ok = generator->create(gpu_, dir, data, error, options);
             if (ok) { std::lock_guard<std::mutex> lock(vfxMutex_); dlssRuntime_ = generator->version(); dlss_ = std::move(generator); }
         }
         dlssReady_ = ok; dlssLoading_ = false;
@@ -510,8 +517,10 @@ void Session::processFresh(const Packet& p) {
         std::lock_guard<std::mutex> q(queueMutex_);
         bufferBusy_[p.buffer] = false;
     }
-    const bool hardwareDlss=o.fg==3 && dlssReady_ && dlss_ && dlss_->hardwareMotion() && o.multiplier-1<=dlss_->maxGenerated();
-    if (o.fg != 0 && !hardwareDlss) {
+    // DLSS without engine vectors needs no pyramid or block field; a failed or over-limit
+    // pair computes them lazily (ensureOwnMotion) before the own interpolation.
+    const bool selfContainedDlss=o.fg==3 && dlssReady_ && dlss_ && !dlss_->needsEngineMotion() && o.multiplier-1<=dlss_->maxGenerated();
+    if (o.fg != 0 && !selfContainedDlss) {
         gpu_.timer.mark(gpu_.context(), StageMotion, true);
         ensurePyramid(slot);
         if (!cut && lastSlot_ >= 0 && (o.fg == 1 || o.fg == 3)) ensureOwnMotion(lastSlot_, slot);
@@ -685,7 +694,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
                 } else {
                     dlssLimitLogged_ = false;
                     std::string error;
-                    if(!dlss_->hardwareMotion())ensureOwnMotion(plan.slotA,plan.slotB);
+                    if(dlss_->needsEngineMotion())ensureOwnMotion(plan.slotA,plan.slotB);
                     if (dlss_->interpolate(gpu_, plan.slotA, plan.slotB, slotId_[plan.slotA], slotId_[plan.slotB], float(plan.phase), generated, error)) {
                         interpolated = true;
                         std::lock_guard<std::mutex> s(statsMutex_);
@@ -787,7 +796,7 @@ std::string Session::status() {
                   (o.fg == 3 && dlssReady_ && o.multiplier - 1 <= (dlss_ ? dlss_->maxGenerated() : 0)) ? "dlss" : (o.fg == 3 && dlssLoading_) ? "loading" : "own";
         runtime = o.fg == 3 ? dlssRuntime_ : vfxRuntime_; vfxQuality = vfxReady_ ? vfxActiveQuality_ : -1;
         dlssMaximum = dlssReady_ && dlss_ ? dlss_->maxGenerated() + 1 : 0;
-        dlssMotion=dlssReady_ && dlss_ && dlss_->hardwareMotion()?"nvof":"own";
+        dlssMotion=dlssReady_ && dlss_ ? dlss_->motionSource() : "";
     }
     std::string out = "{\"running\":" + std::string(stop_ ? "false" : "true") +
         ",\"captureFailed\":" + (capture_ && capture_->failed() ? "true" : "false") +
@@ -1204,6 +1213,13 @@ std::string selfTest(const Settings& s) {
             }
         }
     }
+    // D3D11 <-> D3D12 hand-over used by DLSS, without NGX: shared textures, both fences,
+    // allocator reuse and GPU timestamps on a plain copy.
+    {
+        Gpu gpu; std::string error;
+        if (!gpu.create(error) || !gpu.configure(320, 180, error)) check("dlss-bridge", false, error);
+        else { std::string detail; const bool ok = DlssGenerator::bridgeSelfTest(gpu, detail); check("dlss-bridge", ok, detail); }
+    }
     // DLSS frame generation, when its runtime folder is given.
     const std::string dlssDir = get(s, "dlssDir");
     if (!dlssDir.empty()) {
@@ -1212,7 +1228,9 @@ std::string selfTest(const Settings& s) {
         if (!gpu.create(error) || !gpu.configure(w, h, error)) check("dlss", false, error);
         else {
             DlssGenerator dlss;
-            if (!dlss.create(gpu, wide(dlssDir), wide(get(s, "dlssDataDir")), error, getInt(s, "echo", 0) != 0,get(s,"dlssMotion")=="nvof"?2:1)) check("dlss", false, error);
+            DlssOptions options; options.diagnostics = getInt(s, "echo", 0) != 0;
+            options.motion = parseDlssMotion(get(s, "dlssMotion", "none")); options.lite = get(s, "dlssLite") == "1";
+            if (!dlss.create(gpu, wide(dlssDir), wide(get(s, "dlssDataDir")), error, options)) check("dlss", false, error);
             else {
                 std::vector<uint8_t> a, b, truth, result, repeated;
                 texture(a, w, h, 0, 0, 1);
@@ -1227,7 +1245,7 @@ std::string selfTest(const Settings& s) {
                     texture(b, w, h, 14 * (pair + 1), 6 * (pair + 1), 1);
                     texture(truth, w, h, 14 * pair + 7, 6 * pair + 3, 1);
                     gpu.uploadRgba(slotB, b.data(), w * 4, 0);
-                    if(!dlss.hardwareMotion()){gpu.pyramid(slotB); gpu.motion(slotA, slotB);}
+                    if(dlss.needsEngineMotion()){gpu.pyramid(slotB); gpu.motion(slotA, slotB);}
                     ok = dlss.interpolate(gpu, slotA, slotB, uint64_t(pair + 1), uint64_t(pair + 2), 0.5f, 1, error);
                     if (!ok) break;
                     ok = gpu.readback(gpu.output(), result);
@@ -1235,7 +1253,7 @@ std::string selfTest(const Settings& s) {
                     const double p = psnr(result, truth, w, h, 24);
                     const double pa = psnr(result, a, w, h, 24), pb = psnr(result, b, w, h, 24);
                     if (pair == 0) cold = p;
-                    else { warmMin = std::min(warmMin, p); warmMs += dlss.lastMs(); quality = quality && p > 30; }
+                    else { warmMin = std::min(warmMin, p); quality = quality && p > 30; }
                     if (getInt(s, "echo", 0)) {
                         fprintf(stderr, "[dlss-test] pair=%d PSNR=%s dB, to first=%s, to second=%s, generate=%s ms\n", pair + 1, fixed(p).c_str(), fixed(pa).c_str(), fixed(pb).c_str(), fixed(dlss.lastMs()).c_str());
                         fflush(stderr);
@@ -1247,7 +1265,9 @@ std::string selfTest(const Settings& s) {
                     repeatStable = repeatStable && ok && result == repeated;
                     a.swap(b);
                 }
-                detail += ", cold PSNR " + fixed(cold) + " dB, warm minimum " + fixed(warmMin) + " dB, repeated output " + (repeatStable ? "identical" : "CHANGED") + ", warm generation average " + fixed(warmMs / 5) + " ms";
+                warmMs = dlss.averageGpuMs();
+                detail += ", motion " + dlss.motionSource() + ", cold PSNR " + fixed(cold) + " dB, warm minimum " + fixed(warmMin) + " dB, repeated output " + (repeatStable ? "identical" : "CHANGED") +
+                          ", DLSS-G GPU average " + (warmMs >= 0 ? fixed(warmMs) + " ms over " + std::to_string(dlss.gpuSamples()) : std::string("unmeasured"));
                 check("dlss", ok && quality && repeatStable, ok ? detail : error);
                 if(ok){
                     dlss.resetHistory();

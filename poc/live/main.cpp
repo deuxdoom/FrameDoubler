@@ -10,7 +10,9 @@
 // Options: --fg off|own|vfx|dlss --multiplier 2|3|4 --aa 0|1|2 --dedup 0|1 --record DIR
 //          --vfx DIR --vfx-quality 0|1|2 --audio auto|none --screenshot DIR
 //          --dlss DIR --dlss-data DIR (NGX logs/cache, separate from the runtime)
-// Compare/selftest: --nvof [--nvof-quality 0|1|2] --dlss-motion own|nvof
+// Compare/selftest: --nvof [--nvof-quality 0|1|2] --dlss-motion none|own|auto|nvof [--dlss-lite]
+// Compare only: --dlss-variants none,nvof,own,none+lite  one DLSS-G instance per entry, each with
+//               its own history; reports quality, time and how many outputs equal the first's.
 #include "engine.h"
 #include "common.h"
 #include "capture.h"
@@ -59,6 +61,8 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "vfxQuality=" + arg(argc, argv, L"--vfx-quality", "1") + "\n";
     s += "dlssDir=" + arg(argc, argv, L"--dlss") + "\n";
     s += "dlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n";
+    s += "dlssMotion=" + arg(argc, argv, L"--dlss-motion", "none") + "\n";
+    if (flag(argc, argv, L"--dlss-lite")) s += "dlssLite=1\n";
     s += "recordDir=" + arg(argc, argv, L"--record") + "\n";
     s += "screenshotDir=" + arg(argc, argv, L"--screenshot") + "\n";
     s += "recordCodec=" + arg(argc, argv, L"--codec", "h264") + "\n";
@@ -113,8 +117,28 @@ int compareMode(int argc, wchar_t** argv) {
     if (!gpu.create(error) || !gpu.configure(w, h, error)) { fprintf(stderr, "%s\n", error.c_str()); return 2; }
     VfxGenerator vfx;
     if (!vfxDir.empty() && !vfx.create(gpu, wide(vfxDir), std::stoi(arg(argc, argv, L"--vfx-quality", "1")), error)) failure("vfx: " + error);
-    DlssGenerator dlss;
-    if (!dlssDir.empty() && !dlss.create(gpu, wide(dlssDir), wide(arg(argc, argv, L"--dlss-data")), error, flag(argc, argv, L"--echo"),arg(argc,argv,L"--dlss-motion","own")=="nvof"?2:1)) failure("dlss: " + error);
+    // DLSS-G variants: motion source and optional lite blending, e.g. "none", "nvof", "none+lite".
+    struct DlssVariant { std::string name; std::unique_ptr<DlssGenerator> generator; Series series; int identical = 0; };
+    std::vector<DlssVariant> variants;
+    if (!dlssDir.empty()) {
+        std::string list = arg(argc, argv, L"--dlss-variants");
+        if (list.empty()) list = arg(argc, argv, L"--dlss-motion", "none") + (flag(argc, argv, L"--dlss-lite") ? "+lite" : "");
+        size_t from = 0;
+        while (from <= list.size()) {
+            const size_t comma = list.find(',', from);
+            const std::string name = list.substr(from, comma == std::string::npos ? std::string::npos : comma - from);
+            from = comma == std::string::npos ? list.size() + 1 : comma + 1;
+            if (name.empty()) continue;
+            const size_t plus = name.find('+');
+            const std::string motion = name.substr(0, plus), extra = plus == std::string::npos ? "" : name.substr(plus + 1);
+            if ((motion != "none" && motion != "own" && motion != "auto" && motion != "nvof") || (!extra.empty() && extra != "lite")) { failure("dlss: unknown variant " + name); continue; }
+            DlssOptions options; options.diagnostics = flag(argc, argv, L"--echo"); options.motion = parseDlssMotion(motion); options.lite = extra == "lite";
+            DlssVariant variant; variant.name = name; variant.generator = std::make_unique<DlssGenerator>();
+            const std::wstring data = wide(arg(argc, argv, L"--dlss-data")) + L"\\" + wide(name);
+            if (!variant.generator->create(gpu, wide(dlssDir), data, error, options)) failure("dlss " + name + ": " + error);
+            variants.push_back(std::move(variant));
+        }
+    }
     NvofFlow flow;
     const bool useFlow=flag(argc,argv,L"--nvof");
     if(useFlow && !flow.create(gpu,std::stoi(arg(argc,argv,L"--nvof-quality","1")),error))failure(error);
@@ -177,18 +201,23 @@ int compareMode(int argc, wchar_t** argv) {
                 if (nv.values.size() > 1) { nv.ms += vfx.lastMs(); ++nv.timed; }
             } else { failure("vfx: " + e); break; }
         }
-        if (dlss.ready()) {
+        bool dlssFailed = false;
+        std::vector<uint8_t> firstDlss;
+        for (size_t v = 0; v < variants.size() && !dlssFailed; ++v) {
+            auto& d = variants[v];
+            if (!d.generator->ready()) continue;
             const int64_t dlssStart = now100ns();
             // Include its required motion estimation in the common wall-time scope.
-            if(!dlss.hardwareMotion()){gpu.pyramid(0); gpu.pyramid(2); gpu.motion(0, 2);}
+            if (d.generator->needsEngineMotion()) { gpu.pyramid(0); gpu.pyramid(2); gpu.motion(0, 2); }
             std::string e;
-            if (dlss.interpolate(gpu, 0, 2, uint64_t(u0.second), uint64_t(u2.second), phase, 1, e)) {
-                if (!gpu.readback(gpu.output(), result)) { failure("dlss readback failed"); break; }
+            if (d.generator->interpolate(gpu, 0, 2, uint64_t(u0.second), uint64_t(u2.second), phase, 1, e)) {
+                if (!gpu.readback(gpu.output(), result)) { failure("dlss readback failed"); dlssFailed = true; break; }
                 const double dlssWall = double(now100ns() - dlssStart) / 1e4;
-                dl.values.push_back(psnrRgba(result, truth)); dl.wall(dlssWall);
-                if (dl.values.size() > 1) { dl.ms += dlss.lastMs(); ++dl.timed; }
-            } else { failure("dlss: " + e); break; }
+                d.series.values.push_back(psnrRgba(result, truth)); d.series.wall(dlssWall);
+                if (v == 0) firstDlss = result; else if (result == firstDlss) ++d.identical;
+            } else { failure("dlss " + d.name + ": " + e); dlssFailed = true; }
         }
+        if (dlssFailed) break;
         if ((flag(argc, argv, L"--echo") || flag(argc, argv, L"--progress")) && own.values.size() % 10 == 0) { fprintf(stderr, "[compare] %zu triples scored\n", own.values.size()); fflush(stderr); }
     }
     if (read != 0 && read != bytes) failure("truncated NV12 input frame");
@@ -200,8 +229,19 @@ int compareMode(int argc, wchar_t** argv) {
            (long long)index, blend.values.size(), w, h, stages[StageMotion], stages[StageInterpolate], own.json().c_str(), nv.json().c_str(), blend.json().c_str(),
            jsonString(vfx.version()).c_str());
     printf(",\"nvof\":%s,\"nvofGrid\":%d",of.json().c_str(),flow.grid());
-    printf(",\"dlssMotion\":%s",jsonString(dlss.hardwareMotion()?"nvof":"own").c_str());
-    printf(",\"dlss\":%s,\"dlssRuntime\":%s,\"dlssMaxMultiplier\":%d,\"nonMidpointSkipped\":%d,\"timingScope\":%s,\"errors\":[", dl.json().c_str(), jsonString(dlss.version()).c_str(), dlss.ready() ? dlss.maxGenerated() + 1 : 0, skippedPhase,
+    // The first variant is reported as "dlss" for existing tools; every variant is listed below.
+    for (auto& d : variants) if (d.generator->ready()) { const double g = d.generator->averageGpuMs(); if (g >= 0) { d.series.ms = g; d.series.timed = 1; } }
+    const DlssGenerator* first = variants.empty() ? nullptr : variants[0].generator.get();
+    if (!variants.empty()) dl = variants[0].series;
+    printf(",\"dlssMotion\":%s",jsonString(first ? first->motionSource() : "").c_str());
+    printf(",\"dlssVariants\":[");
+    for (size_t v = 0; v < variants.size(); ++v) {
+        const auto& d = variants[v];
+        printf("%s{\"name\":%s,\"runtime\":%s,\"motion\":%s,\"identicalToFirst\":%d,\"evaluateGpuSamples\":%d,\"result\":%s}", v ? "," : "", jsonString(d.name).c_str(),
+               jsonString(d.generator->version()).c_str(), jsonString(d.generator->motionSource()).c_str(), v ? d.identical : -1, d.generator->gpuSamples(), d.series.json().c_str());
+    }
+    printf("]");
+    printf(",\"dlss\":%s,\"dlssRuntime\":%s,\"dlssMaxMultiplier\":%d,\"nonMidpointSkipped\":%d,\"timingScope\":%s,\"errors\":[", dl.json().c_str(), jsonString(first ? first->version() : "").c_str(), first && first->ready() ? first->maxGenerated() + 1 : 0, skippedPhase,
            jsonString("wallWithReadback includes motion where required, generation and matching RGBA readback; first scored triple excluded; backend ms has backend-specific scope; no display/HDMI latency measured").c_str());
     for (size_t i = 0; i < errors.size(); ++i) printf("%s%s", i ? "," : "", jsonString(errors[i]).c_str());
     printf("]}\n");
@@ -222,7 +262,8 @@ int wmain(int argc, wchar_t** argv) {
     if (flag(argc, argv, L"--selftest")) {
         std::string s = "vfxDir=" + arg(argc, argv, L"--vfx") + "\nvfxQuality=" + arg(argc, argv, L"--vfx-quality", "1") + "\ndlssDir=" + arg(argc, argv, L"--dlss") + "\ndlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n";
         if(flag(argc,argv,L"--nvof"))s+="nvof=1\nnvofQuality="+arg(argc,argv,L"--nvof-quality","1")+"\n";
-        s+="dlssMotion="+arg(argc,argv,L"--dlss-motion","own")+"\n";
+        s+="dlssMotion="+arg(argc,argv,L"--dlss-motion","none")+"\n";
+        if(flag(argc,argv,L"--dlss-lite"))s+="dlssLite=1\n";
         if (flag(argc, argv, L"--echo") || !arg(argc, argv, L"--dlss").empty()) s += "echo=1\n";
         char* result = fdl_selftest(s.c_str());
         const bool failed = result && std::string(result).find("\"failed\":0}") == std::string::npos;
@@ -244,11 +285,12 @@ int wmain(int argc, wchar_t** argv) {
         _setmode(_fileno(stdin), _O_BINARY);
         std::vector<unsigned char> frame(frameBytes);
         if (!get(s, "recordDir").empty()) fdl_command(session, "action=record-start");
-        if (get(s, "fg") == "vfx") Sleep(100);
+        const bool loads = get(s, "fg") == "vfx" || get(s, "fg") == "dlss";
+        if (loads) Sleep(100);
         long long index = 0;
         const int64_t start = now100ns();
         while (fread(frame.data(), 1, frameBytes, stdin) == frameBytes) {
-            if (index == 1 && get(s, "fg") == "vfx") {
+            if (index == 1 && loads) {
                 // Wait for the optional runtime to load before timing the replay.
                 for (int i = 0; i < 600; ++i) { char* st = fdl_status(session); std::string t = st ? st : ""; fdl_free(st); if (t.find("\"fg\":\"loading\"") == std::string::npos) break; Sleep(100); }
             }

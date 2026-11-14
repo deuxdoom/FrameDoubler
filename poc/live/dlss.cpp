@@ -69,15 +69,23 @@ void trace(bool enabled, const std::string& message) {
 
 void ngxLog(const char* message, int, int) { if (message) trace(true, std::string("NGX: ") + message); }
 
-uint16_t half(float v) {
-    uint32_t bits; memcpy(&bits, &v, 4);
-    const uint32_t sign = (bits >> 16) & 0x8000; const int exponent = int((bits >> 23) & 0xff) - 127 + 15;
-    if (v == 0 || exponent <= 0) return uint16_t(sign);
-    if (exponent >= 31) return uint16_t(sign | 0x7c00);
-    return uint16_t(sign | (exponent << 10) | ((bits >> 13) & 0x3ff));
+} // namespace
+
+DlssMotion parseDlssMotion(const std::string& text) {
+    if (text == "own") return DlssMotion::Own;
+    if (text == "auto") return DlssMotion::Hardware;
+    if (text == "nvof") return DlssMotion::HardwareRequired;
+    return DlssMotion::None;
 }
 
-} // namespace
+const char* dlssMotionName(DlssMotion motion) {
+    switch (motion) {
+    case DlssMotion::Own: return "own";
+    case DlssMotion::Hardware: return "auto";
+    case DlssMotion::HardwareRequired: return "nvof";
+    default: return "none";
+    }
+}
 
 struct DlssGenerator::State {
     HMODULE core = nullptr;
@@ -97,17 +105,30 @@ struct DlssGenerator::State {
     Parameters* parameters = nullptr;
     void* feature = nullptr;
 
+    // D3D12 side. Command allocators are reused round-robin once the GPU has finished with
+    // them; the CPU only waits when all of them are still in flight.
+    static constexpr int kRing = 3;
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
-    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12CommandAllocator> allocators[kRing];
+    uint64_t allocatorFence[kRing] = {};
+    int current = 0;
     ComPtr<ID3D12GraphicsCommandList> list;
-    ComPtr<ID3D12Fence> done;            // D3D12 work finished (waited on the CPU)
+    ComPtr<ID3D12Fence> done;            // D3D12 work finished (shared: D3D11 waits on it on the GPU)
+    ComPtr<ID3D11Fence> done11;
     ComPtr<ID3D12Fence> handoff12;       // D3D11 finished writing the inputs
     ComPtr<ID3D11Fence> handoff11;
     ComPtr<ID3D11Device5> device11;
     ComPtr<ID3D11DeviceContext4> context11;
     HANDLE event = nullptr;
     uint64_t doneValue = 0, handoffValue = 0;
+    // GPU timestamps around each evaluation, one pair per allocator slot.
+    ComPtr<ID3D12QueryHeap> queries;
+    ComPtr<ID3D12Resource> queryReadback;
+    double tickMs = 0;
+    bool timed[kRing] = {};
+    double gpuSum = 0, lastGpu = -1;
+    int gpuCount = 0;
 
     // Shared pictures: written by D3D11, read by DLSS-G (colour, motion) and the reverse (out).
     ComPtr<ID3D11Texture2D> colour11, motion11, out11;
@@ -123,17 +144,52 @@ struct DlssGenerator::State {
     int pairGenerated = 0, generatedThrough = 0;
     std::vector<ComPtr<ID3D11Texture2D>> generatedFrames;
     unsigned cacheHits = 0;
+    int source = 0;                      // 0 no vectors (zeros), 1 engine block motion, 2 hardware optical flow
     NvofFlow flow;
     float viewToClip[4][4]{}, clipToView[4][4]{}, identity[4][4]{};
 
-    bool submit(std::string& error) {
+    bool waitFor(uint64_t value, std::string& error) {
+        if (done->GetCompletedValue() >= value) return true;
+        if (FAILED(done->SetEventOnCompletion(value, event)) || WaitForSingleObject(event, 5000) != WAIT_OBJECT_0) { error = "GPU did not finish in time"; return false; }
+        return true;
+    }
+    void collect() {
+        if (!queries) return;
+        const uint64_t completed = done->GetCompletedValue();
+        for (int i = 0; i < kRing; ++i) {
+            if (!timed[i] || allocatorFence[i] > completed) continue;
+            timed[i] = false;
+            D3D12_RANGE range{size_t(i) * 16, size_t(i) * 16 + 16}; void* mapped = nullptr;
+            if (FAILED(queryReadback->Map(0, &range, &mapped))) continue;
+            uint64_t ticks[2]; memcpy(ticks, static_cast<uint8_t*>(mapped) + range.Begin, 16);
+            D3D12_RANGE none{0, 0}; queryReadback->Unmap(0, &none);
+            if (ticks[1] <= ticks[0]) continue;
+            lastGpu = double(ticks[1] - ticks[0]) * tickMs;
+            gpuSum += lastGpu; ++gpuCount;
+        }
+    }
+    // Closes and queues the list. D3D11 work recorded afterwards waits for it on the GPU;
+    // the CPU waits only when asked (creation, upload buffers) or when every allocator is busy.
+    bool submit(std::string& error, bool cpuWait = false) {
         if (FAILED(list->Close())) { error = "command list close"; return false; }
         ID3D12CommandList* lists[] = {list.Get()};
         queue->ExecuteCommandLists(1, lists);
-        if (FAILED(queue->Signal(done.Get(), ++doneValue)) || FAILED(done->SetEventOnCompletion(doneValue, event))) { error = "fence"; return false; }
-        if (WaitForSingleObject(event, 5000) != WAIT_OBJECT_0) { error = "GPU did not finish in time"; return false; }
+        if (FAILED(queue->Signal(done.Get(), ++doneValue))) { error = "fence"; return false; }
+        allocatorFence[current] = doneValue;
+        if (FAILED(context11->Wait(done11.Get(), doneValue))) { error = "shared fence wait (D3D11)"; return false; }
+        if (cpuWait && !waitFor(doneValue, error)) return false;
+        current = (current + 1) % kRing;
+        if (!waitFor(allocatorFence[current], error)) return false;
+        collect();
         if (FAILED(device->GetDeviceRemovedReason())) { error = "D3D12 device removed"; return false; }
-        if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator.Get(), nullptr))) { error = "command list reset"; return false; }
+        if (FAILED(allocators[current]->Reset()) || FAILED(list->Reset(allocators[current].Get(), nullptr))) { error = "command list reset"; return false; }
+        return true;
+    }
+    // D3D11's queued writes come first; D3D12 starts only after they are done.
+    bool handOver(std::string& error) {
+        if (FAILED(context11->Signal(handoff11.Get(), ++handoffValue))) { error = "shared fence signal"; return false; }
+        context11->Flush();
+        if (FAILED(queue->Wait(handoff12.Get(), handoffValue))) { error = "shared fence wait"; return false; }
         return true;
     }
     bool share(ID3D11Device* device11Raw, DXGI_FORMAT format, UINT bind, ComPtr<ID3D11Texture2D>& texture11, ComPtr<ID3D12Resource>& texture12, std::string& error) {
@@ -152,12 +208,65 @@ struct DlssGenerator::State {
         b.Transition.pResource = r; b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         b.Transition.StateBefore = before; b.Transition.StateAfter = after; return b;
     }
+    // D3D12 device on the engine's adapter, queue, allocators, both fences, timestamps and the
+    // shared pictures. No NGX call is made here.
+    bool bridge(Gpu& gpu, std::string& error) {
+        width = gpu.width(); height = gpu.height();
+        ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter1> adapter;
+        const LUID luid = gpu.adapterLuid();
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory))) || FAILED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter)))) { error = "graphics adapter not found"; return false; }
+        if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) { error = "Direct3D 12 is not available on this GPU"; return false; }
+        D3D12_COMMAND_QUEUE_DESC queueDesc{};
+        if (FAILED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)))) { error = "Direct3D 12 queue"; return false; }
+        for (auto& a : allocators) if (FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)))) { error = "Direct3D 12 command allocator"; return false; }
+        if (FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocators[0].Get(), nullptr, IID_PPV_ARGS(&list)))) { error = "Direct3D 12 command list"; return false; }
+        event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        ComPtr<ID3D11Device> d11 = gpu.device();
+        ComPtr<ID3D11DeviceContext> c11 = gpu.context();
+        if (FAILED(d11.As(&device11)) || FAILED(c11.As(&context11))) { error = "Direct3D 11.4 is required for DLSS frame generation"; return false; }
+        // D3D11 -> D3D12: the inputs are written.
+        HANDLE handle = nullptr;
+        if (FAILED(device11->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&handoff11))) ||
+            FAILED(handoff11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &handle))) { error = "shared fence"; return false; }
+        HRESULT hr = device->OpenSharedHandle(handle, IID_PPV_ARGS(&handoff12));
+        CloseHandle(handle);
+        if (FAILED(hr)) { error = "D3D12 could not open the shared fence"; return false; }
+        // D3D12 -> D3D11: the generated picture is written.
+        handle = nullptr;
+        if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&done))) ||
+            FAILED(device->CreateSharedHandle(done.Get(), nullptr, GENERIC_ALL, nullptr, &handle))) { error = "D3D12 shared fence"; return false; }
+        hr = device11->OpenSharedFence(handle, IID_PPV_ARGS(&done11));
+        CloseHandle(handle);
+        if (FAILED(hr)) { error = "D3D11 could not open the D3D12 fence"; return false; }
+        // Timestamps are diagnostics only: without them the generator still runs.
+        UINT64 frequency = 0;
+        D3D12_QUERY_HEAP_DESC qd{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, UINT(2 * kRing), 0};
+        D3D12_HEAP_PROPERTIES readbackHeap{D3D12_HEAP_TYPE_READBACK};
+        D3D12_RESOURCE_DESC b{}; b.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; b.Width = 16 * kRing; b.Height = 1; b.DepthOrArraySize = 1; b.MipLevels = 1;
+        b.SampleDesc.Count = 1; b.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (FAILED(queue->GetTimestampFrequency(&frequency)) || !frequency || FAILED(device->CreateQueryHeap(&qd, IID_PPV_ARGS(&queries))) ||
+            FAILED(device->CreateCommittedResource(&readbackHeap, D3D12_HEAP_FLAG_NONE, &b, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&queryReadback)))) {
+            queries.Reset(); queryReadback.Reset();
+        } else tickMs = 1000.0 / double(frequency);
+        if (!share(d11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, colour11, colour12, error) ||
+            !share(d11.Get(), DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, motion11, motion12, error) ||
+            !share(d11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_RENDER_TARGET, out11, out12, error))
+            return false;
+        if (FAILED(d11->CreateUnorderedAccessView(motion11.Get(), nullptr, &motionUav))) { error = "motion vector view"; return false; }
+        const float zero[4] = {0, 0, 0, 0};
+        context11->ClearUnorderedAccessViewFloat(motionUav.Get(), zero);
+        return true;
+    }
+    void beginTimer() { if (queries) list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, UINT(current * 2)); }
+    void endTimer() {
+        if (!queries) return;
+        list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, UINT(current * 2 + 1));
+        list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, UINT(current * 2), 2, queryReadback.Get(), UINT64(current) * 16);
+        timed[current] = true;
+    }
     // One DLSS-G evaluation of the picture currently in the shared colour texture.
     bool run(bool reset, int index, int generated, std::string& error) {
-        // D3D11 has queued its writes; D3D12 starts only after they are done.
-        if (FAILED(context11->Signal(handoff11.Get(), ++handoffValue))) { error = "shared fence signal"; return false; }
-        context11->Flush();
-        if (FAILED(queue->Wait(handoff12.Get(), handoffValue))) { error = "shared fence wait"; return false; }
+        if (!handOver(error)) return false;
         const auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS, common = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_BARRIER enter[] = {barrier(colour12.Get(), common, read), barrier(motion12.Get(), common, read), barrier(out12.Get(), common, write)};
         list->ResourceBarrier(3, enter);
@@ -192,7 +301,9 @@ struct DlssGenerator::State {
         setUint64(p, "DLSSG.BackbufferFrameID", frameId);
         const bool verbose = diagnostics && evaluations++ < 4;
         trace(verbose, "evaluate: begin, frame=" + std::to_string(frameId) + ", reset=" + std::to_string(reset) + ", index=" + std::to_string(index));
+        beginTimer();
         const unsigned result = evaluate(list.Get(), feature, p, nullptr);
+        endTimer();
         trace(verbose, "evaluate: " + hex(result));
         D3D12_RESOURCE_BARRIER leave[] = {barrier(colour12.Get(), read, common), barrier(motion12.Get(), read, common), barrier(out12.Get(), write, common)};
         list->ResourceBarrier(3, leave);
@@ -200,6 +311,21 @@ struct DlssGenerator::State {
         if (result != kSuccess) { error = "DLSS frame generation evaluate " + hex(result); return false; }
         return true;
     }
+    // Self-test stand-in for an evaluation: the D3D12 queue copies colour into out.
+    bool copyRun(std::string& error) {
+        if (!handOver(error)) return false;
+        const auto common = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_RESOURCE_BARRIER enter[] = {barrier(colour12.Get(), common, D3D12_RESOURCE_STATE_COPY_SOURCE), barrier(out12.Get(), common, D3D12_RESOURCE_STATE_COPY_DEST)};
+        list->ResourceBarrier(2, enter);
+        beginTimer();
+        list->CopyResource(out12.Get(), colour12.Get());
+        endTimer();
+        D3D12_RESOURCE_BARRIER leave[] = {barrier(colour12.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, common), barrier(out12.Get(), D3D12_RESOURCE_STATE_COPY_DEST, common)};
+        list->ResourceBarrier(2, leave);
+        return submit(error);
+    }
+    // Before anything the GPU may still use is released.
+    void idle() { std::string ignored; if (done && doneValue) waitFor(doneValue, ignored); }
 };
 
 bool DlssGenerator::runtimePresent(const std::wstring& directory) {
@@ -207,8 +333,9 @@ bool DlssGenerator::runtimePresent(const std::wstring& directory) {
            GetFileAttributesW(corePath().c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, bool diagnostics, int motionMode) {
+bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, const DlssOptions& options) {
     destroy();
+    const bool diagnostics = options.diagnostics;
     if (!runtimePresent(featureDirectory)) { error = "DLSS frame generation runtime or NVIDIA driver component not found"; return false; }
     if (dataDirectory.empty()) { error = "DLSS needs a writable data directory (CLI: --dlss-data DIR)"; return false; }
     std::error_code pathError;
@@ -221,31 +348,9 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
     s->diagnostics = diagnostics;
     state_ = s.get();
     auto fail = [&](const std::string& message) { error = message; trace(diagnostics, "failed: " + message); s.release(); destroy(); return false; };
-    s->width = gpu.width(); s->height = gpu.height();
-    trace(diagnostics, "create: " + std::to_string(s->width) + "x" + std::to_string(s->height));
-
-    // D3D12 device on the adapter the engine already uses.
-    ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter1> adapter;
-    const LUID luid = gpu.adapterLuid();
-    if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory))) || FAILED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter)))) return fail("graphics adapter not found");
-    if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&s->device)))) return fail("Direct3D 12 is not available on this GPU");
-    D3D12_COMMAND_QUEUE_DESC queueDesc{};
-    if (FAILED(s->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&s->queue))) ||
-        FAILED(s->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&s->allocator))) ||
-        FAILED(s->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, s->allocator.Get(), nullptr, IID_PPV_ARGS(&s->list))) ||
-        FAILED(s->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&s->done)))) return fail("Direct3D 12 command objects");
-    s->event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-
-    // Fence that orders D3D11's writes before D3D12's reads.
-    ComPtr<ID3D11Device> device11 = gpu.device();
-    ComPtr<ID3D11DeviceContext> context11 = gpu.context();
-    if (FAILED(device11.As(&s->device11)) || FAILED(context11.As(&s->context11))) return fail("Direct3D 11.4 is required for DLSS frame generation");
-    HANDLE fenceHandle = nullptr;
-    if (FAILED(s->device11->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&s->handoff11))) ||
-        FAILED(s->handoff11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &fenceHandle))) return fail("shared fence");
-    const HRESULT fenceResult = s->device->OpenSharedHandle(fenceHandle, IID_PPV_ARGS(&s->handoff12));
-    CloseHandle(fenceHandle);
-    if (FAILED(fenceResult)) return fail("D3D12 could not open the shared fence");
+    trace(diagnostics, "create: " + std::to_string(gpu.width()) + "x" + std::to_string(gpu.height()) + ", motion " + dlssMotionName(options.motion) + (options.lite ? ", lite" : ""));
+    std::string bridgeError;
+    if (!s->bridge(gpu, bridgeError)) return fail(bridgeError);
 
     // NGX core from the driver.
     const std::wstring core = corePath();
@@ -296,21 +401,19 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
     setUint(p, "DLSSG.ResourceNeverProvidedFlags", kFlagHudless | kFlagUi | kFlagUiAlpha | kFlagDistortion);
     setUint(p, "CreationNodeMask", 1); setUint(p, "VisibilityNodeMask", 1);
     setUint(p, "Width", unsigned(s->width)); setUint(p, "Height", unsigned(s->height));
+    setUint(p, "DLSSG.Width", unsigned(s->width)); setUint(p, "DLSSG.Height", unsigned(s->height));
     setUint(p, "DLSSG.BackbufferFormat", unsigned(DXGI_FORMAT_R8G8B8A8_UNORM));
     setUint(p, "DLSSG.InternalWidth", unsigned(s->width)); setUint(p, "DLSSG.InternalHeight", unsigned(s->height)); setUint(p, "DLSSG.DynamicResolution", 0);
+    // Public SDK parameter (nvsdk_ngx_defs_dlssg.h); runtimes that do not know it ignore it.
+    setUint(p, "DLSSG.LiteCandidateBlendingEnabled", options.lite ? 1u : 0u);
     trace(diagnostics, "create feature: begin");
     result = s->createFeature(s->list.Get(), kFeatureFrameGeneration, p, &s->feature);
     trace(diagnostics, "create feature: " + hex(result));
     std::string submitError;
-    if (!s->submit(submitError)) return fail(submitError);
+    if (!s->submit(submitError, true)) return fail(submitError);
     if (result != kSuccess || !s->feature) return fail("DLSS frame generation could not be created " + hex(result));
 
-    // Shared pictures and the flat depth buffer.
-    if (!s->share(device11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, s->colour11, s->colour12, error) ||
-        !s->share(device11.Get(), DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, s->motion11, s->motion12, error) ||
-        !s->share(device11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_RENDER_TARGET, s->out11, s->out12, error))
-        return fail(error);
-    if (FAILED(device11->CreateUnorderedAccessView(s->motion11.Get(), nullptr, &s->motionUav))) return fail("motion vector view");
+    // The flat depth buffer.
     {
         D3D12_HEAP_PROPERTIES heap{D3D12_HEAP_TYPE_DEFAULT};
         D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = UINT64(s->width); d.Height = UINT(s->height);
@@ -335,7 +438,7 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
         s->list->CopyTextureRegion(&target, 0, 0, 0, &source, nullptr);
         auto ready = State::barrier(s->depth12.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         s->list->ResourceBarrier(1, &ready);
-        if (!s->submit(submitError)) return fail(submitError);
+        if (!s->submit(submitError, true)) return fail(submitError);   // the upload buffer must outlive the copy
     }
     // A camera that does not move: all motion is in the vector buffer, but the projection
     // and its inverse still have to agree with each other.
@@ -345,15 +448,17 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
     s->viewToClip[0][0] = px; s->viewToClip[1][1] = 1; s->viewToClip[2][2] = pz; s->viewToClip[2][3] = 1; s->viewToClip[3][2] = pw;
     s->clipToView[0][0] = 1 / px; s->clipToView[1][1] = 1; s->clipToView[2][3] = 1 / pw; s->clipToView[3][2] = 1; s->clipToView[3][3] = -pz / pw;
 
-    if(motionMode!=1) {
+    s->source = options.motion == DlssMotion::Own ? 1 : 0;
+    if (options.motion == DlssMotion::Hardware || options.motion == DlssMotion::HardwareRequired) {
         std::string flowError;
-        if(!s->flow.create(gpu,1,flowError,false)) {
-            if(motionMode==2)return fail(flowError);
-            trace(diagnostics,flowError+"; using own block motion");
-        }
+        if (s->flow.create(gpu, 1, flowError, false)) s->source = 2;
+        else if (options.motion == DlssMotion::HardwareRequired) return fail(flowError);
+        else { s->source = 1; trace(diagnostics, flowError + "; using own block motion"); }
     }
     version_ = "DLSS-G, up to " + std::to_string(maxGenerated_ + 1) + "x";
-    if(s->flow.ready())version_ += ", hardware optical flow";
+    if (s->source == 2) version_ += ", hardware optical flow";
+    else if (s->source == 1) version_ += ", block motion vectors";
+    if (options.lite) version_ += ", lite";
     s.release();
     ready_ = true;
     trace(diagnostics, "ready: " + version_);
@@ -375,22 +480,22 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
         s.generatedFrames.resize(size_t(generated));
     }
     if (s.fedId != idB) {
-        const bool continuous=s.haveHistory && s.fedId==idA;
-        if (!s.haveHistory || s.fedId != idA) {
+        const bool continuous = s.haveHistory && s.fedId == idA;
+        if (!continuous) {
             // DLSS-G keeps the previous picture itself. When it did not just receive A, hand A
             // over first as a new sequence; that evaluation's output is not used.
             c->CopyResource(s.colour11.Get(), gpu.frame(slotA));
-            const float zero[4] = {0, 0, 0, 0};
-            c->ClearUnorderedAccessViewFloat(s.motionUav.Get(), zero);
+            if (s.source != 0) { const float zero[4] = {0, 0, 0, 0}; c->ClearUnorderedAccessViewFloat(s.motionUav.Get(), zero); }
             ++s.frameId;
             if (!s.run(true, 1, generated, error)) { ready_ = false; return false; }
             s.haveHistory = true;
         }
         c->CopyResource(s.colour11.Get(), gpu.frame(slotB));
-        if(s.flow.ready()) {
-            if(!s.flow.estimate(gpu,slotA,slotB,!continuous,error)){ready_=false;return false;}
-            s.flow.motionVectors(gpu,s.motionUav.Get());
-        } else gpu.motionVectors(slotB, s.motionUav.Get());
+        if (s.source == 2) {
+            if (!s.flow.estimate(gpu, slotA, slotB, !continuous, error)) { ready_ = false; return false; }
+            s.flow.motionVectors(gpu, s.motionUav.Get());
+        } else if (s.source == 1) gpu.motionVectors(slotB, s.motionUav.Get());
+        // source 0: the vector texture was cleared at creation and is never written.
         ++s.frameId;
         s.fedId = idB;
     }
@@ -407,6 +512,7 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
             if (FAILED(hr)) { error = "DLSS generated frame cache " + hresult(hr); ready_ = false; return false; }
         }
         if (!s.run(false, next, generated, error)) { ready_ = false; return false; }
+        // Queued after the GPU-side wait that submit() inserted, so it reads the finished picture.
         c->CopyResource(cached.Get(), s.out11.Get());
         s.generatedThrough = next;
     }
@@ -414,7 +520,8 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
     c->CopyResource(gpu.output(), s.generatedFrames[size_t(index - 1)].Get());
     if (generating) {
         QueryPerformanceCounter(&end);
-        lastMs_ = double(end.QuadPart - begin.QuadPart) * 1000.0 / double(frequency.QuadPart);
+        s.collect();
+        lastMs_ = s.lastGpu >= 0 ? s.lastGpu : double(end.QuadPart - begin.QuadPart) * 1000.0 / double(frequency.QuadPart);
     }
     return true;
 }
@@ -425,18 +532,60 @@ void DlssGenerator::resetHistory() {
     state_->pairA = state_->pairB = UINT64_MAX; state_->generatedThrough = 0;
 }
 
-bool DlssGenerator::hardwareMotion() const {return state_ && state_->flow.ready();}
+double DlssGenerator::averageGpuMs() const {
+    if (!state_) return -1;
+    state_->collect();
+    return state_->gpuCount ? state_->gpuSum / state_->gpuCount : -1;
+}
+int DlssGenerator::gpuSamples() const { return state_ ? state_->gpuCount : 0; }
+bool DlssGenerator::needsEngineMotion() const { return state_ && state_->source == 1; }
+bool DlssGenerator::hardwareMotion() const { return state_ && state_->source == 2; }
+std::string DlssGenerator::motionSource() const { return !state_ ? "" : state_->source == 2 ? "nvof" : state_->source == 1 ? "own" : "none"; }
 
 void DlssGenerator::destroy() {
     ready_ = false;
     if (!state_) return;
     State* s = state_; state_ = nullptr;
+    s->idle();
     if (s->feature && s->release) { trace(s->diagnostics, "release feature"); s->release(s->feature); }
     if (s->parameters && s->destroyParameters) { trace(s->diagnostics, "destroy parameters"); s->destroyParameters(s->parameters); }
     if (s->initialised && s->shutdown) { trace(s->diagnostics, "shutdown"); s->shutdown(s->device.Get()); }
     if (s->event) CloseHandle(s->event);
     // The NGX core stays loaded: unloading it while the driver still holds callbacks is unsafe.
     delete s;
+}
+
+bool DlssGenerator::bridgeSelfTest(Gpu& gpu, std::string& detail) {
+    State s;
+    std::string error;
+    if (!s.bridge(gpu, error)) { detail = error; s.idle(); if (s.event) CloseHandle(s.event); return false; }
+    const int w = s.width, h = s.height;
+    std::vector<uint8_t> picture(size_t(w) * h * 4), result;
+    bool ok = true;
+    int mismatched = 0;
+    // More rounds than allocators: each one reuses a slot only after the GPU released it.
+    const int rounds = 2 * State::kRing + 1;
+    for (int round = 0; round < rounds && ok; ++round) {
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                uint8_t* p = &picture[(size_t(y) * w + x) * 4];
+                p[0] = uint8_t(x * 3 + round * 17); p[1] = uint8_t(y * 5 + round * 29); p[2] = uint8_t((x ^ y) + round * 41); p[3] = 255;
+            }
+        gpu.context()->UpdateSubresource(s.colour11.Get(), 0, nullptr, picture.data(), UINT(w * 4), 0);
+        ok = s.copyRun(error);
+        if (!ok) break;
+        // No CPU wait here: the copy below is ordered after D3D12 by the GPU-side fence wait.
+        gpu.context()->CopyResource(gpu.output(), s.out11.Get());
+        ok = gpu.readback(gpu.output(), result);
+        if (!ok) { error = "readback"; break; }
+        if (result != picture) ++mismatched;
+    }
+    s.idle();
+    s.collect();
+    if (s.event) CloseHandle(s.event);
+    detail = ok ? std::to_string(rounds) + " rounds through " + std::to_string(State::kRing) + " allocators, " + std::to_string(mismatched) + " mismatched, " +
+                  std::to_string(s.gpuCount) + " GPU timings" : error;
+    return ok && mismatched == 0 && (!s.queries || s.gpuCount > 0);
 }
 
 } // namespace fdl

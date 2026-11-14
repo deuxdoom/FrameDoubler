@@ -791,7 +791,7 @@ public sealed class CaptureView:UserControl
             if(s.CaptureState=="waiting"&&statusMessage.Length==0)liveText.Text=T("영상 입력을 기다리는 중…","Waiting for video input…");
             liveText.Foreground=statusMessage.Length>0?Warn:Muted;
             statusDot.Fill=s.CaptureFailed?Bad:Good;
-            string motion=options.FrameGeneration=="off"?T("없음","none"):s.FrameGeneration=="vfx"?"NVIDIA VFX":s.FrameGeneration=="dlss"&&s.DlssMotion=="nvof"?"NVIDIA Optical Flow":$"{s.Width/2}×{s.Height/2}";
+            string motion=options.FrameGeneration=="off"?T("없음","none"):s.FrameGeneration=="vfx"?"NVIDIA VFX":s.FrameGeneration=="dlss"&&s.DlssMotion=="nvof"?"NVIDIA Optical Flow":s.FrameGeneration=="dlss"&&s.DlssMotion=="none"?"NVIDIA DLSS":$"{s.Width/2}×{s.Height/2}";
             pathText.Text=Hangul.KeepWords(T("실시간 캡처 | 입력 ","Live capture | input ")+$"{s.Width}×{s.Height} / "+T("움직임 추정 ","motion ")+motion+" / "+T("출력 ","output ")+$"{s.Width}×{s.Height} | "+T("GPU에서 실시간 처리","processed on the GPU in real time"));
         }
     }
