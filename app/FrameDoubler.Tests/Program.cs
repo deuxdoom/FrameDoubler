@@ -1,6 +1,8 @@
 using FrameDoubler.Core;
 using System.Text.Json;
 
+// A copy of this program stands in for FrameDoubler.exe in the installer tests.
+if (InstallerTests.FakeApp(args)) return;
 int passed = 0;
 void Assert(bool test, string message) { if (!test) throw new Exception(message); passed++; }
 void Throws(Action action, string message) { try { action(); } catch (InvalidOperationException) { passed++; return; } throw new Exception(message); }
@@ -50,22 +52,7 @@ labels.Add(cadence.Flush()!.Value);
 Assert(labels.Count(x=>x==FrameLabel.Static)==5,"Long static holds stop interpolation");
 var black=new Signature(32,32,new float[1024]).Descriptor();var white=new Signature(32,32,Enumerable.Repeat(255f,1024).ToArray()).Descriptor();
 Assert(Signature.CutScore(black,white)>.99 && Signature.CutScore(black,black)==0,"Histogram cuts");
-string? previousConfig=Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR");
-try{
-    string config=Path.Combine(EncoderDetector.WorkRoot,"settings-tests",Guid.NewGuid().ToString("N"));
-    Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",config);
-    new Preferences{Language="en",OutputDirectory="F:\\한글 출력",Preset="quality",Fps="60000/1001"}.Save();
-    var loaded=Preferences.Load();Assert(loaded.Language=="en"&&loaded.OutputDirectory=="F:\\한글 출력"&&loaded.Fps=="60000/1001","Settings restart/Unicode round trip");
-    File.WriteAllText(Path.Combine(config,"settings.json"),"invalid json");
-    Assert(Preferences.Load().Language=="ko","Malformed preferences recover safely");
-    File.WriteAllText(Path.Combine(config,"settings.json"),"{\"Preset\":\"youtube\"}");
-    Assert(Preferences.Load().Preset=="source","Previous YouTube default becomes general conversion once");
-    new Preferences{Preset="youtube-2160"}.Save();Assert(Preferences.Load().Preset=="youtube-2160","Explicit YouTube selection persists");
-    new Preferences{Preset="youtube-1440"}.Save();Assert(Preferences.Load().Preset=="youtube-2160","Removed 1440p preset falls back to YouTube 4K");
-    Assert(new Preferences().MinimizeAction=="taskbar","Minimize defaults to the taskbar");
-    new Preferences{MinimizeAction="ask"}.Save();Assert(Preferences.Load().MinimizeAction=="taskbar","Previous implicit ask behavior becomes taskbar minimize");
-    new Preferences{MinimizeAction="tray"}.Save();Assert(Preferences.Load().MinimizeAction=="tray","Only an explicit tray preference persists");
-}finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",previousConfig);}
+PreferenceTests.Run(Assert);
 var hudInfo=new MediaInfo("",2,2,"","rgb24",8,1,30,30,false,1,[0],null,null,null,null,[]);
 using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     Array.Fill(a.Buffer,(byte)10,0,12);Array.Fill(b.Buffer,(byte)10,0,12);b.Buffer[3]=20;
@@ -148,6 +135,9 @@ if(args.Contains("--pipeline"))await PipelineTests.RunAsync(AppPaths.Discover(),
 EstimateTests.Run(Assert);
 if(args.Contains("--sample-verify"))await VerificationTests.IntegrationAsync(AppPaths.Discover(),Assert);
 if(args.Contains("--long"))await PipelineTests.LongAsync(AppPaths.Discover(),Assert);
+if(args.Contains("--installer"))await InstallerTests.RunAsync(Assert);
+int launcherArgument=Array.IndexOf(args,"--launcher-package");
+if(launcherArgument>=0)await LauncherTests.RunAsync(args[launcherArgument+1],args[launcherArgument+2],Assert);
 int packageArgument=Array.IndexOf(args,"--update-package");
 if(packageArgument>=0)await UpdateTests.PackageAsync(args[packageArgument+1],Assert);
 Console.WriteLine($"PASS {passed} assertions. Simulated devices are policy tests, not actual hardware qualification.");

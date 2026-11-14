@@ -18,6 +18,9 @@ public static class Updates
     private static Version FromAssembly(){var v=typeof(Updates).Assembly.GetName().Version??new Version(0,0,0);return new(v.Major,v.Minor,Math.Max(0,v.Build));}
     private static string UserAgent=>$"FrameDoubler/{Current}";
     private const long MaximumBytes=640L*1024*1024;
+    // 1.0.0 and 1.0.1 were published as FrameDoubler.zip (their updaters look only for that name).
+    // From 1.0.2 the package name carries the version digits, e.g. FrameDoubler_v102.zip.
+    public static string AssetName(Version version)=>version<new Version(1,0,2)?"FrameDoubler.zip":$"FrameDoubler_v{version.Major}{version.Minor}{Math.Max(0,version.Build)}.zip";
     public static async Task<UpdateRelease?> CheckAsync(CancellationToken cancel=default){
         using var client=new HttpClient{Timeout=TimeSpan.FromSeconds(10)};client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
         using var response=await client.GetAsync("https://api.github.com/repos/deuxdoom/FrameDoubler/releases/latest",cancel);
@@ -32,18 +35,19 @@ public static class Updates
         string notes=root.TryGetProperty("body",out var body)?body.GetString()??"":"";
         string page=root.TryGetProperty("html_url",out var p)?p.GetString()??ReleasePage:ReleasePage;
         if(!page.StartsWith("https://github.com/deuxdoom/FrameDoubler/releases/",StringComparison.Ordinal))page=ReleasePage;
-        string? url=null,hash=null;long size=0;
+        string? url=null,hash=null;long size=0;string name=AssetName(version);
         if(root.TryGetProperty("assets",out var assets))foreach(var asset in assets.EnumerateArray()){
-            if(asset.GetProperty("name").GetString()!="FrameDoubler.zip")continue;
+            // Only the package named for this exact release, downloaded from this exact tag, is installable.
+            if(asset.GetProperty("name").GetString()!=name)continue;
             string candidate=asset.GetProperty("browser_download_url").GetString()??"";
             string digest=asset.TryGetProperty("digest",out var d)?d.GetString()??"":"";
             size=asset.GetProperty("size").GetInt64();
-            if(!candidate.StartsWith("https://github.com/deuxdoom/FrameDoubler/releases/download/",StringComparison.Ordinal)||size<=0||size>MaximumBytes
+            if(candidate!=$"https://github.com/deuxdoom/FrameDoubler/releases/download/{Uri.EscapeDataString(tag)}/{name}"||size<=0||size>MaximumBytes
                 ||!Regex.IsMatch(digest,@"^sha256:[0-9a-fA-F]{64}$"))continue;
             hash=digest[7..].ToLowerInvariant();url=candidate;
             // If release notes supply a hash for this asset, it must agree.
             string[] lines=notes.Split('\n');
-            for(int i=0;i<lines.Length;i++)if(lines[i].Contains("FrameDoubler.zip",StringComparison.OrdinalIgnoreCase)){
+            for(int i=0;i<lines.Length;i++)if(lines[i].Contains(name,StringComparison.OrdinalIgnoreCase)){
                 foreach(var match in Regex.Matches(string.Join('\n',lines.Skip(i).Take(5)),@"\b[0-9a-fA-F]{64}\b").Cast<Match>())
                     if(!string.Equals(hash,match.Value,StringComparison.OrdinalIgnoreCase)){url=null;hash=null;break;}
                 break;
@@ -131,7 +135,8 @@ public static class Updates
                     throw new IOException("Update file hash mismatch: "+name);
             }
             var actual=Directory.GetFiles(stage,"*",SearchOption.AllDirectories).Select(x=>Path.GetRelativePath(stage,x).Replace('\\','/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if(!expected.SetEquals(actual)||!actual.Contains("FrameDoubler.exe")||!actual.Contains("engine/rife-poc.exe"))throw new IOException("Incomplete/unlisted update files");
+            if(!expected.SetEquals(actual)||!actual.Contains("FrameDoubler.exe")||!actual.Contains("engine/rife-poc.exe")
+                ||expectedVersion>=new Version(1,0,2)&&(!actual.Contains("dll/FrameDoubler.dll")||!actual.Contains("dll/hostfxr.dll")))throw new IOException("Incomplete/unlisted update files");
             return new(stage,expectedVersion);
         }catch{
             // Only the unique directory created above may be removed.
@@ -140,43 +145,4 @@ public static class Updates
             throw;
         }
     }
-    public static string WriteSwapHelper(string directory){
-        Directory.CreateDirectory(directory);string helper=Path.Combine(directory,"apply-native-update.ps1");File.WriteAllText(helper,SwapScript);return helper;
-    }
-    public static void LaunchInstaller(StagedUpdate update,string installation){
-        installation=Path.TrimEndingDirectorySeparator(Path.GetFullPath(installation));
-        string parent=Path.GetDirectoryName(installation)??throw new IOException("Invalid installation root");
-        if(Path.GetDirectoryName(Path.GetFullPath(update.Directory))!=parent)throw new IOException("Update stage must be beside installation");
-        string backup=installation+".previous-"+Guid.NewGuid().ToString("N"),helper=WriteSwapHelper(Path.Combine(EncoderDetector.WorkRoot,"updates"));
-        string shell=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe");
-        var info=new ProcessStartInfo(shell){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden};
-        foreach(string argument in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",helper,"-WaitPid",Environment.ProcessId.ToString(),"-Target",installation,"-Stage",update.Directory,"-Backup",backup})info.ArgumentList.Add(argument);
-        _=Process.Start(info)??throw new IOException("Cannot start update helper");
-    }
-    public const string SwapScript="""
-param([int]$WaitPid,[string]$Target,[string]$Stage,[string]$Backup,[switch]$NoRestart)
-$ErrorActionPreference='Stop'
-$Target=[IO.Path]::GetFullPath($Target).TrimEnd('\')
-$Stage=[IO.Path]::GetFullPath($Stage).TrimEnd('\')
-$Backup=[IO.Path]::GetFullPath($Backup).TrimEnd('\')
-$Parent=[IO.Path]::GetDirectoryName($Target)
-if($Target.Length -le [IO.Path]::GetPathRoot($Target).Length+3 -or [IO.Path]::GetDirectoryName($Stage) -ne $Parent -or [IO.Path]::GetDirectoryName($Backup) -ne $Parent){throw 'Unsafe update paths'}
-if(-not [IO.Path]::GetFileName($Stage).StartsWith('.FrameDoubler-update-') -or -not $Backup.StartsWith($Target+'.previous-',[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe stage/backup names'}
-if(Test-Path -LiteralPath $Backup){throw 'Backup already exists'}
-if($WaitPid -gt 0){Wait-Process -Id $WaitPid -ErrorAction SilentlyContinue}
-$Moved=$false
-try{
-    Move-Item -LiteralPath $Target -Destination $Backup
-    $Moved=$true
-    Move-Item -LiteralPath $Stage -Destination $Target
-    if(-not $NoRestart){Start-Process -FilePath (Join-Path $Target 'FrameDoubler.exe')}
-}catch{
-    if($Moved){
-        if((Test-Path -LiteralPath $Target) -and -not (Test-Path -LiteralPath $Stage)){Move-Item -LiteralPath $Target -Destination $Stage}
-        if(-not (Test-Path -LiteralPath $Target)){Move-Item -LiteralPath $Backup -Destination $Target}
-    }
-    $_ | Out-String | Set-Content -LiteralPath ($Target+'.update-error.txt')
-    throw
-}
-""";
 }

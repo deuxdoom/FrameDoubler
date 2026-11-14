@@ -95,11 +95,19 @@ public static class ChildProcesses
 
 public sealed record AppPaths(string Engine, string Models, string FFmpeg, string FFprobe)
 {
+    public static string InstallationDirectory {
+        get {
+            string managed=Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+            string? executable=Environment.ProcessPath is {} path?Path.GetDirectoryName(path):null;
+            return executable is not null&&string.Equals(Path.Combine(executable,"dll"),managed,StringComparison.OrdinalIgnoreCase)
+                ?executable:AppContext.BaseDirectory;
+        }
+    }
     public string Model(string version) => Path.Combine(Models, version);
     public static AppPaths Discover()
     {
         string? data = Environment.GetEnvironmentVariable("FRAMEDOUBLER_DATA");
-        string root = string.IsNullOrWhiteSpace(data) ? AppContext.BaseDirectory : Path.GetFullPath(data);
+        string root = string.IsNullOrWhiteSpace(data) ? InstallationDirectory : Path.GetFullPath(data);
         return new(Path.Combine(root, "engine", "rife-poc.exe"), Path.Combine(root, "models"),
                    Path.Combine(root, "ffmpeg", "ffmpeg.exe"), Path.Combine(root, "ffmpeg", "ffprobe.exe"));
     }

@@ -14,7 +14,7 @@ public sealed record EncoderChoice(EncoderCapability Encoder, string Explanation
 public static class EncoderDetector
 {
     public static string WorkRoot => Environment.GetEnvironmentVariable("FRAMEDOUBLER_WORK_ROOT")
-        ?? Path.Combine(AppContext.BaseDirectory,"work");
+        ?? Path.Combine(AppPaths.InstallationDirectory,"work");
 
     public static async Task<List<EncoderCapability>> DetectAsync(AppPaths paths, CancellationToken cancel = default)
     {

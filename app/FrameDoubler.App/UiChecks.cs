@@ -163,7 +163,7 @@ public partial class MainWindow
             Check(ReferenceEquals(AdvancedHost.Content,AdvancedPanel),$"Advanced controls return to the main window {lang}");
         }
         PreviewLanguage("ko");
-        // A remembered close action skips the dialog and is saved to settings.json.
+        // A remembered close action skips the dialog and is saved to settings.ini.
         ChangeSettings(p=>p with{CloseAction="tray"});SetupTray();ExitPrompt=null;
         Check(FrameDoubler.Core.Preferences.Load().CloseAction=="tray","Close action setting is saved");
         CloseButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));await Idle();

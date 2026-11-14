@@ -91,7 +91,11 @@ public static class TimeEstimates
     public static void PreservePortableFiles(string installation,string stage){
         installation=Path.GetFullPath(installation);stage=Path.GetFullPath(stage);
         if(Path.GetDirectoryName(installation)!=Path.GetDirectoryName(stage)||!Path.GetFileName(stage).StartsWith(".FrameDoubler-update-",StringComparison.Ordinal))throw new IOException("Invalid portable update stage");
-        foreach(string name in new[]{"settings.json","performance.json"}){
+        // settings.ini wins; an old settings.json is carried over only when it was never migrated,
+        // so the new version converts it on first start instead of reviving stale values.
+        bool ini=File.Exists(Path.Combine(installation,Preferences.FileName));
+        foreach(string name in new[]{Preferences.FileName,"settings.json","performance.json"}){
+            if(ini&&name=="settings.json")continue;
             string source=Path.Combine(installation,name);if(File.Exists(source))File.Copy(source,Path.Combine(stage,name),true);
         }
     }

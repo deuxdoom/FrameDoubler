@@ -62,7 +62,9 @@ public partial class MainWindow:Window
     public bool English=>language=="en";
     public bool HardwareReady=>ready;
     public void SelfTestOutputFolder(string path)=>OutputBox.Text=path;
-    internal void SaveForUpdate(){Save();AllowExit();}
+    // Saved before the installer copies settings into the new version; a failure stops the update
+    // (exit is approved separately, only after the installer has confirmed the handoff).
+    internal void SaveForUpdate()=>CurrentPreferences().Save();
     private string T(string ko,string en)=>English?en:ko;
     // Same rule as the pipeline (digits with an optional k/M); a typo is not saved over the last good value.
     internal static bool ValidBitrate(string? value)=>string.IsNullOrEmpty(value)||System.Text.RegularExpressions.Regex.IsMatch(value,@"^\d+[kKmM]?$");
@@ -303,7 +305,7 @@ public partial class MainWindow:Window
         if(!busy&&Entries.Count==0)StatusText.Text=T("영상을 추가해 주세요.","Add a video to begin.");
         RefreshEstimateText();
     }
-    private void Log(string text){LogBox.AppendText(text+Environment.NewLine);LogBox.ScrollToEnd();}
+    internal void Log(string text){LogBox.AppendText(text+Environment.NewLine);LogBox.ScrollToEnd();}
     private async void StartClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync();
     private async void SelectedClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync(SelectedForConversion());
     internal QueueEntry[] SelectedInListOrder()=>Entries.Where(x=>QueueList.SelectedItems.Contains(x)).ToArray();
@@ -366,14 +368,14 @@ public partial class MainWindow:Window
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();
     private void SettingsClicked(object sender,RoutedEventArgs e){if(!busy)new SettingsWindow(this).ShowDialog();}
-    // Export presets: built-ins plus the user's own, saved in settings.json.
+    // Export presets: the four built-ins; the selection is saved in settings.ini.
     internal OutputPreset CurrentPreset=>OutputPresets.Find(Selected(PresetBox));
     private void RefreshPresets(string? select){
         bool old=updating;updating=true;
         Fill(PresetBox,OutputPresets.BuiltIns.Select(x=>new Choice(x.Id,OutputPresets.DisplayName(x,English))),select);
         updating=old;
     }
-    // Used by the settings window; changes apply immediately and are saved to settings.json.
+    // Used by the settings window; changes apply immediately and are saved to settings.ini.
     internal Preferences Settings=>preferences;
     internal bool Working=>busy||measuring;
     internal void ChangeSettings(Func<Preferences,Preferences> change){preferences=change(preferences);Save();}
@@ -434,12 +436,14 @@ public partial class MainWindow:Window
         if(target.WindowState==WindowState.Minimized)target.WindowState=WindowState.Normal;
         target.Activate();SingleInstance.Foreground(target);
     }
-    private void Save(){
-        try{preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),
+    private Preferences CurrentPreferences(){
+        preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),
             Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),
             Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true,
-            CheckUpdates=preferences.CheckUpdates,CloseAction=preferences.CloseAction,MinimizeAction=preferences.MinimizeAction};preferences.Save();}catch(Exception ex){Log(ex.Message);}
+            CheckUpdates=preferences.CheckUpdates,CloseAction=preferences.CloseAction,MinimizeAction=preferences.MinimizeAction};
+        return preferences;
     }
+    private void Save(){try{CurrentPreferences().Save();}catch(Exception ex){Log(ex.Message);}}
     private void OnClosing(object? sender,CancelEventArgs e){
         // Alt+F4 and the taskbar's "Close window" also go through the confirmation.
         if(!exitConfirmed){e.Cancel=true;Dispatcher.BeginInvoke(()=>RequestExit(ExitTrigger.Close));return;}

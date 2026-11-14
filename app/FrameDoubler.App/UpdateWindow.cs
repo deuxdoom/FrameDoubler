@@ -27,8 +27,14 @@ public sealed class UpdateWindow:Window
     private readonly Step download,verify,preserve,restart;
     private string T(string ko,string en)=>english?en:ko;
     private static SolidColorBrush Brush(string value)=>(SolidColorBrush)new BrushConverter().ConvertFromString(value)!;
+    // Diagnostics only ("--update-test"): a local package replaces the GitHub download; everything after
+    // it (verification, installer handoff, exit, replacement, restart) is the normal path.
+    internal string? LocalPackage{get;init;}
+    private readonly MainWindow owner;
+    internal Task InstallNowAsync()=>InstallAsync(owner);
+    internal string? LastError{get;private set;}
     public UpdateWindow(MainWindow owner,UpdateRelease release,bool preview=false){
-        this.release=release;
+        this.release=release;this.owner=owner;
         if(!preview)Owner=owner;english=owner.English;Title=T("FrameDoubler 업데이트","FrameDoubler update");Width=720;Height=620;MinWidth=600;MinHeight=520;
         Style=(Style)FindResource(typeof(Window));WindowStartupLocation=WindowStartupLocation.CenterOwner;
         WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.CanResize;
@@ -59,7 +65,8 @@ public sealed class UpdateWindow:Window
         // Install steps.
         var steps=new StackPanel{Margin=new Thickness(0,18,0,0)};
         steps.Children.Add(new TextBlock{Text=T("설치 단계","Installation steps"),Style=(Style)FindResource("FieldLabel"),Margin=new Thickness(0,0,0,8)});
-        download=AddStep(steps,T("다운로드","Download"),T("GitHub 릴리스에서 FrameDoubler.zip을 받습니다.","Gets FrameDoubler.zip from the GitHub release."));
+        string asset=Updates.AssetName(release.Version);
+        download=AddStep(steps,T("다운로드","Download"),T($"GitHub 릴리스에서 {asset} 파일을 받습니다.",$"Gets {asset} from the GitHub release."));
         steps.Children.Add(progress);
         verify=AddStep(steps,T("무결성 확인","Integrity check"),T("SHA-256과 패키지 안 모든 파일의 해시를 확인합니다.","Checks the SHA-256 and the hash of every packaged file."));
         preserve=AddStep(steps,T("설정 보존","Keep settings"),T("설정과 성능 기록을 새 버전으로 옮깁니다.","Carries settings and performance history over."));
@@ -112,12 +119,12 @@ public sealed class UpdateWindow:Window
     private async Task InstallAsync(MainWindow owner){
         install.IsEnabled=false;status.Text="";status.ClearValue(TextBlock.ForegroundProperty);
         foreach(var step in new[]{download,verify,preserve,restart})Set(step,StepState.Pending);
-        Step current=download;
+        Step current=download;StagedUpdate? staged=null;UpdateInstaller.InstallerSession? session=null;bool committed=false;
         try{
             Set(download,StepState.Active);progress.Value=0;progress.Visibility=Visibility.Visible;
-            string location=Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory),parent=Path.GetDirectoryName(location)!;
+            string location=Path.TrimEndingDirectorySeparator(AppPaths.InstallationDirectory),parent=Path.GetDirectoryName(location)??throw new IOException(T("드라이브 루트에 설치된 경우 자동 업데이트를 할 수 없습니다.","Automatic updates need an installation folder, not a drive root."));
             // Progress reaches 1 when the download ends; StageAsync then checks the SHA-256 and every file.
-            var staged=await Updates.DownloadAsync(release,parent,new Progress<double>(x=>{
+            staged=LocalPackage is not null?await Updates.StageAsync(LocalPackage,release.Sha256!,release.Version,parent,stop.Token):await Updates.DownloadAsync(release,parent,new Progress<double>(x=>{
                 progress.Value=x;
                 if(current==download)download.Detail.Text=release.Size>0?$"{x*release.Size/1048576d:0} / {release.Size/1048576d:0} MB · {x:P0}":$"{x:P0}";
                 if(x>=1&&current==download){Set(download,StepState.Done);progress.Visibility=Visibility.Collapsed;current=verify;Set(verify,StepState.Active);}
@@ -125,18 +132,25 @@ public sealed class UpdateWindow:Window
             stop.Token.ThrowIfCancellationRequested();
             if(current==download){Set(download,StepState.Done);progress.Visibility=Visibility.Collapsed;}
             Set(verify,StepState.Done,T("SHA-256과 모든 파일의 해시가 일치합니다.","SHA-256 and every file hash match."));
-            current=preserve;Set(preserve,StepState.Active);
+            current=preserve;Set(preserve,StepState.Active,T("설치 프로그램을 준비하고 설정을 옮깁니다.","Preparing the installer and carrying settings over."));
+            // The installer runs from its own copy beside the installation. It checks the package again and
+            // confirms that it is ready; only then are settings copied and the app allowed to exit.
+            session=await UpdateInstaller.PrepareAsync(staged,location,english,stop.Token);
             owner.SaveForUpdate();TimeEstimates.PreservePortableFiles(location,staged.Directory);
+            stop.Token.ThrowIfCancellationRequested();
             Set(preserve,StepState.Done);
-            current=restart;Set(restart,StepState.Active,T("프로그램을 종료하고 업데이트를 설치합니다.","Closing FrameDoubler to install the update."));
-            string working=Environment.CurrentDirectory;
-            try{Environment.CurrentDirectory=parent;Updates.LaunchInstaller(staged,location);}finally{Environment.CurrentDirectory=working;}
-            owner.Close();Close();
-        }catch(OperationCanceledException){Set(current,StepState.Failed,T("취소됨","Cancelled"));progress.Visibility=Visibility.Collapsed;}
+            current=restart;Set(restart,StepState.Active,T("프로그램을 종료하면 설치 창에서 파일을 교체합니다.","FrameDoubler closes and the installer window replaces the files."));
+            session.Commit();committed=true;
+            owner.AllowExit();owner.Close();Close();
+        }catch(OperationCanceledException){LastError="cancelled";Set(current,StepState.Failed,T("취소됨","Cancelled"));progress.Visibility=Visibility.Collapsed;}
         catch(Exception ex){
+            LastError=ex.ToString();
             Set(current,StepState.Failed,ex.Message);progress.Visibility=Visibility.Collapsed;
             status.Foreground=Brush("#FFB08C");status.Text=Hangul.KeepWords(T("업데이트를 설치하지 못했습니다. 현재 버전은 그대로 유지됩니다.","The update could not be installed. The current version is unchanged."));
-            install.Content=T("다시 시도","Try again");install.IsEnabled=true;
+            install.Content=T("다시 시도","Try again");install.IsEnabled=!stop.IsCancellationRequested;
+        }finally{
+            // Not committed: the installer is told to stop and the downloaded copy is removed.
+            if(!committed){session?.Dispose();if(staged is not null)UpdateInstaller.DiscardStage(staged);}else session?.Dispose();
         }
     }
 }

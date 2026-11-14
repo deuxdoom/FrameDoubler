@@ -16,12 +16,16 @@ public partial class App:System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e){
         base.OnStartup(e);
         try{
+            // The update runner is a copy of the app outside the installation. It must not take the
+            // single-instance slot, read settings or detect devices: it only replaces files.
+            if(e.Args.Length>=2&&e.Args[0]=="--apply-update"){await ApplyUpdateAsync(e.Args[1]);return;}
+            bool updated=e.Args.Length>=2&&e.Args[0]=="--updated";
             bool diagnostic=e.Args.Length>0&&e.Args[0] is "--ui-test" or "--render-preview" or "--self-test";
             if(!diagnostic){
                 instance=new SingleInstance();
                 if(!await instance.AcquireOrActivateAsync()){Shutdown(0);return;}
             }
-            if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal)&&string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR"))){
+            if(diagnostic&&e.Args.Length>=2&&string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR"))){
                 string target=Path.GetFullPath(e.Args[1]);string parent=e.Args[0]=="--render-preview"?target:Path.GetDirectoryName(target)!;
                 Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",Path.Combine(parent,"diagnostic-settings"));
             }
@@ -40,10 +44,20 @@ public partial class App:System.Windows.Application
                 foreach(string lang in new[]{"ko","en"})foreach(double scale in new[]{1.25,1.5,2.0}){
                     window.PreviewLanguage(lang);Render(window,Path.Combine(e.Args[1],$"window-{lang}-{scale:0.00}.png"),scale);
                     if(scale==1.25){
-                        var release=new FrameDoubler.Core.UpdateRelease(new Version(1,0,2),FrameDoubler.Core.Updates.ReleasePage,
-                            lang=="ko"?"## 🚀 What's New in 1.0.2\n\n- 업데이트의 변경 사항을 확인하세요.\n- 설치 전에 다운로드와 모든 파일의 무결성을 확인합니다.":"## 🚀 What's New in 1.0.2\n\n- Review changes in this update.\n- The download and every packaged file are verified before installation.",
-                            "https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler.zip",new string('0',64),207_500_000);
+                        var current=FrameDoubler.Core.Updates.Current;var next=new Version(current.Major,current.Minor,current.Build+1);
+                        var release=new FrameDoubler.Core.UpdateRelease(next,FrameDoubler.Core.Updates.ReleasePage,
+                            lang=="ko"?$"## 🚀 What's New in {next}\n\n- 업데이트의 변경 사항을 확인하세요.\n- 설치 전에 다운로드와 모든 파일의 무결성을 확인합니다.":$"## 🚀 What's New in {next}\n\n- Review changes in this update.\n- The download and every packaged file are verified before installation.",
+                            $"https://github.com/deuxdoom/FrameDoubler/releases/download/v{next}/"+FrameDoubler.Core.Updates.AssetName(next),new string('0',64),207_500_000);
                         var update=new UpdateWindow(window,release,true);Render(update,Path.Combine(e.Args[1],$"updates-{lang}.png"),scale);
+                        string request=Path.Combine(e.Args[1],"request.json");
+                        var installing=new InstallerWindow(request,e.Args[1],lang=="en");installing.PreviewState("install");
+                        Render(installing,Path.Combine(e.Args[1],$"installer-{lang}.png"),scale);
+                        var rolledBack=new InstallerWindow(request,e.Args[1],lang=="en");
+                        rolledBack.PreviewState("starting",new FrameDoubler.Core.InstallResult(false,"rolled-back","The new version exited before confirming startup","",next.ToString(3)));
+                        Render(rolledBack,Path.Combine(e.Args[1],$"installer-rolled-back-{lang}.png"),scale);
+                        var locked=new InstallerWindow(request,e.Args[1],lang=="en");
+                        locked.PreviewState("backup",new FrameDoubler.Core.InstallResult(false,"failed","Access to the path 'C:\\Games\\FrameDoubler' is denied.","",next.ToString(3)));
+                        Render(locked,Path.Combine(e.Args[1],$"installer-locked-{lang}.png"),scale);
                         foreach(var trigger in new[]{FrameDoubler.App.MainWindow.ExitTrigger.Close,FrameDoubler.App.MainWindow.ExitTrigger.Tray})
                             Render(window.CreateExitDialog(trigger),Path.Combine(e.Args[1],$"exit-{trigger.ToString().ToLowerInvariant()}-{lang}.png"),scale);
                         var latest=new BrandDialog(null,lang=="ko"?"업데이트":"Updates");
@@ -75,14 +89,56 @@ public partial class App:System.Windows.Application
                 await File.WriteAllTextAsync(json,JsonSerializer.Serialize(new{GuiCreated=true,window.English,Verification=window.VerifyCheck.IsChecked==true,Entries=window.Entries.Select(x=>new{x.Input,x.Output,x.State,x.Analysis,x.Estimate,x.Result})},new JsonSerializerOptions{WriteIndented=true}));
                 window.AllowExit();Shutdown(e.Args.Length>2&&(window.Entries.Count!=1||window.Entries[0].State is not ("done" or "unverified"))?2:0);return;
             }
-            window.Show();await window.InitializeAsync();
-            if(e.Args.Length>0)await window.AddFilesAsync(e.Args.Where(File.Exists));
+            if(e.Args.Length>=3&&e.Args[0]=="--update-test"){await UpdateTestAsync(window,e.Args[1],e.Args[2]);return;}
+            window.Show();
+            if(updated){
+                // The installer rolls back unless the new version confirms that its window opened.
+                await Dispatcher.InvokeAsync(()=>{},System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                try{FrameDoubler.Core.UpdateInstaller.AcknowledgeStartup(e.Args[1]);window.Log(window.English?$"Updated to {FrameDoubler.Core.Updates.Current}.":$"{FrameDoubler.Core.Updates.Current} 버전으로 업데이트했습니다.");}
+                catch(Exception ex){window.Log((window.English?"Update confirmation: ":"업데이트 확인: ")+ex.Message);}
+            }else _=Task.Run(()=>{try{FrameDoubler.Core.UpdateInstaller.CleanupFinished(FrameDoubler.Core.AppPaths.InstallationDirectory);}catch(Exception){}});
+            await window.InitializeAsync();
+            // "--updated <request>" is not a video; only plain file arguments are queued.
+            if(!updated&&e.Args.Length>0)await window.AddFilesAsync(e.Args.Where(File.Exists));
         }catch(Exception ex){
             if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal))await File.WriteAllTextAsync(e.Args[1]+".error.txt",ex.ToString());
             else MessageBox.Show(ex.Message,"FrameDoubler",MessageBoxButton.OK,MessageBoxImage.Error);
             (MainWindow as MainWindow)?.AllowExit();
             Shutdown(1);
         }
+    }
+    // "--update-test <report> <package.zip>": presses "Install update" for a local package in an isolated
+    // test instance (FRAMEDOUBLER_INSTANCE_TEST_SCOPE must be set), then follows the real update path.
+    private static async Task UpdateTestAsync(MainWindow window,string report,string package){
+        if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FRAMEDOUBLER_INSTANCE_TEST_SCOPE")))throw new InvalidOperationException("--update-test needs FRAMEDOUBLER_INSTANCE_TEST_SCOPE");
+        package=Path.GetFullPath(package);
+        string hash;using(var file=File.OpenRead(package))hash=Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(file));
+        Version version;
+        using(var zip=System.IO.Compression.ZipFile.OpenRead(package)){
+            var entry=zip.Entries.Single(x=>x.FullName.Replace('\\','/').EndsWith("/manifest.json",StringComparison.Ordinal));
+            using var manifest=JsonDocument.Parse(entry.Open());version=Version.Parse(manifest.RootElement.GetProperty("version").GetString()!);
+        }
+        window.Show();
+        var release=new FrameDoubler.Core.UpdateRelease(version,FrameDoubler.Core.Updates.ReleasePage,"## Update test\n\n- Local package",
+            $"https://github.com/deuxdoom/FrameDoubler/releases/download/v{version}/{FrameDoubler.Core.Updates.AssetName(version)}",hash,new FileInfo(package).Length);
+        var update=new UpdateWindow(window,release){LocalPackage=package};
+        update.Loaded+=async(_,_)=>{
+            await update.InstallNowAsync();
+            // Success closes both windows; a failure is written out instead of waiting for a click.
+            if(!update.IsVisible)return;
+            await File.WriteAllTextAsync(Path.GetFullPath(report),"FAILED "+update.LastError);
+            window.AllowExit();update.Close();window.Close();
+        };
+        update.ShowDialog();
+    }
+    private async Task ApplyUpdateAsync(string request){
+        ShutdownMode=ShutdownMode.OnExplicitShutdown;
+        request=Path.GetFullPath(request);
+        bool english=false;
+        try{english=JsonSerializer.Deserialize<FrameDoubler.Core.InstallRequest>(await File.ReadAllTextAsync(request))?.English==true;}catch(Exception ex)when(ex is IOException or JsonException or UnauthorizedAccessException){}
+        var installer=new InstallerWindow(request,FrameDoubler.Core.AppPaths.InstallationDirectory,english);
+        var result=await installer.RunAsync();
+        Shutdown(result.Success?0:1);
     }
     private static void Render(Window window,string path,double scale){
         if(window is MainWindow main)main.AdaptLayout(window.Height);

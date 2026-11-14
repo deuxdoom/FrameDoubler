@@ -48,9 +48,12 @@ timing/audio/color errors stop finalization. Actual duplicates at input-proven
 scene/static hold positions and required final-source holds are reported separately
 from residual moving duplicates. The 1% moving-duplicate limit is unchanged.
 
-The package is portable: `settings.json`, `performance.json` (measured speed profiles
-for time estimates) and the `work` folder live next to `FrameDoubler.exe`.
-AppData is not used. Output verification is off by default in the GUI and
+The package is portable: `settings.ini` (UTF-8, `[FrameDoubler]` section),
+`performance.json` (measured speed profiles for time estimates) and the `work` folder
+live next to `FrameDoubler.exe`. A `settings.json` from 1.0.1 or earlier is migrated
+to `settings.ini` once. `FrameDoubler.exe` and `FrameDoubler.Cli.exe` are small native
+launchers; the self-contained .NET runtime and the application assemblies are in `dll/`.
+Keep the whole folder together. AppData is not used. Output verification is off by default in the GUI and
 included in the time estimate when enabled; `run` in the CLI verifies unless
 `--no-verify` is given. `estimate FILE [--preset youtube-2160] [--verify]` prints the
 sampled analysis and a point estimate with its uncertainty range for the selected device/settings. Close (and tray Exit)
@@ -61,10 +64,17 @@ activates the existing window, including minimized/tray windows, rather than sta
 another GUI instance. Close behavior is configurable in Settings. FFmpeg and engine processes
 are in a kill-on-close job, so none survive an exit or crash. The Updates button
 checks stable releases: when up to date it only says so; a newer release opens
-the notes and download/verify/keep-settings/restart steps. It installs only `FrameDoubler.zip`
-with a GitHub SHA-256 digest and a matching native manifest. Installation verifies
-every file, preserves the previous directory and restores it if swapping fails.
-Legacy Torch assets cannot be installed. A failed directory swap restores the previous installation.
+the notes and download/verify/keep-settings/restart steps. It installs only the asset
+named for that release (`FrameDoubler_v102.zip` for 1.0.2) from that exact tag, with a
+GitHub SHA-256 digest and a matching native manifest. A copy of the installer runs beside
+the installation, re-checks every file and confirms it is ready before FrameDoubler exits.
+After the exact process has exited, an installer window moves the old folder to a backup
+(retrying locked files for up to 30 seconds), installs the new one and restarts it. The update
+completes only when the new version confirms startup; otherwise the previous folder is
+restored and reopened. The result is written to `work/updates/last-install.json`, and only
+the newest `FrameDoubler.previous-*` backup is kept. Updaters in 1.0.0/1.0.1 look only for
+`FrameDoubler.zip`; without that asset, download the new ZIP manually and copy
+`settings.json`/`performance.json` into the new folder.
 
 Development:
 
@@ -72,12 +82,17 @@ Development:
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --integration --pipeline
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --long
-dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --installer
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler_v102.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --launcher-package dist/FrameDoubler dist/FrameDoubler_v102.zip
 pwsh scripts/setup-dev.ps1
 pwsh scripts/build.ps1
 ```
 
-Build tools live outside the repository and do not install Torch or Qt.
+`--installer` exercises the update installer with real processes and folder moves (locks,
+rollback, cancellation, tampering); `--launcher-package` runs the packaged launchers from a
+Hangul/space path without PATH or a global .NET and drives the real GUI update flow.
+Build tools are kept in the project but not in the repository, and do not install Torch or Qt.
 The build uses converted MIT models, the existing FFmpeg executables and
 pinned external ncnn/compiler sources described in `poc/ncnn-rife/README.md`.
 The installer-size recommendation is about 500MB including runtime and models.

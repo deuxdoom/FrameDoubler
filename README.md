@@ -150,14 +150,14 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 ## 📥 내려받기와 실행
 
-1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/latest/download/FrameDoubler.zip)로 `FrameDoubler.zip`(약 208MB)을 받습니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
-2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 460MB)는 통째로 유지합니다.
+1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler_v102.zip)로 `FrameDoubler_v102.zip`(약 208MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
+2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 460MB)는 통째로 유지합니다. 폴더에는 `FrameDoubler.exe`, `FrameDoubler.Cli.exe`와 .NET 런타임이 든 `dll` 폴더가 있습니다.
 3. `FrameDoubler.exe`를 실행합니다.
 
 .NET 런타임, RIFE 모델, FFmpeg가 모두 들어 있어 Python, CUDA Toolkit, 별도 SDK를 설치할 필요가 없습니다. GPU 드라이버는 포함하지 않습니다. 파일의 SHA-256은 릴리스 설명에 적혀 있습니다.
 
 ```powershell
-Get-FileHash FrameDoubler.zip -Algorithm SHA256
+Get-FileHash FrameDoubler_v102.zip -Algorithm SHA256
 ```
 
 <a id="usage"></a>
@@ -177,7 +177,7 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 
 영상·오디오 인코딩 값은 네 가지 프리셋으로 정하고, 추론 장치, 인코더, RIFE 모델, 고정 HUD는 설정(⚙)의 `고급`에서 바꿉니다. YouTube 프리셋은 60fps까지이며 120fps 출력은 두 원본 프리셋에서 선택합니다. 닫기 버튼을 누르면 종료할지 확인합니다. 종료하면 진행 중인 작업을 취소하고 미완성 파일과 처리 프로세스를 정리합니다. 설정의 `창과 트레이`에서 닫기·최소화 버튼이 트레이로 최소화하도록 정하면 작업이 트레이에서 계속됩니다.
 
-설정(`settings.json`), 성능 기록(`performance.json`), 작업 파일(`work`)은 모두 `FrameDoubler.exe`가 있는 폴더에 저장합니다. 폴더를 통째로 옮겨도 설정이 그대로 이어집니다.
+설정(`settings.ini`), 성능 기록(`performance.json`), 작업 파일(`work`)은 모두 `FrameDoubler.exe`가 있는 폴더에 저장합니다. 폴더를 통째로 옮겨도 설정이 그대로 이어집니다. `settings.ini`는 UTF-8 텍스트이며, 1.0.1까지 쓰던 `settings.json`은 처음 실행할 때 한 번 `settings.ini`로 옮깁니다.
 
 <a id="update"></a>
 
@@ -185,9 +185,12 @@ Get-FileHash FrameDoubler.zip -Algorithm SHA256
 
 시작할 때 GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 제목 표시줄의 업데이트 버튼(⟳)을 주황색으로 표시합니다. 버튼이나 트레이 메뉴의 `업데이트`를 누르면, 최신 버전일 때는 작은 창으로 알려 주고 새 버전이 있을 때만 변경 사항과 설치 단계(다운로드 → 무결성 확인 → 설정 보존 → 재시작·설치)를 보여 주는 창을 엽니다.
 
-- `FrameDoubler.zip`에 GitHub가 제공하는 SHA-256이 있어야 하고, 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
-- 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인하고, 이전 설치를 보관한 상태에서 교체합니다. 설정과 성능 기록은 새 설치로 옮기며, 교체에 실패하면 이전 설치로 되돌립니다.
-- 설정과 성능 기록을 보존하며 업데이트하고, 설치가 실패하면 이전 폴더로 되돌립니다.
+- 해당 버전의 이름(예: `FrameDoubler_v102.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
+- 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인합니다. 설치는 설치 폴더 옆에 복사한 별도 설치 프로그램이 맡으며, 이 프로그램이 패키지를 다시 확인하고 준비를 마친 뒤에만 FrameDoubler가 종료됩니다.
+- FrameDoubler가 완전히 종료되면 설치 창이 나타나 이전 설치를 백업으로 옮기고 새 버전을 넣습니다. 파일이 잠시 사용 중이면 최대 30초 동안 다시 시도합니다.
+- 새 버전이 열려 시작을 확인해야 설치가 끝납니다. 교체나 시작에 실패하면 이전 설치로 되돌리고 다시 엽니다. 결과는 설치 창과 `work/updates/last-install.json`에 남습니다.
+- 설정과 성능 기록은 새 버전으로 옮깁니다. 설치 폴더 옆에는 가장 최근의 백업(`FrameDoubler.previous-…`) 하나만 남깁니다.
+- 1.0.0과 1.0.1의 자동 업데이트는 `FrameDoubler.zip`이라는 이름의 파일만 찾습니다. 릴리스에 그 이름의 파일이 없으면 위 링크에서 새 ZIP을 받아 새 폴더에 풀고, 이전 폴더의 `settings.json`과 `performance.json`을 새 폴더로 복사합니다.
 
 <a id="cli"></a>
 
@@ -219,10 +222,10 @@ Windows 11 x64, `global.json`의 .NET SDK(10.0.404)와 외부 CMake/Ninja·LLVM-
 ```powershell
 pwsh scripts/setup-dev.ps1                                    # 빌드 도구 준비
 dotnet run --project app/FrameDoubler.Tests                   # 테스트
-pwsh scripts/build.ps1                                        # dist/FrameDoubler와 dist/FrameDoubler.zip 생성
+pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v102.zip) 생성
 ```
 
-빌드 도구와 중간 파일은 `F:/Temp/FrameDoubler`에 둡니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+빌드 도구는 프로젝트의 `tools/dev`, 중간 파일은 `build`에 두며 저장소에는 포함하지 않습니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 
 <a id="licenses"></a>
 

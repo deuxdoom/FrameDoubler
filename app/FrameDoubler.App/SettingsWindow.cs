@@ -13,7 +13,7 @@ using FrameDoubler.Core;
 namespace FrameDoubler.App;
 
 // Application settings grouped by category in a left-hand list. Per-job conversion options
-// stay in the main window. Every change applies immediately and is saved to settings.json.
+// stay in the main window. Every change applies immediately and is saved to settings.ini.
 public sealed class SettingsWindow:Window
 {
     private sealed record Section(string Key,string Glyph,string Label,Func<UIElement> Build);
@@ -160,7 +160,7 @@ public sealed class SettingsWindow:Window
         var card=(StackPanel)((Border)stack.Children[0]).Child;
         ((StackPanel)((Grid)card.Children[2]).Children[0]).Children.Add(Styled(estimates));
         ((StackPanel)((Grid)card.Children[4]).Children[0]).Children.Add(Styled(workSize));
-        stack.Children.Add(Note(T("설정(settings.json)과 예상 시간 기록(performance.json)은 실행 파일이 있는 폴더에 저장됩니다.","Settings (settings.json) and time estimates (performance.json) are stored next to the executable.")));
+        stack.Children.Add(Note(T("설정(settings.ini)과 예상 시간 기록(performance.json)은 실행 파일이 있는 폴더에 저장됩니다.","Settings (settings.ini) and time estimates (performance.json) are stored next to the executable.")));
         return stack;
         TextBlock Styled(TextBlock text){text.Foreground=(Brush)FindResource("MutedBrush");text.FontSize=12;text.Margin=new Thickness(0,4,0,0);text.TextWrapping=TextWrapping.Wrap;return text;}
     }
