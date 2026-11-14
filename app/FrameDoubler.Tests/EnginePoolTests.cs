@@ -66,5 +66,20 @@ internal static class EnginePoolTests
             var actual=await Task.WhenAll(Enumerable.Range(0,12).Select(i=>pool.InterpolateAsync(a,b,times[i%3])));
             check(actual.Select((x,i)=>x.SequenceEqual(expected[i%3])).All(x=>x),$"Real three-worker outputs match serial bytes at three timesteps: {model}, RGB{(deep?16:8)}");
         }
+        if(Environment.GetEnvironmentVariable("FRAMEDOUBLER_REFERENCE_ENGINE") is {} reference){
+            // Nonaligned rows above the parallel-conversion threshold, including RGB16.
+            foreach(string model in new[]{"v4.25","v4.26"})foreach(bool deep in new[]{false,true}){
+                const int width=1282,height=782;
+                byte[] a=new byte[width*height*3*(deep?2:1)],b=new byte[a.Length];
+                for(int i=0;i<a.Length;i++){a[i]=(byte)(i%251);b[i]=(byte)((i+17)%251);}
+                float[] times=[.25f,.5f,.75f];var expected=new List<byte[]>();
+                await using(var old=new NativeEngine(paths with{Engine=Path.GetFullPath(reference)},model,width,height,device,1,deep)){
+                    foreach(float t in times)expected.Add(await old.InterpolateAsync(a,b,t));
+                }
+                await using var current=new NativeEngine(paths,model,width,height,device,1,deep);
+                bool equal=true;for(int i=0;i<times.Length;i++)equal&=(await current.InterpolateAsync(a,b,times[i])).SequenceEqual(expected[i]);
+                check(equal,$"Parallel RGB row conversion matches reference bytes: {model}, RGB{(deep?16:8)}");
+            }
+        }
     }
 }

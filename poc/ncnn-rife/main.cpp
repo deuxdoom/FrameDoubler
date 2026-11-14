@@ -14,6 +14,8 @@
 #include <fcntl.h>
 #include <io.h>
 #include <thread>
+#include <future>
+#include <atomic>
 #include <windows.h>
 #include "hardware.h"
 
@@ -24,6 +26,18 @@ double elapsed(Clock::time_point start) { return std::chrono::duration<double>(C
 void checked(int value, const char* what) { if (value != 0) throw std::runtime_error(what); }
 void read_exact(void* target, size_t bytes) {
     if (std::fread(target, 1, bytes, stdin) != bytes) throw std::runtime_error("truncated input");
+}
+// Keep individual pixel operations unchanged. A few independent row ranges avoid
+// a serial RGB conversion bottleneck without oversubscribing concurrent engines.
+template<class Work> void parallel_rows(int width,int height,Work work) {
+    const unsigned count = width * height >= 1000000
+        ? std::min(4u,std::max(1u,std::thread::hardware_concurrency()/4)) : 1;
+    std::vector<std::future<void>> jobs;
+    for(unsigned i=1;i<count;++i)jobs.push_back(std::async(std::launch::async,[&,i]{
+        work(height*i/count,height*(i+1)/count);
+    }));
+    work(0,height/count);
+    for(auto& job:jobs)job.get();
 }
 void unpack_row(const unsigned char* __restrict source, float* __restrict red,
                 float* __restrict green, float* __restrict blue, int width) {
@@ -153,7 +167,7 @@ int wmain(int argc, wchar_t** wide) {
             }
             if (!(step > 0 && step < 1)) throw std::runtime_error("invalid timestep");
             auto start = Clock::now();
-            for (int y = 0; y < height; ++y) {
+            parallel_rows(width,height,[&](int begin,int end){for (int y = begin; y < end; ++y) {
                 const size_t src = size_t(y) * width * 3 * (deep?2:1), dst = size_t(y) * padded_w;
                 if(deep){
                     unpack_row16(reinterpret_cast<const unsigned short*>(first.data()+src),planes_a[0]+dst,planes_a[1]+dst,planes_a[2]+dst,width);
@@ -166,7 +180,7 @@ int wmain(int argc, wchar_t** wide) {
                     std::fill(planes_a[channel] + dst + width, planes_a[channel] + dst + padded_w, planes_a[channel][dst + width - 1]);
                     std::fill(planes_b[channel] + dst + width, planes_b[channel] + dst + padded_w, planes_b[channel][dst + width - 1]);
                 }
-            }
+            }});
             for (int channel = 0; channel < 3; ++channel) for (int y = height; y < padded_h; ++y) {
                 std::copy_n(planes_a[channel] + size_t(height - 1) * padded_w, padded_w, planes_a[channel] + size_t(y) * padded_w);
                 std::copy_n(planes_b[channel] + size_t(height - 1) * padded_w, padded_w, planes_b[channel] + size_t(y) * padded_w);
@@ -193,14 +207,14 @@ int wmain(int argc, wchar_t** wide) {
                 static_cast<const float*>(ncnn_mat_get_channel_data(result, 0)),
                 static_cast<const float*>(ncnn_mat_get_channel_data(result, 1)),
                 static_cast<const float*>(ncnn_mat_get_channel_data(result, 2))};
-            bool finite = true;
-            for (int y = 0; y < height; ++y) {
+            std::atomic<bool> finite{true};
+            parallel_rows(width,height,[&](int begin,int end){bool rows_finite=true;for (int y = begin; y < end; ++y) {
                 const size_t offset = size_t(y) * padded_w;
-                if(deep)finite &= pack_row16(channels[0]+offset,channels[1]+offset,channels[2]+offset,
+                if(deep)rows_finite &= pack_row16(channels[0]+offset,channels[1]+offset,channels[2]+offset,
                     reinterpret_cast<unsigned short*>(output.data()+size_t(y)*width*6),width);
-                else finite &= pack_row(channels[0] + offset, channels[1] + offset, channels[2] + offset,
+                else rows_finite &= pack_row(channels[0] + offset, channels[1] + offset, channels[2] + offset,
                                    output.data() + size_t(y) * width * 3, width);
-            }
+            }if(!rows_finite)finite.store(false,std::memory_order_relaxed);});
             ncnn_mat_destroy(result);
             if (!finite) throw std::runtime_error("non-finite output");
             durations[2] = elapsed(start);
