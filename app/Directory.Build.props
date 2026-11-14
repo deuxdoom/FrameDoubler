@@ -5,8 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <FrameDoublerWorkRoot Condition="'$(FrameDoublerWorkRoot)' == '' and '$(FRAMEDOUBLER_BUILD_ROOT)' != ''">$(FRAMEDOUBLER_BUILD_ROOT)</FrameDoublerWorkRoot>
-    <FrameDoublerWorkRoot Condition="'$(FrameDoublerWorkRoot)' == '' and Exists('F:\Temp\FrameDoubler')">F:\Temp\FrameDoubler\dotnet</FrameDoublerWorkRoot>
-    <FrameDoublerWorkRoot Condition="'$(FrameDoublerWorkRoot)' == ''">$(TEMP)\FrameDoubler\dotnet</FrameDoublerWorkRoot>
+    <FrameDoublerWorkRoot Condition="'$(FrameDoublerWorkRoot)' == ''">$(MSBuildThisFileDirectory)..\build\dotnet</FrameDoublerWorkRoot>
     <BaseIntermediateOutputPath>$(FrameDoublerWorkRoot)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <BaseOutputPath>$(FrameDoublerWorkRoot)\bin\$(MSBuildProjectName)\</BaseOutputPath>
     <RestorePackagesPath>$(FrameDoublerWorkRoot)\..\nuget-cache</RestorePackagesPath>

@@ -1,4 +1,4 @@
-param([string]$WorkRoot='F:\Temp\FrameDoubler')
+param([string]$WorkRoot=(Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\dev'))
 $ErrorActionPreference='Stop'
 $env:TEMP=Join-Path $WorkRoot 'build-temp';$env:TMP=$env:TEMP
 $env:PIP_CACHE_DIR=Join-Path $WorkRoot 'pip-cache'
@@ -10,4 +10,4 @@ if(-not(Test-Path -LiteralPath $Python)){& python -m venv $Environment;if($LASTE
 if($LASTEXITCODE -ne 0){throw 'Build tools installation failed'}
 & dotnet --version
 if($LASTEXITCODE -ne 0){throw 'Install the .NET SDK specified in global.json'}
-Write-Output "Build tools ready: $Environment (no Torch/Qt). FFmpeg and converted models remain external build inputs."
+Write-Output "Build tools ready: $Environment (no Torch/Qt). Keep FFmpeg in tools/ffmpeg and native inputs in $WorkRoot/ncnn."

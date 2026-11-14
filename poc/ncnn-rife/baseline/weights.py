@@ -32,7 +32,7 @@ DEFAULT_MODEL = "v4.25"
 
 def models_dir() -> Path:
     """Development-only weight cache; no app or frozen-runtime paths."""
-    return Path(os.environ.get("FRAMEDOUBLER_MODELS", r"F:\Temp\FrameDoubler\ncnn-poc\weights"))
+    return Path(os.environ.get("FRAMEDOUBLER_MODELS", Path(__file__).resolve().parents[3] / "tools/dev/ncnn/weights"))
 
 
 def _sha256(path: Path) -> str:

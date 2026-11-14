@@ -13,11 +13,13 @@ pwsh poc/ncnn-rife/build.ps1
 pwsh scripts/build.ps1
 ```
 
-CMake/Ninja는 `F:/Temp/FrameDoubler/build-env`에 둡니다. 기본 빌드에 Torch/Qt가 필요하지 않습니다.
-`bootstrap.ps1`은 SHA-256으로 고정한 ncnn 20261020·glslang·LLVM-MinGW를 외부 폴더에 준비합니다.
+CMake/Ninja는 프로젝트의 `tools/dev/build-env`에 둡니다. 기본 빌드에 Torch/Qt가 필요하지 않습니다.
+`bootstrap.ps1`은 SHA-256으로 고정한 ncnn 20261020·glslang·LLVM-MinGW를 `tools/dev/ncnn`에 준비합니다.
 Vulkan SDK 없이 `NCNN_SIMPLEVK`와 정적 ncnn/glslang을 빌드합니다. CPU 대체도 지원합니다.
-FFmpeg와 변환한 모델은 빌드 입력입니다. `package.py`는 엔진·변환 모델·고지를 준비하며
+FFmpeg(`tools/ffmpeg`)와 변환한 모델(`tools/dev/ncnn/models`)은 로컬 빌드 입력입니다. `package.py`는 엔진·변환 모델·고지를 준비하며
 최종 `scripts/build.ps1`은 .NET 런타임을 포함한 `dist/FrameDoubler`와 ZIP을 만듭니다.
+개발 의존 파일과 도구는 프로젝트 안에 보관하며, 삭제 가능한 빌드 산출물·NuGet 캐시는 `build/`에 둡니다.
+외부 Temp 폴더는 빌드 입력이 아닙니다. `tools/`·`build/`는 Git과 제품 배포에 포함하지 않습니다.
 
 ## 선택적 최초 모델 변환
 
@@ -28,13 +30,17 @@ Python/Torch/pnnx·학습 가중치는 배포하지 않습니다. 내려받은 �
 변환 환경에는 `requirements-comparison.txt`와 장치에 맞는 공식 Torch 빌드를 설치합니다.
 
 ```powershell
-$py='F:/Temp/FrameDoubler/comparison-env-20261114/Scripts/python.exe'
-$work='F:/Temp/FrameDoubler/ncnn-poc'
+$py='./tools/dev/comparison-env/Scripts/python.exe'
+$work='./tools/dev/ncnn'
 foreach($model in 'v4.25','v4.26') {
     & $py poc/ncnn-rife/export_model.py --model $model --scale 1 --output "$work/models/$model-vulkan"
     & $py poc/ncnn-rife/export_model.py --model $model --scale 0.5 --output "$work/models/$model-vulkan-s05"
 }
 ```
+
+선택적 비교 환경은 `python -m venv tools/dev/comparison-env`로 만들고 위 requirements와
+공식 Torch 빌드를 설치합니다. 학습 가중치 기본 경로는 `tools/dev/ncnn/weights`이며
+`FRAMEDOUBLER_MODELS`로 재지정할 수 있습니다. 기존 Temp의 가상 환경은 필요하지 않습니다.
 
 제품 변환·오디오·취소 검증은 `app/FrameDoubler.Tests`의 C# 테스트를 사용합니다.
 

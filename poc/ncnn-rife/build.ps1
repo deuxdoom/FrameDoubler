@@ -1,5 +1,5 @@
 param(
-    [string]$WorkRoot = 'F:\Temp\FrameDoubler\ncnn-poc',
+    [string]$WorkRoot = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'tools\dev\ncnn'),
     [switch]$ProfileLayers
 )
 $ErrorActionPreference = 'Stop'

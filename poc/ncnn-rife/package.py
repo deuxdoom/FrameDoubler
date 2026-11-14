@@ -8,7 +8,7 @@ import shutil
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--work", type=Path, default=Path(r"F:\Temp\FrameDoubler\ncnn-poc"))
+    parser.add_argument("--work", type=Path, default=Path(__file__).resolve().parents[2] / "tools/dev/ncnn")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]

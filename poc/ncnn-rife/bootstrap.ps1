@@ -1,4 +1,4 @@
-param([string]$WorkRoot = 'F:\Temp\FrameDoubler\ncnn-poc')
+param([string]$WorkRoot = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'tools\dev\ncnn'))
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
 

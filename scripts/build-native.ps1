@@ -1,7 +1,7 @@
 param(
     [string]$DistPath = 'dist\FrameDoubler',
-    [string]$WorkRoot = 'F:\Temp\FrameDoubler\native-package',
-    [string]$PocWorkRoot = 'F:\Temp\FrameDoubler\ncnn-poc'
+    [string]$WorkRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'build\package'),
+    [string]$PocWorkRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\dev\ncnn')
 )
 $ErrorActionPreference='Stop'
 $ProjectRoot=Split-Path -Parent $PSScriptRoot
