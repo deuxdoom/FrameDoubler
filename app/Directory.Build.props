@@ -9,6 +9,6 @@
     <BaseIntermediateOutputPath>$(FrameDoublerWorkRoot)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <BaseOutputPath>$(FrameDoublerWorkRoot)\bin\$(MSBuildProjectName)\</BaseOutputPath>
     <RestorePackagesPath>$(FrameDoublerWorkRoot)\..\nuget-cache</RestorePackagesPath>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
   </PropertyGroup>
 </Project>

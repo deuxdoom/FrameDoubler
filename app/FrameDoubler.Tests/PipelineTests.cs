@@ -18,6 +18,13 @@ internal static class PipelineTests
         assert(info.Fps==30&&info.Pts.Length==60,"Probe 30fps timestamps");
         var options=new ConversionOptions{Codec="h264",Verify=true};
         var normal=await pipeline.RunAsync(source,Path.Combine(root,"60.mp4"),options);
+        string? oldWorkers=Environment.GetEnvironmentVariable("FRAMEDOUBLER_ENGINE_WORKERS");
+        try{
+            Environment.SetEnvironmentVariable("FRAMEDOUBLER_ENGINE_WORKERS","1");
+            var single=await pipeline.RunAsync(source,Path.Combine(root,"single60.mp4"),options);
+            async Task<string> FramesHash(string file){var r=await ProcessRunner.RunAsync(paths.FFmpeg,["-v","error","-i",file,"-map","0:v:0","-f","framemd5","-"]);if(r.ExitCode!=0)throw new IOException(r.Error);return r.Output;}
+            assert(normal.Interpolated==single.Interpolated&&normal.Frames==single.Frames&&await FramesHash(normal.Output)==await FramesHash(single.Output),"Ordered parallel pipeline matches every decoded serial output frame");
+        }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_ENGINE_WORKERS",oldWorkers);}
         // Match source: same codec as the input (H.264 here), bitrate from the source, audio copied.
         var matched=await pipeline.RunAsync(source,Path.Combine(root,"match-source.mp4"),options with{MatchSource=true});
         var matchedInfo=await MediaProbe.ReadAsync(paths,matched.Output);

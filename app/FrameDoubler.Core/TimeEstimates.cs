@@ -46,10 +46,9 @@ public static class TimeEstimates
         &&x.InferencePerCall>=0&&double.IsFinite(x.InferencePerCall)&&x.WithVerification.Concat(x.WithoutVerification).All(v=>v>0&&double.IsFinite(v));
     public static string Key(params object?[] values)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))));
     public static double RawSeconds(PerformanceProfile p,long inputFrames,long outputFrames,long interpolations,bool verify,Rational? duration=null){
-        // The bounded decoder runs ahead while inference and pipe writes run on the consumer.
-        // Adding all three serial costs overstated long jobs. Encoder pipe/copy work remains on
-        // the consumer; completed jobs learn the remaining overlap, startup and storage overhead.
-        double conversion=Math.Max(inputFrames*p.DecodePerFrame,interpolations*p.InferencePerCall+outputFrames*p.EncodePerFrame);
+        // Decode, the bounded inference pool and ordered encoding overlap. InferencePerCall
+        // is measured pool throughput, including host/device transfers, rather than latency.
+        double conversion=Math.Max(inputFrames*p.DecodePerFrame,Math.Max(interpolations*p.InferencePerCall,outputFrames*p.EncodePerFrame));
         double fraction=duration is {} length&&length>0?VerificationWindows.Seconds(length)/length.ToDouble():1;
         return 2+conversion+(verify?(inputFrames+outputFrames)*p.DecodePerFrame*fraction:0);
     }

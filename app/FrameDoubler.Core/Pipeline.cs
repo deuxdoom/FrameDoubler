@@ -47,7 +47,10 @@ public sealed record AnalysisResult(MediaInfo Source,int Unique,int Duplicates,i
     public bool IsSampled=>SampledFrames>0&&SampledFrames<Source.FrameCount;
 }
 public sealed record ConversionResult(string Output,Rational Fps,long Frames,int Interpolated,int SceneCuts,int Duplicates,
-    double Seconds,string Device,string Encoder,VerificationReport? Verification){public double OverallSeconds{get;init;}}
+    double Seconds,string Device,string Encoder,VerificationReport? Verification){
+    public double OverallSeconds{get;init;}
+    public int InferenceWorkers{get;init;}
+}
 
 public sealed partial class ConversionPipeline(AppPaths paths)
 {
@@ -99,12 +102,16 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         progress?.Report(new("model",0,total,0,choice.Explanation+" · "+encoder.Explanation));
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         string temp=Path.Combine(Path.GetDirectoryName(output)!,"."+Path.GetFileNameWithoutExtension(output)+$".{Guid.NewGuid():N}.partial.mp4");
-        NativeEngine? engine=null;VideoFrame? left=null;float[]? leftScene=null;
+        EnginePool? engine=null;VideoFrame? left=null;float[]? leftScene=null;
+        using var pendingCancel=CancellationTokenSource.CreateLinkedTokenSource(cancel);
+        var pending=new Queue<(Task<byte[]>? Inference,VideoFrame? Original,IDisposable? Lease)>();
+        int workers=EngineWorkerPolicy.For(source,choice);
         bool calibrated=options.Device!="auto"||devices.Hardware.Gpus.Count(x=>x.InferencePassed==true&&x.SupportsWarp)<=1;
         int interpolated=0,cuts=0,duplicates=0;var watch=Stopwatch.StartNew();double lastReport=-1;
         VerificationReport? verification=null;
         try {
             await using(var writer=new VideoEncoder(paths,temp,source,fps,encoder.Encoder,options.Quality,bitrate,options.Platform,duration,options.OutputHeight)) {
+              try{
                 await foreach(var item in LabelledAsync(source,limit,options.Deduplicate,cancel)){
                     var frame=item.Frame;bool retained=false;
                     try {
@@ -116,37 +123,50 @@ public sealed partial class ConversionPipeline(AppPaths paths)
                             if(!hold&&Signature.CutScore(leftScene!,scene)>options.SceneThreshold){hold=true;cuts++;}
                             foreach(var (_,position) in Timeline.Steps(left.Time,frame.Time,fps)){
                                 cancel.ThrowIfCancellationRequested();
-                                if(position==0 || (hold&&position<1))await writer.WriteAsync(left.Memory,cancel);
-                                else if(position==1)await writer.WriteAsync(frame.Memory,cancel);
+                                if(position==0 || (hold&&position<1))QueueOriginal(left);
+                                else if(position==1)QueueOriginal(frame);
                                 else {
                                     if(!calibrated){
                                         progress?.Report(new("hardware",writer.FramesWritten,total,watch.Elapsed.TotalSeconds,"현재 영상 크기에서 GPU 전송·추론 성능을 비교합니다."));
                                         choice=await CalibrateAsync(devices.Hardware.Gpus,options.Model,source,left,frame,required,cancel);
+                                        workers=EngineWorkerPolicy.For(source,choice);
                                         calibrated=true;
                                         progress?.Report(new("model",writer.FramesWritten,total,watch.Elapsed.TotalSeconds,choice.Explanation));
                                     }
                                     engine??=CreateEngine();
-                                    byte[] middle;
-                                    try{middle=await engine.InterpolateAsync(left.Memory,frame.Memory,position,cancel);}
-                                    catch(IOException)when(options.Device=="auto"&&choice.Device!="cpu"){
-                                        await engine.DisposeAsync();choice=DevicePolicy.Choose([],"cpu");engine=CreateEngine();
-                                        progress?.Report(new("fallback",writer.FramesWritten,total,watch.Elapsed.TotalSeconds,choice.Explanation));
-                                        middle=await engine.InterpolateAsync(left.Memory,frame.Memory,position,cancel);
-                                    }
-                                    foreach(var roi in options.Hud)roi.Restore(left,frame,middle,source);
-                                    await writer.WriteAsync(middle,cancel);interpolated++;
+                                    pending.Enqueue((InterpolateAsync(left,frame,position),null,null));interpolated++;
                                 }
-                                if(watch.Elapsed.TotalSeconds-lastReport>=.25){lastReport=watch.Elapsed.TotalSeconds;progress?.Report(new("convert",writer.FramesWritten,total,lastReport));}
+                                while(pending.Count>=Math.Max(1,engine?.Count??workers)*2)await WriteNextAsync();
                             }
                         }
                         left?.Dispose();left=frame;leftScene=scene;retained=true;
                     }finally{if(!retained)frame.Dispose();}
                 }
                 if(left is null)throw new IOException("No decoded frames");
+                while(pending.Count>0)await WriteNextAsync();
                 while(writer.FramesWritten<total){cancel.ThrowIfCancellationRequested();await writer.WriteAsync(left.Memory,cancel);}
                 if(writer.FramesWritten!=total)throw new IOException("Output timeline has the wrong number of frames");
                 progress?.Report(new("mux",total,total,watch.Elapsed.TotalSeconds));
                 await writer.CompleteAsync(cancel);
+              }finally{
+                pendingCancel.Cancel();
+                // Observe every in-flight task before returning buffers or disposing engines.
+                foreach(var slot in pending){try{if(slot.Inference is not null)await slot.Inference;}catch(Exception){}finally{slot.Lease?.Dispose();}}
+                pending.Clear();
+              }
+              void QueueOriginal(VideoFrame frame)=>pending.Enqueue((null,frame,frame.Retain()));
+              async Task WriteNextAsync(){
+                var slot=pending.Dequeue();
+                try{if(slot.Inference is not null)await writer.WriteAsync(await slot.Inference,cancel);else await writer.WriteAsync(slot.Original!.Memory,cancel);}
+                finally{slot.Lease?.Dispose();}
+                if(watch.Elapsed.TotalSeconds-lastReport>=.25){lastReport=watch.Elapsed.TotalSeconds;progress?.Report(new("convert",writer.FramesWritten,total,lastReport));}
+              }
+              async Task<byte[]> InterpolateAsync(VideoFrame first,VideoFrame second,float position){
+                using var a=first.Retain();using var b=second.Retain();
+                byte[] middle=await engine!.InterpolateAsync(first.Memory,second.Memory,position,pendingCancel.Token);
+                foreach(var roi in options.Hud)roi.Restore(first,second,middle,source);
+                return middle;
+              }
             }
             if(options.Verify&&limit==source.Pts.Length){
                 progress?.Report(new("verify",total,total,watch.Elapsed.TotalSeconds));
@@ -161,8 +181,8 @@ public sealed partial class ConversionPipeline(AppPaths paths)
             File.Move(temp,output,options.Overwrite);
             progress?.Report(new(verification?.Ok==false?"warning":"done",total,total,watch.Elapsed.TotalSeconds,
                 choice.Explanation+" · "+encoder.Explanation+(verification?.Ok==false?" · "+string.Join("; ",verification.Problems):"")));
-            RecordPerformance(source,options,choice,encoder.Encoder,total,interpolated,overall.Elapsed.TotalSeconds);
-            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds};
+            RecordPerformance(source,options,choice,encoder.Encoder,total,interpolated,overall.Elapsed.TotalSeconds,engine?.Count??workers);
+            return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds,InferenceWorkers=engine?.Count??0};
         }catch(EncodingException)when(encoder.Encoder.HighQualityTuning){
             if(engine is not null)await engine.DisposeAsync();left?.Dispose();if(File.Exists(temp))File.Delete(temp);
             progress?.Report(new("encoder_tuning_fallback",0,total,watch.Elapsed.TotalSeconds,"화질 가속 옵션을 지원하지 않아 기본 인코더 설정으로 다시 시도합니다."));
@@ -178,7 +198,12 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         }catch(OperationCanceledException){progress?.Report(new("cancelled",0,total,watch.Elapsed.TotalSeconds));throw;}
         catch(Exception ex){progress?.Report(new("error",0,total,watch.Elapsed.TotalSeconds,ex.Message));throw;}
         finally{left?.Dispose();if(engine is not null)await engine.DisposeAsync();if(File.Exists(temp))File.Delete(temp);}
-        NativeEngine CreateEngine()=>new(paths,options.Model,source.Width,source.Height,choice,source.Height>1440?.5:1,source.BitDepth>8);
+        EnginePool CreateEngine()=>new(workers,choice,
+            device=>new NativeEngine(paths,options.Model,source.Width,source.Height,device,source.Height>1440?.5:1,source.BitDepth>8),
+            options.Device=="auto",(device,count)=>{
+                choice=device;
+                progress?.Report(new("fallback",0,total,watch.Elapsed.TotalSeconds,device.Explanation+$" · 추론 엔진 {count}개"));
+            });
     }
     public static string ToneMapNotice(HdrSource hdr)=>$"HDR({hdr.Name}) 영상은 SDR(BT.709, 8비트)로 톤 매핑하여 변환합니다.";
     private async Task<DeviceChoice> CalibrateAsync(List<GpuDevice> gpus,string model,MediaInfo source,VideoFrame first,VideoFrame second,ulong required,CancellationToken cancel){

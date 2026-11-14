@@ -6,6 +6,7 @@ if (InstallerTests.FakeApp(args)) return;
 int passed = 0;
 void Assert(bool test, string message) { if (!test) throw new Exception(message); passed++; }
 void Throws(Action action, string message) { try { action(); } catch (InvalidOperationException) { passed++; return; } throw new Exception(message); }
+await EnginePoolTests.RunAsync(Assert);
 
 GpuDevice Device(int index, uint vendor, double speed, ulong memory, bool half = true) => new() {
     Index=index, VendorId=vendor, Name=$"Test {index}", MaxWorkgroupInvocations=256,
@@ -108,6 +109,7 @@ if (args.Contains("--integration")) {
     var detected = await HardwareDetector.DetectAsync(paths);
     Assert(detected.LogicalProcessors>0,"CPU inventory");
     Assert(detected.Gpus.All(x=>x.InferencePassed==true),"Available real GPU probes");
+    await EnginePoolTests.IntegrationAsync(paths,DevicePolicy.Choose(detected.Gpus),Assert);
     byte[] first = new byte[160*90*3], second = new byte[first.Length];
     for(int i=0;i<first.Length;i++){first[i]=(byte)(i%251);second[i]=(byte)((i+5)%251);}
     await using(var cpu = new NativeEngine(paths,"v4.25",160,90,DevicePolicy.Choose([],"cpu"),1)) {

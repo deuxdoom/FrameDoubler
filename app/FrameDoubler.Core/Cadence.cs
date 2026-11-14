@@ -8,10 +8,22 @@ public sealed class VideoFrame : IDisposable
     public int Length { get; }
     public int Index { get; }
     public Rational Time { get; }
-    private bool disposed;
+    private int references=1,disposed;
     public VideoFrame(int length,int index,Rational time) { Buffer=ArrayPool<byte>.Shared.Rent(length); Length=length; Index=index; Time=time; }
-    public Memory<byte> Memory=>Buffer.AsMemory(0,Length);
-    public void Dispose() { if(!disposed) { disposed=true;ArrayPool<byte>.Shared.Return(Buffer); } }
+    public Memory<byte> Memory { get { ObjectDisposedException.ThrowIf(Volatile.Read(ref references)==0,this);return Buffer.AsMemory(0,Length); } }
+    // Each queued write/inference owns a separate lease; disposing the decoder's owner
+    // cannot return the pooled buffer while another stage still reads it.
+    public IDisposable Retain(){
+        int count=Volatile.Read(ref references);
+        while(count>0){int previous=Interlocked.CompareExchange(ref references,count+1,count);if(previous==count)return new Lease(this);count=previous;}
+        throw new ObjectDisposedException(nameof(VideoFrame));
+    }
+    private void Release(){if(Interlocked.Decrement(ref references)==0)ArrayPool<byte>.Shared.Return(Buffer);}
+    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0)Release();}
+    private sealed class Lease(VideoFrame frame):IDisposable{
+        private VideoFrame? owner=frame;
+        public void Dispose()=>Interlocked.Exchange(ref owner,null)?.Release();
+    }
 }
 public enum FrameLabel { Unique, Duplicate, Static }
 public sealed record Signature(int Width,int Height,float[] Luma)

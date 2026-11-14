@@ -4,7 +4,11 @@ namespace FrameDoubler.Core;
 
 // A persistent, isolated process provides an ABI-independent C++/.NET boundary.
 // All frames are binary RGB8; stdout never carries logging or progress strings.
-public sealed class NativeEngine : IAsyncDisposable
+public interface IInterpolationEngine:IAsyncDisposable
+{
+    Task<byte[]> InterpolateAsync(ReadOnlyMemory<byte> first,ReadOnlyMemory<byte> second,float timestep,CancellationToken cancel=default);
+}
+public sealed class NativeEngine : IInterpolationEngine
 {
     private readonly Process process;
     private readonly Task<string> errors;

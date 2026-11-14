@@ -20,6 +20,10 @@ The device menu supports automatic choice, individual Vulkan devices and CPU.
 The encoder menu contains only combinations that passed an actual startup test.
 NVENC/AMF/QSV and software H.264/HEVC/AV1 are considered independently of the
 inference GPU. CPU/software fallbacks are shown and can be much slower.
+Interpolation and ordered encoding overlap. With sufficient GPU and available system
+memory, up to three isolated inference workers run concurrently; CPU uses one.
+Failed workers are retired individually before automatic CPU fallback is considered.
+Time estimates measure the selected pool's throughput and keep separate profiles per worker count.
 
 No Python, PyTorch, CUDA Toolkit, separate SDK or separately installed .NET is
 required by the self-contained package. GPU drivers are provided by the operating
