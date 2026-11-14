@@ -11,7 +11,7 @@
 //          --vfx DIR --vfx-quality 0|1|2 --audio auto|none --screenshot DIR
 //          --dlss DIR --dlss-data DIR (NGX logs/cache, separate from the runtime)
 // Compare/selftest: --nvof [--nvof-quality 0|1|2] --dlss-motion none|own|auto|nvof [--dlss-lite]
-// Compare only: --dlss-variants none,nvof,own,none+lite  one DLSS-G instance per entry, each with
+// Compare only: --dlss-variants none,nvof,own,none+lite,nvof+neg,nvof+x2,nvof+half  one DLSS-G instance per entry, each with
 //               its own history; reports quality, time and how many outputs equal the first's.
 #include "engine.h"
 #include "common.h"
@@ -21,6 +21,7 @@
 #include "vfx.h"
 #include "dlss.h"
 #include "nvof.h"
+#include "globalmotion.h"
 
 #include <algorithm>
 #include <cmath>
@@ -62,6 +63,7 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "dlssDir=" + arg(argc, argv, L"--dlss") + "\n";
     s += "dlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n";
     s += "dlssMotion=" + arg(argc, argv, L"--dlss-motion", "none") + "\n";
+    s += "ownCamera=" + arg(argc, argv, L"--own-camera", "1") + "\n";
     if (flag(argc, argv, L"--dlss-lite")) s += "dlssLite=1\n";
     s += "recordDir=" + arg(argc, argv, L"--record") + "\n";
     s += "screenshotDir=" + arg(argc, argv, L"--screenshot") + "\n";
@@ -118,7 +120,7 @@ int compareMode(int argc, wchar_t** argv) {
     VfxGenerator vfx;
     if (!vfxDir.empty() && !vfx.create(gpu, wide(vfxDir), std::stoi(arg(argc, argv, L"--vfx-quality", "1")), error)) failure("vfx: " + error);
     // DLSS-G variants: motion source and optional lite blending, e.g. "none", "nvof", "none+lite".
-    struct DlssVariant { std::string name; std::unique_ptr<DlssGenerator> generator; Series series; int identical = 0; };
+    struct DlssVariant { std::string name; std::unique_ptr<DlssGenerator> generator; Series series; int identical = 0, camera = 0, cameraValid = 0; };
     std::vector<DlssVariant> variants;
     if (!dlssDir.empty()) {
         std::string list = arg(argc, argv, L"--dlss-variants");
@@ -131,9 +133,13 @@ int compareMode(int argc, wchar_t** argv) {
             if (name.empty()) continue;
             const size_t plus = name.find('+');
             const std::string motion = name.substr(0, plus), extra = plus == std::string::npos ? "" : name.substr(plus + 1);
-            if ((motion != "none" && motion != "own" && motion != "auto" && motion != "nvof") || (!extra.empty() && extra != "lite")) { failure("dlss: unknown variant " + name); continue; }
-            DlssOptions options; options.diagnostics = flag(argc, argv, L"--echo"); options.motion = parseDlssMotion(motion); options.lite = extra == "lite";
-            DlssVariant variant; variant.name = name; variant.generator = std::make_unique<DlssGenerator>();
+            // Suffixes: lite (Lite candidate blending), neg (vectors reversed), x2 / half (vector scale),
+            // cam / camT (global camera motion from the block field as row / column-vector matrices).
+            const float scale = extra == "neg" ? -1.f : extra == "x2" ? 2.f : extra == "half" ? .5f : 1.f;
+            const int camera = extra == "cam" ? 1 : extra == "camT" ? 2 : 0;
+            if ((motion != "none" && motion != "own" && motion != "auto" && motion != "nvof") || (!extra.empty() && extra != "lite" && scale == 1.f && !camera)) { failure("dlss: unknown variant " + name); continue; }
+            DlssOptions options; options.diagnostics = flag(argc, argv, L"--echo"); options.motion = parseDlssMotion(motion); options.lite = extra == "lite"; options.vectorScale = scale;
+            DlssVariant variant; variant.name = name; variant.camera = camera; variant.generator = std::make_unique<DlssGenerator>();
             const std::wstring data = wide(arg(argc, argv, L"--dlss-data")) + L"\\" + wide(name);
             if (!variant.generator->create(gpu, wide(dlssDir), data, error, options)) failure("dlss " + name + ": " + error);
             variants.push_back(std::move(variant));
@@ -147,7 +153,7 @@ int compareMode(int argc, wchar_t** argv) {
     std::vector<uint8_t> frame(bytes);
     std::deque<std::pair<std::vector<uint8_t>, int64_t>> uniques;
     DuplicateDetector detector;
-    Series own, nv, dl, blend, of;
+    Series own, nv, dl, blend, of, ownCamera;
     ColorSetup color;
     int64_t index = 0; int triples = 0, skippedPhase = 0;
     std::vector<uint8_t> truth, result, a, b, mix;
@@ -182,6 +188,26 @@ int compareMode(int argc, wchar_t** argv) {
         if (!gpu.readback(gpu.output(), result)) { failure("own readback failed"); break; }
         const double ownWall = double(now100ns() - ownStart) / 1e4;
         own.values.push_back(psnrRgba(result, truth)); own.wall(ownWall);
+        // The same field plus the global camera motion fitted to it as an extra candidate.
+        Homography camera;
+        {
+            const int64_t start = now100ns();
+            std::vector<float> field; int gw = 0, gh = 0;
+            if (gpu.readField(2, field, gw, gh)) camera = fitHomography(fieldPairsBtoA(field, gw, gh, 16.0, 2));   // as in the engine
+            if (flag(argc, argv, L"--echo") && !field.empty()) {
+                std::vector<float> xs, ys; for (size_t i = 0; i + 1 < field.size(); i += 2) { xs.push_back(field[i]); ys.push_back(field[i + 1]); }
+                std::vector<float> sx = xs, sy = ys; std::nth_element(sx.begin(), sx.begin() + sx.size() / 2, sx.end()); std::nth_element(sy.begin(), sy.begin() + sy.size() / 2, sy.end());
+                const float mx = sx[sx.size() / 2], my = sy[sy.size() / 2]; size_t closeCount = 0;
+                for (size_t i = 0; i < xs.size(); ++i) closeCount += std::hypot(xs[i] - mx, ys[i] - my) < 3 ? 1 : 0;
+                fprintf(stderr, "[field] %dx%d median=(%.2f,%.2f) within3px=%.3f sample=(%.2f,%.2f) (%.2f,%.2f) (%.2f,%.2f)\n", gw, gh, mx, my, double(closeCount) / xs.size(),
+                        xs[xs.size() / 3], ys[ys.size() / 3], xs[xs.size() / 2 + 7], ys[ys.size() / 2 + 7], xs[xs.size() * 2 / 3], ys[ys.size() * 2 / 3]); fflush(stderr);
+            }
+            if (flag(argc, argv, L"--echo")) { fprintf(stderr, "[camera] valid=%d inliers=%.3f rms=%.2f h=[%.5f %.5f %.2f; %.5f %.5f %.2f; %.2e %.2e]\n", camera.valid, camera.inlierShare, camera.rms, camera.h[0], camera.h[1], camera.h[2], camera.h[3], camera.h[4], camera.h[5], camera.h[6], camera.h[7]); fflush(stderr); }
+            gpu.interpolate(0, 2, phase, camera.valid ? camera.h : nullptr);
+            if (!gpu.readback(gpu.output(), result)) { failure("own camera readback failed"); break; }
+            ownCamera.values.push_back(psnrRgba(result, truth)); ownCamera.wall(ownWall + double(now100ns() - start) / 1e4);
+            if (camera.valid) ++ownCamera.timed;
+        }
         gpu.timer.collect(gpu.context());
         if(flow.ready()) {
             const int64_t start=now100ns();
@@ -203,12 +229,14 @@ int compareMode(int argc, wchar_t** argv) {
         }
         bool dlssFailed = false;
         std::vector<uint8_t> firstDlss;
+        // The global camera motion of the pair (fitted above) is reused for DLSS camera variants.
         for (size_t v = 0; v < variants.size() && !dlssFailed; ++v) {
             auto& d = variants[v];
             if (!d.generator->ready()) continue;
             const int64_t dlssStart = now100ns();
             // Include its required motion estimation in the common wall-time scope.
             if (d.generator->needsEngineMotion()) { gpu.pyramid(0); gpu.pyramid(2); gpu.motion(0, 2); }
+            if (d.camera) { d.generator->setCameraMotion(camera.valid ? camera.h : nullptr, d.camera == 2); d.cameraValid += camera.valid ? 1 : 0; }
             std::string e;
             if (d.generator->interpolate(gpu, 0, 2, uint64_t(u0.second), uint64_t(u2.second), phase, 1, e)) {
                 if (!gpu.readback(gpu.output(), result)) { failure("dlss readback failed"); dlssFailed = true; break; }
@@ -228,6 +256,8 @@ int compareMode(int argc, wchar_t** argv) {
     printf("{\"frames\":%lld,\"triplesScored\":%zu,\"width\":%d,\"height\":%d,\"ownMotionMs\":%.3f,\"ownInterpolateMs\":%.3f,\"own\":%s,\"vfx\":%s,\"blend\":%s,\"vfxRuntime\":%s",
            (long long)index, blend.values.size(), w, h, stages[StageMotion], stages[StageInterpolate], own.json().c_str(), nv.json().c_str(), blend.json().c_str(),
            jsonString(vfx.version()).c_str());
+    const int cameraPairs = ownCamera.timed; ownCamera.timed = 0;
+    printf(",\"ownCamera\":%s,\"ownCameraPairs\":%d", ownCamera.json().c_str(), cameraPairs);
     printf(",\"nvof\":%s,\"nvofGrid\":%d",of.json().c_str(),flow.grid());
     // The first variant is reported as "dlss" for existing tools; every variant is listed below.
     for (auto& d : variants) if (d.generator->ready()) { const double g = d.generator->averageGpuMs(); if (g >= 0) { d.series.ms = g; d.series.timed = 1; } }
@@ -237,8 +267,8 @@ int compareMode(int argc, wchar_t** argv) {
     printf(",\"dlssVariants\":[");
     for (size_t v = 0; v < variants.size(); ++v) {
         const auto& d = variants[v];
-        printf("%s{\"name\":%s,\"runtime\":%s,\"motion\":%s,\"identicalToFirst\":%d,\"evaluateGpuSamples\":%d,\"result\":%s}", v ? "," : "", jsonString(d.name).c_str(),
-               jsonString(d.generator->version()).c_str(), jsonString(d.generator->motionSource()).c_str(), v ? d.identical : -1, d.generator->gpuSamples(), d.series.json().c_str());
+        printf("%s{\"name\":%s,\"runtime\":%s,\"motion\":%s,\"identicalToFirst\":%d,\"evaluateGpuSamples\":%d,\"cameraPairs\":%d,\"result\":%s}", v ? "," : "", jsonString(d.name).c_str(),
+               jsonString(d.generator->version()).c_str(), jsonString(d.generator->motionSource()).c_str(), v ? d.identical : -1, d.generator->gpuSamples(), d.cameraValid, d.series.json().c_str());
     }
     printf("]");
     printf(",\"dlss\":%s,\"dlssRuntime\":%s,\"dlssMaxMultiplier\":%d,\"nonMidpointSkipped\":%d,\"timingScope\":%s,\"errors\":[", dl.json().c_str(), jsonString(first ? first->version() : "").c_str(), first && first->ready() ? first->maxGenerated() + 1 : 0, skippedPhase,

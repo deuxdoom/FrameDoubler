@@ -53,7 +53,8 @@ public:
     void pyramid(int slot);
     void motion(int slotA, int slotB);
     // Own interpolation into the output texture.
-    void interpolate(int slotA, int slotB, float phase);
+    // cameraBtoA: optional row-major 3x3 pixel homography from B to A (global camera motion).
+    void interpolate(int slotA, int slotB, float phase, const double* cameraBtoA = nullptr);
     // Motion vectors of the pair kept with slot B for an external frame generator: one
     // two-channel value per pixel, pointing from picture B back to picture A, in pixels.
     void motionVectors(int slotB, ID3D11UnorderedAccessView* target);
@@ -83,6 +84,10 @@ public:
     void antiAliasInto(ID3D11ShaderResourceView* source, ID3D11UnorderedAccessView* target, int aa);
     // Diagnostics: the finest vector field of a pair (full-resolution pixels).
     bool readField(int slotB, std::vector<float>& xy, int& gridWidth, int& gridHeight);
+    // The same in two steps so the copy overlaps other work: queue the copy right after
+    // motion(), take it when the pair is first interpolated (waits only for unfinished GPU work).
+    void queueFieldRead(int slotB);
+    bool takeField(int slotB, std::vector<float>& xy, int& gridWidth, int& gridHeight);
 
     GpuTimer timer;
     std::mutex& lock() { return mutex_; }   // guards the immediate context across threads
@@ -118,6 +123,8 @@ private:
     ComPtr<ID3D11UnorderedAccessView> totalsUav_[kSlots];
     ComPtr<ID3D11ShaderResourceView> totalsSrv_[kSlots];
     ComPtr<ID3D11Texture2D> readback_;
+    ComPtr<ID3D11Texture2D> fieldStaging_[kSlots];
+    bool fieldQueued_[kSlots] = {};
     struct Nv12Targets { ComPtr<ID3D11Texture2D> texture; ComPtr<ID3D11RenderTargetView> luma, chroma; };
     std::vector<Nv12Targets> nv12Targets_;
     // Window.

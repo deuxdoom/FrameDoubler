@@ -329,10 +329,14 @@ void Gpu::motionVectors(int slotB, ID3D11UnorderedAccessView* target) {
     dispatch(motionVectors_.Get(), width_, height_, 16, 8);
 }
 
-void Gpu::interpolate(int slotA, int slotB, float phase) {
+void Gpu::interpolate(int slotA, int slotB, float phase, const double* cameraBtoA) {
     const int gw = groups(width_ >> 1, 8), gh = groups(height_ >> 1, 8);
-    struct { uint32_t w, h, gw, gh; float phase, blockFull, sharpness, cutCost; } c{
-        uint32_t(width_), uint32_t(height_), uint32_t(gw), uint32_t(gh), phase, 16.f, 150.f, 0.10f};
+    struct { uint32_t w, h, gw, gh; float phase, blockFull, sharpness, cutCost; float camera[12]; } c{
+        uint32_t(width_), uint32_t(height_), uint32_t(gw), uint32_t(gh), phase, 16.f, 150.f, 0.10f, {}};
+    if (cameraBtoA) {
+        for (int r = 0; r < 3; ++r) for (int k = 0; k < 3; ++k) c.camera[r * 4 + k] = float(cameraBtoA[r * 3 + k] / cameraBtoA[8]);
+        c.camera[11] = 1;
+    }
     constants(c);
     ID3D11ShaderResourceView* srv[4] = {frames_[slotA].srv.Get(), frames_[slotB].srv.Get(), fields_[slotB].vectors.srv.Get(), totalsSrv_[slotB].Get()};
     ID3D11UnorderedAccessView* uav = output_.uav.Get();
@@ -475,6 +479,31 @@ bool Gpu::readField(int slotB, std::vector<float>& xy, int& gridWidth, int& grid
     xy.resize(size_t(d.Width) * d.Height * 2);
     for (UINT y = 0; y < d.Height; ++y) memcpy(xy.data() + size_t(y) * d.Width * 2, static_cast<uint8_t*>(m.pData) + size_t(y) * m.RowPitch, size_t(d.Width) * 8);
     context_->Unmap(staging.Get(), 0);
+    return true;
+}
+
+void Gpu::queueFieldRead(int slotB) {
+    if (!fieldStaging_[slotB]) {
+        D3D11_TEXTURE2D_DESC d{};
+        fields_[slotB].vectors.texture->GetDesc(&d);
+        d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ; d.MiscFlags = 0;
+        if (FAILED(device_->CreateTexture2D(&d, nullptr, &fieldStaging_[slotB]))) return;
+    }
+    context_->CopyResource(fieldStaging_[slotB].Get(), fields_[slotB].vectors.texture.Get());
+    fieldQueued_[slotB] = true;
+}
+
+bool Gpu::takeField(int slotB, std::vector<float>& xy, int& gridWidth, int& gridHeight) {
+    if (!fieldQueued_[slotB] || !fieldStaging_[slotB]) return false;
+    fieldQueued_[slotB] = false;
+    D3D11_TEXTURE2D_DESC d{};
+    fieldStaging_[slotB]->GetDesc(&d);
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(context_->Map(fieldStaging_[slotB].Get(), 0, D3D11_MAP_READ, 0, &m))) return false;
+    gridWidth = int(d.Width); gridHeight = int(d.Height);
+    xy.resize(size_t(d.Width) * d.Height * 2);
+    for (UINT y = 0; y < d.Height; ++y) memcpy(xy.data() + size_t(y) * d.Width * 2, static_cast<uint8_t*>(m.pData) + size_t(y) * m.RowPitch, size_t(d.Width) * 8);
+    context_->Unmap(fieldStaging_[slotB].Get(), 0);
     return true;
 }
 

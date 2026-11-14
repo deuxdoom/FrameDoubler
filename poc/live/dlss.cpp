@@ -145,6 +145,9 @@ struct DlssGenerator::State {
     std::vector<ComPtr<ID3D11Texture2D>> generatedFrames;
     unsigned cacheHits = 0;
     int source = 0;                      // 0 no vectors (zeros), 1 engine block motion, 2 hardware optical flow
+    float vectorScale = 1.f;
+    bool camera = false;
+    float toPrevious[4][4]{}, fromPrevious[4][4]{};
     NvofFlow flow;
     float viewToClip[4][4]{}, clipToView[4][4]{}, identity[4][4]{};
 
@@ -266,6 +269,7 @@ struct DlssGenerator::State {
     }
     // One DLSS-G evaluation of the picture currently in the shared colour texture.
     bool run(bool reset, int index, int generated, std::string& error) {
+        const bool moving = camera && !reset;
         if (!handOver(error)) return false;
         const auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS, common = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_BARRIER enter[] = {barrier(colour12.Get(), common, read), barrier(motion12.Get(), common, read), barrier(out12.Get(), common, write)};
@@ -277,10 +281,11 @@ struct DlssGenerator::State {
         setResource(p, "DLSSG.OutputInterpolated", out12.Get()); setResource(p, "DLSSG.OutputReal", nullptr); setResource(p, "DLSSG.OutputDisableInterpolation", nullptr);
         setUint(p, "DLSSG.MultiFrameCount", unsigned(generated)); setUint(p, "DLSSG.MultiFrameIndex", unsigned(index));
         setPointer(p, "DLSSG.CameraViewToClip", viewToClip); setPointer(p, "DLSSG.ClipToCameraView", clipToView);
-        setPointer(p, "DLSSG.ClipToLensClip", identity); setPointer(p, "DLSSG.ClipToPrevClip", identity); setPointer(p, "DLSSG.PrevClipToClip", identity);
+        setPointer(p, "DLSSG.ClipToLensClip", identity);
+        setPointer(p, "DLSSG.ClipToPrevClip", moving ? toPrevious : identity); setPointer(p, "DLSSG.PrevClipToClip", moving ? fromPrevious : identity);
         setFloat(p, "DLSSG.JitterOffsetX", 0); setFloat(p, "DLSSG.JitterOffsetY", 0);
         // Motion is stored in pixels (current picture to the previous one); these scales normalise it.
-        setFloat(p, "DLSSG.MvecScaleX", 1.f / float(width)); setFloat(p, "DLSSG.MvecScaleY", 1.f / float(height));
+        setFloat(p, "DLSSG.MvecScaleX", vectorScale / float(width)); setFloat(p, "DLSSG.MvecScaleY", vectorScale / float(height));
         setFloat(p, "DLSSG.CameraPinholeOffsetX", 0); setFloat(p, "DLSSG.CameraPinholeOffsetY", 0);
         setFloat(p, "DLSSG.CameraPosX", 0); setFloat(p, "DLSSG.CameraPosY", 0); setFloat(p, "DLSSG.CameraPosZ", 0);
         setFloat(p, "DLSSG.CameraUpX", 0); setFloat(p, "DLSSG.CameraUpY", 1); setFloat(p, "DLSSG.CameraUpZ", 0);
@@ -288,7 +293,7 @@ struct DlssGenerator::State {
         setFloat(p, "DLSSG.CameraFwdX", 0); setFloat(p, "DLSSG.CameraFwdY", 0); setFloat(p, "DLSSG.CameraFwdZ", 1);
         setFloat(p, "DLSSG.CameraNear", 0.1f); setFloat(p, "DLSSG.CameraFar", 1000.f); setFloat(p, "DLSSG.CameraFOV", 1.5707963f);
         setFloat(p, "DLSSG.CameraAspectRatio", float(width) / float(height));
-        setUint(p, "DLSSG.ColorBuffersHDR", 0); setUint(p, "DLSSG.DepthInverted", 0); setUint(p, "DLSSG.CameraMotionIncluded", 1);
+        setUint(p, "DLSSG.ColorBuffersHDR", 0); setUint(p, "DLSSG.DepthInverted", 0); setUint(p, "DLSSG.CameraMotionIncluded", moving ? 0 : 1);
         setUint(p, "DLSSG.Reset", reset ? 1 : 0); setUint(p, "DLSSG.AutomodeOverrideReset", 0); setUint(p, "DLSSG.NotRenderingGameFrames", 0);
         setUint(p, "DLSSG.OrthoProjection", 0); setFloat(p, "DLSSG.MvecInvalidValue", 3.402823466e38f); setUint(p, "DLSSG.MvecDilated", 0);
         setUint(p, "DLSSG.MenuDetectionEnabled", 0);
@@ -459,6 +464,8 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
     if (s->source == 2) version_ += ", hardware optical flow";
     else if (s->source == 1) version_ += ", block motion vectors";
     if (options.lite) version_ += ", lite";
+    s->vectorScale = options.vectorScale;
+    if (options.vectorScale != 1.f) version_ += ", vector scale " + std::to_string(options.vectorScale);
     s.release();
     ready_ = true;
     trace(diagnostics, "ready: " + version_);
@@ -524,6 +531,43 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
         lastMs_ = s.lastGpu >= 0 ? s.lastGpu : double(end.QuadPart - begin.QuadPart) * 1000.0 / double(frequency.QuadPart);
     }
     return true;
+}
+
+namespace {
+// Pixel homography -> clip-space matrix on the flat depth plane (z = 0.5), DirectX row vectors
+// (clip' = clip * M). x/w and y/w follow the homography, z/w stays on the plane.
+void cameraMatrix(const double* h, int width, int height, bool transposed, float out[4][4]) {
+    const double N[9] = {2.0 / width, 0, -1, 0, -2.0 / height, 1, 0, 0, 1};
+    const double Ni[9] = {width / 2.0, 0, width / 2.0, 0, -height / 2.0, height / 2.0, 0, 0, 1};
+    double t[9] = {}, n[9] = {};
+    for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) for (int k = 0; k < 3; ++k) t[r * 3 + c] += h[r * 3 + k] * Ni[k * 3 + c];
+    for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) for (int k = 0; k < 3; ++k) n[r * 3 + c] += N[r * 3 + k] * t[k * 3 + c];
+    for (double& v : n) v /= n[8];
+    const double z = 0.5;
+    double m[4][4] = {};
+    m[0][0] = n[0]; m[1][0] = n[1]; m[3][0] = n[2];
+    m[0][1] = n[3]; m[1][1] = n[4]; m[3][1] = n[5];
+    m[0][3] = n[6]; m[1][3] = n[7]; m[3][3] = n[8];
+    m[0][2] = z * n[6]; m[1][2] = z * n[7]; m[2][2] = n[8];
+    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) out[r][c] = float(transposed ? m[c][r] : m[r][c]);
+}
+bool invert3(const double* a, double* out) {
+    const double d = a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6]);
+    if (std::fabs(d) < 1e-15) return false;
+    out[0] = (a[4] * a[8] - a[5] * a[7]) / d; out[1] = (a[2] * a[7] - a[1] * a[8]) / d; out[2] = (a[1] * a[5] - a[2] * a[4]) / d;
+    out[3] = (a[5] * a[6] - a[3] * a[8]) / d; out[4] = (a[0] * a[8] - a[2] * a[6]) / d; out[5] = (a[2] * a[3] - a[0] * a[5]) / d;
+    out[6] = (a[3] * a[7] - a[4] * a[6]) / d; out[7] = (a[1] * a[6] - a[0] * a[7]) / d; out[8] = (a[0] * a[4] - a[1] * a[3]) / d;
+    return true;
+}
+} // namespace
+
+void DlssGenerator::setCameraMotion(const double* h, bool transposed) {
+    if (!state_) return;
+    double inverse[9];
+    state_->camera = h && invert3(h, inverse);
+    if (!state_->camera) return;
+    cameraMatrix(h, state_->width, state_->height, transposed, state_->toPrevious);
+    cameraMatrix(inverse, state_->width, state_->height, transposed, state_->fromPrevious);
 }
 
 void DlssGenerator::resetHistory() {

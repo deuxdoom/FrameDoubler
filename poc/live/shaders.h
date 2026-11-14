@@ -189,6 +189,7 @@ inline const char* kInterpolate = R"(
 cbuffer Params : register(b0) {
     uint2 size; uint2 grid;
     float phase; float blockFull; float sharpness; float cutCost;
+    float4 cameraRow0; float4 cameraRow1; float4 cameraRow2;   // B -> A pixel homography, row2.w: in use
 };
 Texture2D<float4> frameA : register(t0);
 Texture2D<float4> frameB : register(t1);
@@ -209,15 +210,24 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     float2 g = p / blockFull - 0.5;
     int2 g0 = int2(floor(g)); float2 f = g - float2(g0);
-    float2 vec[5]; float wb[5];
+    float2 vec[6]; float wb[6];
     [unroll] for (int i = 0; i < 4; ++i) {
         int2 q = clamp(g0 + int2(i & 1, i >> 1), int2(0, 0), int2(grid) - 1);
         vec[i] = field.Load(int3(q, 0));
         wb[i] = ((i & 1) ? f.x : 1 - f.x) * ((i >> 1) ? f.y : 1 - f.y) + 1e-4;
     }
     vec[4] = 0; wb[4] = 0.08;
-    float3 colour[5]; float mismatch[5]; float smallest = 1e9;
-    [unroll] for (int j = 0; j < 5; ++j) {
+    // Global camera motion (turn, roll, zoom): the displacement of this point from A to B.
+    // Blocks follow it only piecewise; near rotation centres and edges it is the better guess.
+    vec[5] = 0; wb[5] = 0;
+    if (cameraRow2.w > 0.5) {
+        float3 h = float3(p, 1);
+        float w = dot(cameraRow2.xyz, h);
+        vec[5] = p - float2(dot(cameraRow0.xyz, h), dot(cameraRow1.xyz, h)) / w;
+        wb[5] = 0.5;
+    }
+    float3 colour[6]; float mismatch[6]; float smallest = 1e9;
+    [unroll] for (int j = 0; j < 6; ++j) {
         float3 a = frameA.SampleLevel(linearClamp, (p - phase * vec[j]) * inv, 0).rgb;
         float3 b = frameB.SampleLevel(linearClamp, (p + (1 - phase) * vec[j]) * inv, 0).rgb;
         colour[j] = lerp(a, b, phase);
@@ -225,7 +235,7 @@ void main(uint3 id : SV_DispatchThreadID) {
         smallest = min(smallest, mismatch[j]);
     }
     float3 sum = 0; float wsum = 0;
-    [unroll] for (int k = 0; k < 5; ++k) {
+    [unroll] for (int k = 0; k < 6; ++k) {
         float w = wb[k] * exp(-sharpness * (mismatch[k] - smallest));
         sum += colour[k] * w; wsum += w;
     }

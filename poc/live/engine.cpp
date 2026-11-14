@@ -6,6 +6,7 @@
 #include "timeline.h"
 #include "vfx.h"
 #include "dlss.h"
+#include "globalmotion.h"
 #include "nvof.h"
 #include "health.h"
 
@@ -200,6 +201,10 @@ private:
     std::string dlssRuntime_;
     uint64_t slotId_[Gpu::kSlots] = {};
     uint64_t pyramidId_[Gpu::kSlots] = {}, motionA_[Gpu::kSlots] = {}, motionB_[Gpu::kSlots] = {};
+    // Global camera motion of each pair (fitted to its block field) for the own interpolation.
+    Homography camera_[Gpu::kSlots];
+    uint64_t cameraA_[Gpu::kSlots] = {}, cameraB_[Gpu::kSlots] = {};
+    const double* ownCamera(int slotA, int slotB);
     SceneSignature slotScene_[Gpu::kSlots];
     uint64_t slotSceneEpoch_[Gpu::kSlots] = {}, sceneEpoch_ = 0, vfxSceneEpoch_ = 0;
     void startDlss();
@@ -325,7 +330,7 @@ void Session::applyOptions(const Settings& s) {
     if (s.count("volume")) options_.volume = float(std::clamp(getDouble(s, "volume", 100) / 100.0, 0.0, 1.0));
     if (s.count("mute")) options_.mute = get(s, "mute") == "1";
     if (s.count("audioOffsetMs")) options_.audioOffsetMs = std::clamp(getInt(s, "audioOffsetMs", 0), -200, 500);
-    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "dlssMotion", "dlssLite", "audioOutput"}) if (s.count(key)) config_[key] = get(s, key);
+    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "dlssMotion", "dlssLite", "ownCamera", "audioOutput"}) if (s.count(key)) config_[key] = get(s, key);
 }
 
 void Session::command(const Settings& s) {
@@ -497,7 +502,24 @@ void Session::ensureOwnMotion(int slotA,int slotB) {
     if(motionA_[slotB]==slotId_[slotA] && motionB_[slotB]==slotId_[slotB])return;
     ensurePyramid(slotA);ensurePyramid(slotB);gpu_.motion(slotA,slotB);
     motionA_[slotB]=slotId_[slotA];motionB_[slotB]=slotId_[slotB];
+    gpu_.queueFieldRead(slotB);
+    cameraA_[slotB]=cameraB_[slotB]=0;
 }
+// Camera turns, roll and zoom: a whole-picture homography from the pair's block field, offered to
+// the own interpolation as an extra candidate. Every second cell (about 8,000 at 4K) is enough.
+const double* Session::ownCamera(int slotA, int slotB) {
+    if (cameraA_[slotB] != slotId_[slotA] || cameraB_[slotB] != slotId_[slotB]) {
+        std::vector<float> field; int gw = 0, gh = 0;
+        camera_[slotB] = Homography{};
+        if (motionA_[slotB] == slotId_[slotA] && motionB_[slotB] == slotId_[slotB] && gpu_.takeField(slotB, field, gw, gh))
+            camera_[slotB] = fitHomography(fieldPairsBtoA(field, gw, gh, 16.0, 2));
+        cameraA_[slotB] = slotId_[slotA]; cameraB_[slotB] = slotId_[slotB];
+    }
+    bool enabled;
+    { std::lock_guard<std::mutex> lock(optionsMutex_); enabled = get(config_, "ownCamera", "1") != "0"; }
+    return enabled && camera_[slotB].valid ? camera_[slotB].h : nullptr;
+}
+
 void Session::processFresh(const Packet& p) {
     Options o;
     { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
@@ -706,7 +728,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
                 gpu_.timer.mark(c, StageInterpolate, true);
                 // Includes a failed hardware-DLSS pair whose own pyramids were skipped.
                 ensureOwnMotion(plan.slotA, plan.slotB);
-                gpu_.interpolate(plan.slotA, plan.slotB, float(plan.phase));
+                gpu_.interpolate(plan.slotA, plan.slotB, float(plan.phase), ownCamera(plan.slotA, plan.slotB));
                 gpu_.timer.mark(c, StageInterpolate, false);
                 interpolated = true;
             }
@@ -1212,6 +1234,33 @@ std::string selfTest(const Settings& s) {
                 check("vfx", ok && p > 30, ok ? "runtime " + vfx.version() + ", PSNR " + fixed(p) + " dB, " + fixed(vfx.lastMs()) + " ms" : e);
             }
         }
+    }
+    // Global camera motion: rotation + zoom + pan + a little perspective, 0.3 px noise and one
+    // third of the pairs following other motion (objects, HUD), as in a camera turn.
+    {
+        const double truth[9] = {std::cos(0.02) * 1.01, -std::sin(0.02) * 1.01, 23.0, std::sin(0.02) * 1.01, std::cos(0.02) * 1.01, -11.0, 2e-6, -1e-6, 1};
+        std::vector<std::array<double, 4>> pairs;
+        uint32_t seed = 12345;
+        auto random = [&seed]() { seed = seed * 1664525u + 1013904223u; return double(seed >> 8) / double(1u << 24); };
+        for (int y = 8; y < 2160; y += 32)
+            for (int x = 8; x < 3840; x += 32) {
+                const double w = truth[6] * x + truth[7] * y + truth[8];
+                double u = (truth[0] * x + truth[1] * y + truth[2]) / w, v = (truth[3] * x + truth[4] * y + truth[5]) / w;
+                if (random() < 1.0 / 3) { u = x + 40 * (random() - .5); v = y + 40 * (random() - .5); }
+                else { u += .6 * (random() - .5); v += .6 * (random() - .5); }
+                pairs.push_back({double(x), double(y), u, v});
+            }
+        const int64_t fitStart = now100ns();
+        const Homography fit = fitHomography(pairs);
+        const double fitMs = double(now100ns() - fitStart) / 1e4;
+        double worst = 0;
+        for (int y = 0; y <= 2160; y += 270)
+            for (int x = 0; x <= 3840; x += 480) {
+                const double wt = truth[6] * x + truth[7] * y + truth[8], wf = fit.h[6] * x + fit.h[7] * y + fit.h[8];
+                worst = std::max(worst, std::hypot((fit.h[0] * x + fit.h[1] * y + fit.h[2]) / wf - (truth[0] * x + truth[1] * y + truth[2]) / wt,
+                                                   (fit.h[3] * x + fit.h[4] * y + fit.h[5]) / wf - (truth[3] * x + truth[4] * y + truth[5]) / wt));
+            }
+        check("global-motion", fit.valid && worst < 0.5, "inliers " + fixed(fit.inlierShare * 100, 1) + "%, worst error over the picture " + fixed(worst, 3) + " px, " + std::to_string(pairs.size()) + " pairs in " + fixed(fitMs) + " ms");
     }
     // D3D11 <-> D3D12 hand-over used by DLSS, without NGX: shared textures, both fences,
     // allocator reuse and GPU timestamps on a plain copy.

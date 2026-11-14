@@ -21,6 +21,7 @@ struct DlssOptions {
     bool diagnostics = false;          // NGX log callback and per-step trace on stderr
     DlssMotion motion = DlssMotion::None;
     bool lite = false;                 // DLSSG.LiteCandidateBlendingEnabled (read at create by 310.9.16)
+    float vectorScale = 1.f;           // diagnostics only: multiplies the vectors' normalisation (sign/scale checks)
 };
 
 class DlssGenerator {
@@ -38,6 +39,12 @@ public:
     // the CPU does not.
     bool interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, uint64_t idB, float phase, int generated, std::string& error);
     void destroy();
+    // Camera motion for the following pairs: h (row-major 3x3) maps current-picture pixels to
+    // previous-picture pixels (a camera turn, roll or zoom of the whole picture). It is given to
+    // DLSS-G as clip-to-previous-clip matrices on the flat depth, with the vectors then holding
+    // only what the camera does not explain. nullptr: a fixed camera. transposed: column-vector
+    // matrices instead of DirectX row vectors (diagnostics).
+    void setCameraMotion(const double* h, bool transposed = false);
     // The next pair primes a new sequence. Keep GPU allocations for the same size.
     void resetHistory();
     bool ready() const { return ready_; }
