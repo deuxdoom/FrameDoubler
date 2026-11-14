@@ -9,7 +9,6 @@ import hashlib
 import json
 from pathlib import Path
 
-import pnnx
 import torch
 import torch.nn.functional as F
 
@@ -70,6 +69,7 @@ class ExportNet(_IFNet):
 
 
 def main():
+    import pnnx
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=MODELS, required=True)
     parser.add_argument("--output", type=Path, required=True)

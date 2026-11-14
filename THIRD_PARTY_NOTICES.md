@@ -59,4 +59,9 @@ SOFTWARE.
 ## Development-only model export
 
 The optional Python/Torch/pnnx model export tool under `poc/ncnn-rife` is not bundled.
-Its minimal model definition is used only to convert the official weights to ncnn.
+Its minimal model definition converts the official weights to ncnn or ONNX.
+The ONNX export tools additionally use ONNX (Apache-2.0) and ONNX Script (MIT).
+Development comparisons use ONNX Runtime (MIT). The optional TensorRT-RTX EP plugin
+is Apache-2.0, while its included NVIDIA runtime has a separate
+[NVIDIA software license agreement](https://docs.nvidia.com/deeplearning/tensorrt-rtx/latest/reference/sla.html).
+These development dependencies and generated ONNX models are not included in the native package.

@@ -1,0 +1,5 @@
+# Optional model conversion only; never a dependency of the desktop app.
+torch==2.14.1
+numpy==2.5.4
+onnx==1.23.2
+onnxscript==0.7.2

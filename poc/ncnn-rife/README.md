@@ -44,6 +44,24 @@ foreach($model in 'v4.25','v4.26') {
 
 제품 변환·오디오·취소 검증은 `app/FrameDoubler.Tests`의 C# 테스트를 사용합니다.
 
+## 선택적 ONNX 모델 변환
+
+`requirements-onnx.txt`는 개발용 ONNX 변환 의존성입니다. 제품 빌드·실행에는 필요하지 않습니다.
+공식 가중치가 `tools/dev/ncnn/weights`에 있어야 하며 SHA-256이 다르거나 없으면 변환을 중단합니다.
+변환기가 가중치를 자동으로 다운로드하지 않습니다.
+
+```powershell
+$py='./tools/dev/comparison-env/Scripts/python.exe'
+& $py poc/ncnn-rife/export_onnx.py --model v4.25 --scale 0.5 --output tools/dev/onnx/models/v4.25-s0.5.onnx
+& $py poc/ncnn-rife/convert_onnx_rgb8.py tools/dev/onnx/models/v4.25-s0.5.onnx tools/dev/onnx/models/v4.25-s0.5-rgb8.onnx
+```
+
+두 모델과 scale 1/0.5를 지원합니다. 기본 ONNX는 FP32 NCHW 영상 두 장과 스칼라 시간값을 받아
+표준 ONNX 연산(opset 18)으로 보간합니다. RGB8 변환은 NHWC uint8 입출력의 형식 변환·정규화만
+그래프 안으로 옮기며 네트워크·warp·grid는 FP32입니다. 호출자가 원본 크기를 유지한 채 기존과 같은
+64/scale replicate padding을 적용하고, 결과의 패딩만 제거합니다. 보간 전 해상도 축소는 하지 않습니다.
+현재 앱의 실행 엔진은 계속 ncnn이며 ONNX 파일·ORT 런타임은 제품에 포함하지 않습니다.
+
 ## 엔진 계약
 
 ```text
