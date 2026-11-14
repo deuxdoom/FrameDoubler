@@ -11,14 +11,22 @@ namespace FrameDoubler.App;
 
 public partial class App:System.Windows.Application
 {
+    private SingleInstance? instance;
+    protected override void OnExit(ExitEventArgs e){instance?.Dispose();base.OnExit(e);}
     protected override async void OnStartup(StartupEventArgs e){
         base.OnStartup(e);
         try{
+            bool diagnostic=e.Args.Length>0&&e.Args[0] is "--ui-test" or "--render-preview" or "--self-test";
+            if(!diagnostic){
+                instance=new SingleInstance();
+                if(!await instance.AcquireOrActivateAsync()){Shutdown(0);return;}
+            }
             if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal)&&string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR"))){
                 string target=Path.GetFullPath(e.Args[1]);string parent=e.Args[0]=="--render-preview"?target:Path.GetDirectoryName(target)!;
                 Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",Path.Combine(parent,"diagnostic-settings"));
             }
             var window=new MainWindow();MainWindow=window;
+            if(instance is not null)window.SourceInitialized+=(_,_)=>instance.Attach(window,window.ActivateExistingWindow);
             // Signing out or shutting down Windows must not wait for the exit confirmation.
             SessionEnding+=(_,_)=>window.AllowExit();
             if(e.Args.Length>=2&&e.Args[0]=="--ui-test"){
@@ -36,18 +44,25 @@ public partial class App:System.Windows.Application
                             lang=="ko"?"## 🚀 What's New in 1.0.2\n\n- 업데이트의 변경 사항을 확인하세요.\n- 설치 전에 다운로드와 모든 파일의 무결성을 확인합니다.":"## 🚀 What's New in 1.0.2\n\n- Review changes in this update.\n- The download and every packaged file are verified before installation.",
                             "https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler.zip",new string('0',64),207_500_000);
                         var update=new UpdateWindow(window,release,true);Render(update,Path.Combine(e.Args[1],$"updates-{lang}.png"),scale);
-                        foreach(var trigger in new[]{FrameDoubler.App.MainWindow.ExitTrigger.Close,FrameDoubler.App.MainWindow.ExitTrigger.Minimize})
+                        foreach(var trigger in new[]{FrameDoubler.App.MainWindow.ExitTrigger.Close,FrameDoubler.App.MainWindow.ExitTrigger.Tray})
                             Render(window.CreateExitDialog(trigger),Path.Combine(e.Args[1],$"exit-{trigger.ToString().ToLowerInvariant()}-{lang}.png"),scale);
                         var latest=new BrandDialog(null,lang=="ko"?"업데이트":"Updates");
                         latest.Configure(BrandDialog.Glyphs.Done,lang=="ko"?"최신 버전입니다":"You're up to date",
                             lang=="ko"?$"지금 사용 중인 {FrameDoubler.Core.Updates.Current} 버전이 최신입니다.":$"FrameDoubler {FrameDoubler.Core.Updates.Current} is the latest version.",null,
                             new DialogButton(lang=="ko"?"확인":"OK",DialogChoice.Cancel,"PrimaryButton",true));
                         Render(latest,Path.Combine(e.Args[1],$"up-to-date-{lang}.png"),scale);
-                        foreach(string key in new[]{"general","window","data","about"})
+                        foreach(string key in new[]{"general","window","advanced","data","about"})
                             Render(new SettingsWindow(window,key,true),Path.Combine(e.Args[1],$"settings-{key}-{lang}.png"),scale);
+                        using var tray=window.CreateTrayMenu();
+                        tray.CreateControl();tray.Size=tray.GetPreferredSize(System.Drawing.Size.Empty);tray.PerformLayout();
+                        using var trayImage=new System.Drawing.Bitmap(tray.Width,tray.Height);
+                        tray.DrawToBitmap(trayImage,new System.Drawing.Rectangle(System.Drawing.Point.Empty,tray.Size));
+                        trayImage.Save(Path.Combine(e.Args[1],$"tray-{lang}.png"),System.Drawing.Imaging.ImageFormat.Png);
+                        tray.Items[0].Select();tray.DrawToBitmap(trayImage,new System.Drawing.Rectangle(System.Drawing.Point.Empty,tray.Size));
+                        trayImage.Save(Path.Combine(e.Args[1],$"tray-hover-{lang}.png"),System.Drawing.Imaging.ImageFormat.Png);
                     }
                 }
-                window.Width=820;window.Height=480;window.Advanced.IsExpanded=true;
+                window.Width=820;window.Height=480;
                 Render(window,Path.Combine(e.Args[1],"window-small-advanced.png"),1.5);
                 window.AllowExit();Shutdown(0);return;
             }

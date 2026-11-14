@@ -15,7 +15,8 @@ internal static class WindowFrame
     [DllImport("user32.dll",CharSet=CharSet.Auto)]private static extern bool GetMonitorInfo(nint monitor,ref Monitor info);
     [DllImport("dwmapi.dll")]private static extern int DwmSetWindowAttribute(nint window,int attribute,ref int value,int size);
     // Rounded Windows 11 corners only, for fixed-size dialogs that size themselves to their content.
-    public static void RoundCorners(Window window){int rounded=2;_=DwmSetWindowAttribute(new WindowInteropHelper(window).Handle,33,ref rounded,sizeof(int));}
+    public static void RoundCorners(Window window)=>RoundCorners(new WindowInteropHelper(window).Handle);
+    public static void RoundCorners(nint handle){int rounded=2;_=DwmSetWindowAttribute(handle,33,ref rounded,sizeof(int));}
     public static void Attach(Window window){
         nint handle=new WindowInteropHelper(window).Handle;
         HwndSource.FromHwnd(handle)?.AddHook(Hook);

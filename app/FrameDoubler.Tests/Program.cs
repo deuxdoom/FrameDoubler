@@ -58,6 +58,13 @@ try{
     var loaded=Preferences.Load();Assert(loaded.Language=="en"&&loaded.OutputDirectory=="F:\\한글 출력"&&loaded.Fps=="60000/1001","Settings restart/Unicode round trip");
     File.WriteAllText(Path.Combine(config,"settings.json"),"invalid json");
     Assert(Preferences.Load().Language=="ko","Malformed preferences recover safely");
+    File.WriteAllText(Path.Combine(config,"settings.json"),"{\"Preset\":\"youtube\"}");
+    Assert(Preferences.Load().Preset=="source","Previous YouTube default becomes general conversion once");
+    new Preferences{Preset="youtube-2160"}.Save();Assert(Preferences.Load().Preset=="youtube-2160","Explicit YouTube selection persists");
+    new Preferences{Preset="youtube-1440"}.Save();Assert(Preferences.Load().Preset=="youtube-2160","Removed 1440p preset falls back to YouTube 4K");
+    Assert(new Preferences().MinimizeAction=="taskbar","Minimize defaults to the taskbar");
+    new Preferences{MinimizeAction="ask"}.Save();Assert(Preferences.Load().MinimizeAction=="taskbar","Previous implicit ask behavior becomes taskbar minimize");
+    new Preferences{MinimizeAction="tray"}.Save();Assert(Preferences.Load().MinimizeAction=="tray","Only an explicit tray preference persists");
 }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",previousConfig);}
 var hudInfo=new MediaInfo("",2,2,"","rgb24",8,1,30,30,false,1,[0],null,null,null,null,[]);
 using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
@@ -80,6 +87,31 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     Assert(!sdr.Hdr&&ToneMap.Arguments(sdr).Length==0&&ToneMap.Arguments(sdr with{HdrInput=new("arib-std-b67","bt2020","bt2020nc","tv",10)})[0]=="-vf","Only HDR input adds the tone-map filter");
 }
 
+{
+    Assert(OutputPresets.BuiltIns.Select(x=>x.Id).SequenceEqual(new[]{"source","source-scaled","youtube-2160","youtube-1080"}),"Only the four requested presets are offered");
+    var src=new MediaInfo("",720,480,"h264","yuv420p",8,1,30,30,false,1,[0],null,null,null,null,[]){VideoBitrate=3_219_186};
+    var h264=new EncoderCapability("h264_nvenc","h264","nvenc",true,false,null);
+    var unchanged=OutputPresets.Apply(OutputPresets.Find("source"),new ConversionOptions());
+    var scaled=OutputPresets.Apply(OutputPresets.Find("source-scaled"),new ConversionOptions());
+    Assert(unchanged.MatchSource&&!unchanged.ScaleSourceBitrate&&unchanged.Platform is null&&unchanged.OutputHeight is null,"Default preserves source size, codec and audio passthrough");
+    Assert(OutputPresets.Encoding(src,unchanged,[h264],60)==("h264","3219186")&&OutputPresets.Encoding(src,unchanged,[h264],120).Bitrate=="3219186","Source bitrate stays exact at 60 and 120fps; never platform 12M");
+    Assert(OutputPresets.Encoding(src,scaled,[h264],60).Bitrate=="6438372"&&OutputPresets.Encoding(src,scaled,[h264],120).Bitrate=="12876744"&&scaled.Platform is null,"Optional source multiplier follows fps with audio passthrough and no 2x cap");
+    Assert(OutputPresets.SourceBitrate(src with{Fps=60},60,true)=="3219186","Already-60fps game capture does not double the file bitrate");
+    Assert(OutputPresets.SourceBitrate(src with{VideoBitrate=null,OverallBitrate=null},60) is null,"Unknown bitrate has an explicit quality fallback");
+    foreach(var id in new[]{"youtube-2160","youtube-1080"}){
+        var opt=OutputPresets.Apply(OutputPresets.Find(id),new ConversionOptions());
+        var encoded=OutputPresets.Encoding(src,opt,[h264],60);
+        Assert(opt.Platform=="youtube"&&opt.Codec=="h264"&&!opt.QualityOnly&&encoded.Bitrate==(id=="youtube-2160"?"45M":"10M"),"YouTube uses requested fixed bitrate, H264 and AAC: "+id);
+    }
+    Assert(OutputPresets.OutputSize(3840,2160,1080)==(1920,1080)&&OutputPresets.OutputSize(720,480,null)==(720,480),"Source size or proportional preset resize");
+    Assert(OutputPresets.SourceCodec(src,[h264],true)=="h264"&&OutputPresets.SourceCodec(src with{Codec="vp9"},[h264],true) is null,"Keep source codec only when encodable here");
+    Assert(OutputPresets.ParseBitrate("3219186")==3_219_186&&OutputPresets.ParseBitrate("12M")==12_000_000&&OutputPresets.FindExact("quality") is null,"Removed presets cannot silently select a different bitrate");
+    var audio=new AudioInfo(0,"aac",2,48000,0,1,new Rational(1,48000));
+    Assert(OutputPresets.AudioBitrate(audio with{Bitrate=256000})==256000&&OutputPresets.AudioBitrate(audio with{Bitrate=384000})==256000&&OutputPresets.AudioBitrate(audio with{Bitrate=255999})==192000&&OutputPresets.AudioBitrate(audio with{Bitrate=128000})==192000&&OutputPresets.AudioBitrate(audio)==192000,"Per-track YouTube audio uses 256k or 192k, including boundary and unknown bitrate");
+    var hq=EncoderPolicy.Arguments(h264 with{HighQualityTuning=true},19,"12M").ToArray();
+    Assert(hq.Contains("p7")&&hq.Contains("fullres")&&!EncoderPolicy.Arguments(h264,19,"12M").Contains("-rc-lookahead")&&!EncoderPolicy.Arguments(hw,19,"12M").Contains("-rc-lookahead"),"Optional NVENC quality tuning is isolated from base and other backends");
+}
+VerificationTests.Unit(Assert);
 if (args.Contains("--integration")) {
     var paths = AppPaths.Discover();
     using(var helper=ProcessRunner.Start(ProcessRunner.StartInfo(paths.FFmpeg,["-nostdin","-v","error","-f","lavfi","-i","nullsrc=s=16x16","-f","null","-"]),"job test")){
@@ -114,6 +146,7 @@ if (args.Contains("--integration")) {
 }
 if(args.Contains("--pipeline"))await PipelineTests.RunAsync(AppPaths.Discover(),Assert);
 EstimateTests.Run(Assert);
+if(args.Contains("--sample-verify"))await VerificationTests.IntegrationAsync(AppPaths.Discover(),Assert);
 if(args.Contains("--long"))await PipelineTests.LongAsync(AppPaths.Discover(),Assert);
 int packageArgument=Array.IndexOf(args,"--update-package");
 if(packageArgument>=0)await UpdateTests.PackageAsync(args[packageArgument+1],Assert);

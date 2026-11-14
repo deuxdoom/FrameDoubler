@@ -41,20 +41,10 @@ public sealed class BrandDialog:Window
     private readonly Border noticeBox=new(){Background=Brush("#2A211B"),BorderBrush=Brush("#5A3A2A"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(8),Padding=new Thickness(12,9,12,9),Margin=new Thickness(0,14,0,0)};
     private readonly StackPanel buttons=new(){Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,24,0,0)};
     public DialogChoice Choice{get;private set;}=DialogChoice.Cancel;
-    private CheckBox? remember;
-    public bool Remember=>remember?.IsChecked==true;
-    // Optional "remember my choice" line above the buttons.
-    public void AddRemember(string text){
-        if(remember is not null)return;
-        remember=new CheckBox{Content=Hangul.KeepWords(text),Margin=new Thickness(0,16,0,0),FontSize=12};
-        System.Windows.Automation.AutomationProperties.SetAutomationId(remember,"DialogRemember");
-        var stack=(StackPanel)buttons.Parent;stack.Children.Insert(stack.Children.IndexOf(buttons),remember);
-        buttons.Margin=new Thickness(0,14,0,0);
-    }
     internal System.Collections.Generic.IReadOnlyList<Button> Choices=>System.Linq.Enumerable.ToList(System.Linq.Enumerable.OfType<Button>(buttons.Children));
     public CancellationToken ClosedToken=>closed.Token;
-    public BrandDialog(Window? owner,string title){
-        Title=title;Width=460;SizeToContent=SizeToContent.Height;ResizeMode=ResizeMode.NoResize;
+    public BrandDialog(Window? owner,string title,double width=460){
+        Title=title;Width=width;SizeToContent=SizeToContent.Height;ResizeMode=ResizeMode.NoResize;
         Style=(Style)FindResource(typeof(Window));WindowStyle=WindowStyle.None;
         // A hidden owner (window in the tray) would keep the dialog invisible, so centre it on screen instead.
         if(owner is {IsVisible:true,WindowState:not WindowState.Minimized}){Owner=owner;WindowStartupLocation=WindowStartupLocation.CenterOwner;ShowInTaskbar=false;}

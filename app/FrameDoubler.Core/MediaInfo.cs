@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace FrameDoubler.Core;
 
-public sealed record AudioInfo(int Index,string Codec,int Channels,int SampleRate,Rational Start,Rational? Duration,Rational TimeBase);
+public sealed record AudioInfo(int Index,string Codec,int Channels,int SampleRate,Rational Start,Rational? Duration,Rational TimeBase)
+{public long? Bitrate{get;init;}}
 // The original signal of an HDR input. MediaInfo then describes the SDR frames it is processed as.
 public sealed record HdrSource(string Transfer,string? Primaries,string? Matrix,string? Range,int BitDepth)
 {
@@ -42,7 +43,7 @@ public static class MediaProbe
         var format=document.RootElement.GetProperty("format");
         Rational metadataRate=Rate(video,"avg_frame_rate");if(metadataRate<=0)metadataRate=Rate(video,"r_frame_rate");
         if(metadataOnly){
-            Rational length=OptionalRate(video,"duration")??Rate(format,"duration");
+            Rational length=Number(video,"duration_ts") is >0 and var ticks?ticks*Rate(video,"time_base"):OptionalRate(video,"duration")??Rate(format,"duration");
             if(length<=0||metadataRate<=0)throw new IOException("Cannot determine video duration/frame rate");
             Rational nominalRate=Rate(video,"r_frame_rate");
             return Create(path,video,streams,Rate(video,"time_base"),metadataRate,nominalRate,nominalRate>0&&metadataRate!=nominalRate,length,[],format);
@@ -72,7 +73,7 @@ public static class MediaProbe
         int depth=(int)Number(video,"bits_per_raw_sample");
         if(depth==0) { var match=Regex.Match(pixel,@"(?:p|gbrp|gray)(9|10|12|14|16)"); depth=match.Success?int.Parse(match.Groups[1].Value):pixel.StartsWith("p010",StringComparison.Ordinal)?10:8; }
         var audio=streams.Where(x=>Text(x,"codec_type")=="audio").Select(x=>new AudioInfo((int)Number(x,"index"),Text(x,"codec_name")??"",
-            (int)Number(x,"channels"),(int)Number(x,"sample_rate"),Rate(x,"start_time"),OptionalRate(x,"duration"),Rate(x,"time_base"))).ToArray();
+            (int)Number(x,"channels"),(int)Number(x,"sample_rate"),Rate(x,"start_time"),OptionalRate(x,"duration"),Rate(x,"time_base")){Bitrate=PositiveBitrate(x)}).ToArray();
         string? space=Text(video,"color_space"),range=Text(video,"color_range"),primaries=Text(video,"color_primaries"),transfer=Text(video,"color_transfer");
         HdrSource? hdr=HdrSource.Is(transfer)?new(transfer!,primaries,space,range,depth):null;
         // HDR is converted to SDR when decoding (see ToneMap), so downstream stages work on 8-bit BT.709.
@@ -80,7 +81,7 @@ public static class MediaProbe
         return new(path,(int)Number(video,"width"),(int)Number(video,"height"),Text(video,"codec_name")??"",pixel,depth,timeBase,fps,nominal,vfr,duration,pts,
             space,range,primaries,transfer,audio){HdrInput=hdr,
                 VideoBitrate=PositiveBitrate(video),OverallBitrate=PositiveBitrate(format)??(long?)Math.Round(new FileInfo(path).Length*8/duration.ToDouble()),
-                OverallBitrateEstimated=PositiveBitrate(format) is null,ReportedStart=Rate(video,"start_time"),ReportedFrames=Number(video,"nb_frames") is >0 and var count?count:null};
+                OverallBitrateEstimated=PositiveBitrate(format) is null,ReportedStart=video.TryGetProperty("start_pts",out _)?Number(video,"start_pts")*timeBase:Rate(video,"start_time"),ReportedFrames=Number(video,"nb_frames") is >0 and var count?count:null};
     }
     public static long? PositiveBitrate(JsonElement element)=>Number(element,"bit_rate") is >0 and var value?value:null;
     private static string? Text(JsonElement e,string name)=>e.TryGetProperty(name,out var value)?value.ToString():null;

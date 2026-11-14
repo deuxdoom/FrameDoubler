@@ -11,12 +11,24 @@ public sealed record ConversionOptions
     public string Encoder{get;init;}="auto";
     public string? Codec{get;init;}
     public bool Deduplicate{get;init;}=true;
-    public bool Youtube{get;init;}
+    private string? platform;
+    // YouTube delivery, or null for a plain MP4 with the audio copied.
+    public string? Platform{get=>platform;init=>platform=value;}
+    // Kept for callers that mean "YouTube delivery" (CLI, tests).
+    public bool Youtube{get=>platform is not null;init=>platform=value?(platform??"youtube"):null;}
+    // Output height (width follows the aspect ratio); null keeps the source size.
+    public int? OutputHeight{get;init;}
+    // Quality (CQ/CRF) instead of the platform's recommended bitrate.
+    public bool QualityOnly{get;init;}
+    // Source codec when encodable, and original bitrate (optionally scaled to file fps).
+    public bool MatchSource{get;init;}
+    public bool ScaleSourceBitrate{get;init;}
     public int Quality{get;init;}=19;
     public string? Bitrate{get;init;}
     public bool Verify{get;init;}=true;
     public bool Overwrite{get;init;}
     public bool HardwareEncoding{get;init;}=true;
+    public bool HighQualityEncoding{get;init;}=true;
     public float SceneThreshold{get;init;}=.35f;
     public int? MaxFrames{get;init;}
     public HudRegion[] Hud{get;init;}=[];
@@ -70,7 +82,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         foreach(var roi in options.Hud)roi.Validate(source);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
         if(fps<=0||fps>1000)throw new ArgumentException("Invalid output frame rate");
-        if(options.Youtube&&fps>60)throw new ArgumentException("YouTube preset supports up to 60fps");
+        if(options.Platform is not null&&fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
         int limit=Math.Min(options.MaxFrames??source.Pts.Length,source.Pts.Length);
         Rational duration=limit<source.Pts.Length?(Rational)(source.Pts[limit]-source.Pts[0])*source.TimeBase:source.Duration;
         long total=(duration*fps).Ceiling();
@@ -80,10 +92,11 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         ulong required=checked((ulong)source.Width*(ulong)source.Height*(source.BitDepth>8?768UL:384UL));
         var choice=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8&&choice.Gpu is not null)choice=choice with{HalfStorage=false,Explanation=$"{choice.Gpu.Name} / Vulkan / FP32 저장·연산 (고비트 심도)"};
-        string codec=options.Codec??EncoderPolicy.DefaultCodec(devices.Encoders,options.Youtube,source.BitDepth>8,options.HardwareEncoding);
+        var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);
+        if(options.MatchSource&&bitrate is null)progress?.Report(new("analyze",0,total,0,"원본 비트레이트 정보가 없어 품질 기준으로 인코딩합니다."));
         var encoder=EncoderPolicy.Choose(devices.Encoders,codec,options.Encoder,source.BitDepth>8,options.HardwareEncoding);
+        if(!options.HighQualityEncoding)encoder=encoder with{Encoder=encoder.Encoder with{HighQualityTuning=false}};
         progress?.Report(new("model",0,total,0,choice.Explanation+" · "+encoder.Explanation));
-        string? bitrate=options.Bitrate??(options.Youtube?YoutubeBitrate(source.Width,source.Height,fps):null);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         string temp=Path.Combine(Path.GetDirectoryName(output)!,"."+Path.GetFileNameWithoutExtension(output)+$".{Guid.NewGuid():N}.partial.mp4");
         NativeEngine? engine=null;VideoFrame? left=null;float[]? leftScene=null;
@@ -91,7 +104,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         int interpolated=0,cuts=0,duplicates=0;var watch=Stopwatch.StartNew();double lastReport=-1;
         VerificationReport? verification=null;
         try {
-            await using(var writer=new VideoEncoder(paths,temp,source,fps,encoder.Encoder,options.Quality,bitrate,options.Youtube,duration)) {
+            await using(var writer=new VideoEncoder(paths,temp,source,fps,encoder.Encoder,options.Quality,bitrate,options.Platform,duration,options.OutputHeight)) {
                 await foreach(var item in LabelledAsync(source,limit,options.Deduplicate,cancel)){
                     var frame=item.Frame;bool retained=false;
                     try {
@@ -150,6 +163,12 @@ public sealed partial class ConversionPipeline(AppPaths paths)
                 choice.Explanation+" · "+encoder.Explanation+(verification?.Ok==false?" · "+string.Join("; ",verification.Problems):"")));
             RecordPerformance(source,options,choice,encoder.Encoder,total,interpolated,overall.Elapsed.TotalSeconds);
             return new(output,fps,total,interpolated,cuts,duplicates,watch.Elapsed.TotalSeconds,choice.Device,encoder.Encoder.Name,verification){OverallSeconds=overall.Elapsed.TotalSeconds};
+        }catch(EncodingException)when(encoder.Encoder.HighQualityTuning){
+            if(engine is not null)await engine.DisposeAsync();left?.Dispose();if(File.Exists(temp))File.Delete(temp);
+            progress?.Report(new("encoder_tuning_fallback",0,total,watch.Elapsed.TotalSeconds,"화질 가속 옵션을 지원하지 않아 기본 인코더 설정으로 다시 시도합니다."));
+            double failedSeconds=watch.Elapsed.TotalSeconds;
+            var retry=await RunAsync(input,output,options with{HighQualityEncoding=false},progress,cancel);
+            return retry with{Seconds=retry.Seconds+failedSeconds,OverallSeconds=overall.Elapsed.TotalSeconds};
         }catch(EncodingException)when(options.Encoder=="auto"&&options.HardwareEncoding&&encoder.Encoder.Hardware){
             if(engine is not null)await engine.DisposeAsync();left?.Dispose();if(File.Exists(temp))File.Delete(temp);
             double failedSeconds=watch.Elapsed.TotalSeconds;
@@ -162,13 +181,6 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         NativeEngine CreateEngine()=>new(paths,options.Model,source.Width,source.Height,choice,source.Height>1440?.5:1,source.BitDepth>8);
     }
     public static string ToneMapNotice(HdrSource hdr)=>$"HDR({hdr.Name}) 영상은 SDR(BT.709, 8비트)로 톤 매핑하여 변환합니다.";
-    private static string YoutubeBitrate(int width,int height,Rational fps){
-        int shortSide=Math.Min(width,height),longSide=Math.Max(width,height);
-        if(shortSide<=1080&&longSide<=1920)return fps>30?"12M":"8M";
-        if(shortSide<=1440&&longSide<=2560)return fps>30?"24M":"16M";
-        if(shortSide<=2160&&longSide<=3840)return fps>30?"68M":"45M";
-        throw new ArgumentException("YouTube preset supports up to 4K");
-    }
     private async Task<DeviceChoice> CalibrateAsync(List<GpuDevice> gpus,string model,MediaInfo source,VideoFrame first,VideoFrame second,ulong required,CancellationToken cancel){
         string key=$"{model}:{source.Width}:{source.Height}:{source.BitDepth}:"+string.Join(';',gpus.Select(x=>$"{x.Index}:{x.DeviceId}:{x.DriverVersion}"));
         if(calibration.TryGetValue(key,out var cached))return cached;

@@ -7,11 +7,13 @@ see `HARDWARE-TESTS.md` in the repository for the matrix and procedure.
 
 Run `FrameDoubler.exe` in `dist/FrameDoubler`. Click the drop area or use Ctrl+O
 to select videos; dropping files works too. Review file and estimated motion fps,
-select an output folder/preset and convert. Existing files are protected.
-Device/encoder/model options are under Advanced; activity logs are collapsible.
+select an output folder/preset and convert. Queue items are numbered and can be
+dragged to reorder; Convert all runs every remaining item in that order, Convert
+selected only the selected ones (Ctrl/Shift multi-select). Existing files are protected.
+Four fixed export presets: Source (keep bitrate, default), Source (bitrate scales with fps), YouTube 4K, YouTube 1080p. Both Source modes keep the source size/codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). YouTube uses H.264 High VBR at 45 Mbps for 4K and 10 Mbps for 1080p, plus AAC-LC 48 kHz (256 kbps when the source is at least 256 kbps; otherwise 192 kbps, including unknown source bitrate). HDR is tone-mapped to SDR at the same bitrate. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
 Each queued video shows a representative thumbnail (FFmpeg thumbnail filter).
-The Settings button (gear) opens General, Window and tray, Data and About pages:
-language, update check at startup, close/minimize button actions, data folder,
+The Settings button (gear) opens General, Window and tray, Advanced, Data and About pages:
+update check at startup, close/minimize button actions, advanced device/encoder/model/HUD options, data folder,
 time-estimate reset, working-file cleanup, version and device information.
 The frameless title bar supports dragging, resizing, minimizing and maximizing.
 The device menu supports automatic choice, individual Vulkan devices and CPU.
@@ -28,7 +30,7 @@ decoded; 8-bit and 10-bit SDR paths are kept as they are.
 ```text
 FrameDoubler.Cli hardware
 FrameDoubler.Cli analyze video.mp4
-FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset youtube
+FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset youtube-2160
 FrameDoubler.Cli run -i video.mp4 --device cpu --software --codec h264
 FrameDoubler.Cli run -i video.mp4 --device gpu:1 --encoder qsv --codec hevc
 FrameDoubler.Cli run -i video.mp4 --fps 120 --model v4.26
@@ -50,17 +52,19 @@ The package is portable: `settings.json`, `performance.json` (measured speed pro
 for time estimates) and the `work` folder live next to `FrameDoubler.exe`.
 AppData is not used. Output verification is off by default in the GUI and
 included in the time estimate when enabled; `run` in the CLI verifies unless
-`--no-verify` is given. `estimate FILE [--preset youtube] [--verify]` prints the
-sampled analysis and the expected time range for the selected device/settings. The minimize and close
-buttons (and tray Exit) ask whether to minimize to the tray, where work continues,
-or to exit, which cancels active work and cleans up. FFmpeg and engine processes
+`--no-verify` is given. `estimate FILE [--preset youtube-2160] [--verify]` prints the
+sampled analysis and a point estimate with its uncertainty range for the selected device/settings. Close (and tray Exit)
+asks before exiting, which cancels active work and cleans up. Minimize goes to the
+taskbar by default; hiding to the tray requires an explicit setting. The tray menu
+uses the main graphite/orange palette and action icons. Launching the GUI again
+activates the existing window, including minimized/tray windows, rather than starting
+another GUI instance. Close behavior is configurable in Settings. FFmpeg and engine processes
 are in a kill-on-close job, so none survive an exit or crash. The Updates button
 checks stable releases: when up to date it only says so; a newer release opens
 the notes and download/verify/keep-settings/restart steps. It installs only `FrameDoubler.zip`
 with a GitHub SHA-256 digest and a matching native manifest. Installation verifies
 every file, preserves the previous directory and restores it if swapping fails.
-Legacy Torch assets cannot be installed. Local staging/swap tests passed; an actual
-published native-release update has not been tested.
+Legacy Torch assets cannot be installed. A failed directory swap restores the previous installation.
 
 Development:
 
@@ -81,3 +85,5 @@ FFmpeg remains separate and replaceable. See `THIRD_PARTY_NOTICES.md` and `licen
 Real-hardware verification covers only the development PC; other GPU vendors and
 multi-GPU systems follow `HARDWARE-TESTS.md`. The minimal optional Torch model
 definition used only for model export is isolated under `poc/ncnn-rife/baseline`.
+
+Time estimates show one approximate duration and a completion clock. Decode-ahead overlap and completed jobs calibrate the prediction; uncertainty remains in the tooltip. Verification only decodes the first, centered middle and final minute (overlaps merged, up to 180 seconds), plus global metadata checks. Results include inspected windows/frame count; errors elsewhere may be missed. Verification remains off by default in the GUI.

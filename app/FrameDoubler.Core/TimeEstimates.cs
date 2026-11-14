@@ -45,9 +45,14 @@ public static class TimeEstimates
     private static bool Valid(PerformanceProfile? x)=>x is not null&&x.WithVerification is not null&&x.WithoutVerification is not null&&x.DecodePerFrame>0&&double.IsFinite(x.DecodePerFrame)&&x.EncodePerFrame>0&&double.IsFinite(x.EncodePerFrame)
         &&x.InferencePerCall>=0&&double.IsFinite(x.InferencePerCall)&&x.WithVerification.Concat(x.WithoutVerification).All(v=>v>0&&double.IsFinite(v));
     public static string Key(params object?[] values)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))));
-    public static double RawSeconds(PerformanceProfile p,long inputFrames,long outputFrames,long interpolations,bool verify)=>
-        2+inputFrames*p.DecodePerFrame+outputFrames*p.EncodePerFrame+interpolations*p.InferencePerCall+
-        (verify?(inputFrames+outputFrames)*p.DecodePerFrame:0);
+    public static double RawSeconds(PerformanceProfile p,long inputFrames,long outputFrames,long interpolations,bool verify,Rational? duration=null){
+        // The bounded decoder runs ahead while inference and pipe writes run on the consumer.
+        // Adding all three serial costs overstated long jobs. Encoder pipe/copy work remains on
+        // the consumer; completed jobs learn the remaining overlap, startup and storage overhead.
+        double conversion=Math.Max(inputFrames*p.DecodePerFrame,interpolations*p.InferencePerCall+outputFrames*p.EncodePerFrame);
+        double fraction=duration is {} length&&length>0?VerificationWindows.Seconds(length)/length.ToDouble():1;
+        return 2+conversion+(verify?(inputFrames+outputFrames)*p.DecodePerFrame*fraction:0);
+    }
     public static TimeEstimate Predict(PerformanceProfile p,AnalysisResult analysis,Rational fps,bool verify){
         long output=(analysis.Source.Duration*fps).Ceiling();double seconds=analysis.Intervals.Sum(x=>(x.Second-x.First).ToDouble());
         long sampled=analysis.Intervals.Where(x=>!x.Hold).Sum(x=>Timeline.Steps(x.First,x.Second,fps).LongCount(y=>y.Position>0&&y.Position<1));
@@ -55,24 +60,32 @@ public static class TimeEstimates
         interpolations=Math.Clamp(interpolations,0,output);
         var history=verify?p.WithVerification:p.WithoutVerification;
         double factor=history.Length>0?Median(history):1;
-        double estimate=RawSeconds(p,analysis.Source.FrameCount,output,interpolations,verify)*factor;
+        double estimate=RawSeconds(p,analysis.Source.FrameCount,output,interpolations,verify,analysis.Source.Duration)*factor;
         if(!double.IsFinite(estimate)||estimate<=0)throw new IOException("Cannot calculate a finite conversion estimate");
         return new(estimate,estimate*(history.Length>0?.8:.7),estimate*(history.Length>0?1.4:1.7),output,interpolations,verify,history.Length>0,p.Device,p.Encoder,p.Key);
     }
-    public static void Observe(string key,long inputFrames,long outputFrames,long interpolations,bool verify,double seconds){
+    public static void Observe(string key,long inputFrames,long outputFrames,long interpolations,bool verify,double seconds,Rational? duration=null){
         var p=Load(key);if(p is null||seconds<3)return;
-        double factor=seconds/RawSeconds(p,inputFrames,outputFrames,interpolations,verify);
+        double factor=seconds/RawSeconds(p,inputFrames,outputFrames,interpolations,verify,duration);
         if(!double.IsFinite(factor)||factor<=0)return;
         double[] updated=(verify?p.WithVerification:p.WithoutVerification).Append(factor).TakeLast(5).ToArray();
         Save(verify?p with{WithVerification=updated}:p with{WithoutVerification=updated});
     }
     public static string Duration(double seconds,bool english=false){
         if(!double.IsFinite(seconds)||seconds<0)return english?"Unknown":"계산 불가";
-        long minutes=(long)Math.Ceiling(seconds/60);
+        if(seconds<60)return english?"<1 min":"1분 미만";
+        long minutes=(long)Math.Round(seconds/60,MidpointRounding.AwayFromZero);
         if(minutes<1)return english?"<1 min":"1분 미만";
         long hours=minutes/60,remaining=minutes%60;
         return hours==0?(english?$"{minutes} min":$"{minutes}분"):
-            (english?$"{hours} h"+(remaining>0?$" {remaining} min":""):$"{hours}시간"+(remaining>0?$" {remaining}분":""));
+            (english?$"{hours} h {remaining:00} min":$"{hours}시간 {remaining:00}분");
+    }
+    public static string About(double seconds,bool english=false)=>(english?"About ":"약 ")+Duration(seconds,english);
+    public static string Completion(double seconds,bool english=false,DateTimeOffset? now=null){
+        var start=now??DateTimeOffset.Now;
+        if(!double.IsFinite(seconds)||seconds<0||seconds>(DateTimeOffset.MaxValue-start).TotalSeconds)return english?"Completion unknown":"완료 시각 계산 불가";
+        var end=start.AddSeconds(seconds);string stamp=end.ToString(end.Date==start.Date?"HH:mm":"MM/dd HH:mm",CultureInfo.InvariantCulture);
+        return english?$"Finishes around {stamp}":$"완료 예정 {stamp}";
     }
     public static string Range(TimeEstimate e,bool english=false)=>$"{(english?"About ":"약 ")}{Duration(e.LowerSeconds,english)} ~ {Duration(e.UpperSeconds,english)}";
     public static void PreservePortableFiles(string installation,string stage){

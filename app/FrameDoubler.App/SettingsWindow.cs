@@ -31,12 +31,13 @@ public sealed class SettingsWindow:Window
         WindowChrome.SetWindowChrome(this,new WindowChrome{CaptionHeight=48,ResizeBorderThickness=new Thickness(6),GlassFrameThickness=new Thickness(0),CornerRadius=new CornerRadius(12),UseAeroCaptionButtons=false});
         SourceInitialized+=(_,_)=>WindowFrame.Attach(this);
         PreviewKeyDown+=(_,e)=>{if(e.Key==Key.Escape){Close();e.Handled=true;}};
+        Closed+=(_,_)=>owner.ReturnAdvanced();
         Build(category??"general");
     }
     internal void Select(string key){foreach(ListBoxItem item in nav.Items)if(((Section)item.Tag).Key==key){nav.SelectedItem=item;break;}}
     private void Build(string key){
         english=owner.English;Title=T("설정","Settings");
-        var sections=new[]{new Section("general","",T("일반","General"),General),new Section("window","",T("창과 트레이","Window and tray"),WindowAndTray),
+        var sections=new[]{new Section("general","",T("일반","General"),General),new Section("window","",T("창과 트레이","Window and tray"),WindowAndTray),new Section("advanced","",T("고급","Advanced"),AdvancedPage),
             new Section("data","",T("데이터","Data"),Data),new Section("about","",T("정보","About"),About)};
         nav=new ListBox{Background=Brushes.Transparent,BorderThickness=new Thickness(0),Padding=new Thickness(0),Margin=new Thickness(16,4,12,16)};
         System.Windows.Automation.AutomationProperties.SetAutomationId(nav,"SettingsNav");
@@ -108,25 +109,31 @@ public sealed class SettingsWindow:Window
     private TextBlock Note(string text)=>new(){Text=Hangul.KeepWords(text),Foreground=(Brush)FindResource("MutedBrush"),FontSize=12,LineHeight=18,Margin=new Thickness(2,0,0,0)};
 
     private UIElement General(){
-        var language=Choices(owner.English?"en":"ko",value=>{owner.ChangeLanguage(value);string key=(nav.SelectedItem as ListBoxItem)?.Tag is Section s?s.Key:"general";Build(key);},
-            new Choice("ko","한국어"),new Choice("en","English"));
         var updates=new CheckBox{IsChecked=owner.Settings.CheckUpdates,Content=""};
         updates.Checked+=(_,_)=>owner.ChangeSettings(p=>p with{CheckUpdates=true});updates.Unchecked+=(_,_)=>owner.ChangeSettings(p=>p with{CheckUpdates=false});
         var stack=new StackPanel();
-        stack.Children.Add(Card(Row(T("언어","Language"),T("화면에 표시할 언어입니다. 제목 표시줄의 스위치와 같습니다.","Interface language. Same as the switch in the title bar."),language,"SettingLanguage"),
-            Row(T("시작할 때 업데이트 확인","Check for updates at startup"),T("GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 업데이트 버튼을 주황색으로 표시합니다.","Looks up the stable GitHub release and marks the update button orange when a new version exists."),updates,"SettingCheckUpdates")));
+        // Language is not repeated here: the 한국어 | EN switch in the title bar is always one click away.
+        stack.Children.Add(Card(Row(T("시작할 때 업데이트 확인","Check for updates at startup"),T("GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 업데이트 버튼을 주황색으로 표시합니다.","Looks up the stable GitHub release and marks the update button orange when a new version exists."),updates,"SettingCheckUpdates")));
         return stack;
     }
     private UIElement WindowAndTray(){
         var close=Choices(owner.Settings.CloseAction,value=>owner.ChangeSettings(p=>p with{CloseAction=value}),
             new Choice("ask",T("매번 묻기","Ask every time")),new Choice("tray",T("트레이로 최소화","Minimize to tray")),new Choice("exit",T("종료","Exit")));
         var minimize=Choices(owner.Settings.MinimizeAction,value=>owner.ChangeSettings(p=>p with{MinimizeAction=value}),
-            new Choice("ask",T("매번 묻기","Ask every time")),new Choice("tray",T("트레이로 최소화","Minimize to tray")),new Choice("taskbar",T("작업 표시줄로 최소화","Minimize to taskbar")));
+            new Choice("taskbar",T("작업 표시줄 (기본값)","Taskbar (default)")),new Choice("tray",T("트레이로 최소화","Minimize to tray")));
         var stack=new StackPanel();
-        stack.Children.Add(Card(Row(T("닫기(X) 버튼을 누르면","Close (X) button"),T("트레이 메뉴의 종료와 Alt+F4에도 적용됩니다.","Also applies to Alt+F4 and Exit in the tray menu."),close,"SettingCloseAction"),
-            Row(T("최소화 버튼을 누르면","Minimize button"),T("작업 표시줄에서 창을 최소화하면 항상 작업 표시줄로 최소화됩니다.","Minimizing from the taskbar always minimizes to the taskbar."),minimize,"SettingMinimizeAction")));
+        stack.Children.Add(Card(Row(T("닫기(X) 버튼을 누르면","Close (X) button"),T("Alt+F4에도 적용됩니다.","Also applies to Alt+F4."),close,"SettingCloseAction"),
+            Row(T("최소화하면","When minimized"),T("기본은 작업 표시줄입니다. 원하면 트레이로 바꿀 수 있습니다.","The default is the taskbar. Choose the tray if you prefer."),minimize,"SettingMinimizeAction")));
         stack.Children.Add(Note(T("트레이로 최소화하면 창이 사라져도 작업이 계속되며, 트레이 아이콘을 두 번 클릭하면 창이 다시 열립니다. 진행 중인 작업이 있을 때 종료하면 설정과 관계없이 확인합니다.",
             "In the tray, work continues without a window; double-click the tray icon to open it again. Exiting while work is running always asks first.")));
+        return stack;
+    }
+    // The main window's own advanced controls, lent to this page (see MainWindow.BorrowAdvanced).
+    private UIElement AdvancedPage(){
+        var stack=new StackPanel();
+        stack.Children.Add(new Border{Background=(Brush)FindResource("SurfaceBrush"),CornerRadius=new CornerRadius(10),Padding=new Thickness(18,16,18,14),Margin=new Thickness(0,0,0,14),Child=owner.BorrowAdvanced()});
+        stack.Children.Add(Note(T("추론 장치, 인코더, 코덱은 이 PC에서 실제로 동작을 확인한 항목만 보여 줍니다. 바꾼 값은 다음 변환과 예상 소요 시간에 바로 반영됩니다.",
+            "Only devices, encoders and codecs that actually worked on this PC are listed. Changes apply to the next conversion and the time estimate.")));
         return stack;
     }
     private UIElement Data(){
@@ -158,16 +165,13 @@ public sealed class SettingsWindow:Window
         TextBlock Styled(TextBlock text){text.Foreground=(Brush)FindResource("MutedBrush");text.FontSize=12;text.Margin=new Thickness(0,4,0,0);text.TextWrapping=TextWrapping.Wrap;return text;}
     }
     private UIElement About(){
-        var head=new Grid{Margin=new Thickness(0,0,0,14)};head.ColumnDefinitions.Add(new(){Width=GridLength.Auto});head.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});head.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        var head=new Grid{Margin=new Thickness(0,0,0,14)};head.ColumnDefinitions.Add(new(){Width=GridLength.Auto});head.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         head.Children.Add(new Image{Source=new BitmapImage(new Uri("pack://application:,,,/Assets/icon.png")),Width=48,Height=48,Margin=new Thickness(0,0,16,0)});
         var title=new StackPanel{VerticalAlignment=VerticalAlignment.Center};
         title.Children.Add(new TextBlock{Text="FrameDoubler",FontSize=18,FontWeight=FontWeights.SemiBold});
         title.Children.Add(new TextBlock{Text=T($"버전 {Updates.Current}",$"Version {Updates.Current}"),Foreground=(Brush)FindResource("MutedBrush"),Margin=new Thickness(0,3,0,0)});
         Grid.SetColumn(title,1);head.Children.Add(title);
-        var check=ActionButton(T("업데이트 확인","Check for updates"),async()=>await owner.CheckForUpdatesAsync(),"PrimaryButton");check.IsEnabled=!owner.Working;
-        System.Windows.Automation.AutomationProperties.SetAutomationId(check,"SettingCheckNow");Grid.SetColumn(check,2);check.VerticalAlignment=VerticalAlignment.Center;head.Children.Add(check);
-        var device=new TextBlock{Text=owner.HardwareSummary,Foreground=(Brush)FindResource("MutedBrush"),FontSize=12,LineHeight=18,Margin=new Thickness(0,4,0,0),TextWrapping=TextWrapping.Wrap};
-        var deviceRow=new StackPanel();deviceRow.Children.Add(new TextBlock{Text=T("이 PC의 장치","Devices on this PC"),FontWeight=FontWeights.SemiBold});deviceRow.Children.Add(device);
+        // No update button here: the title bar already has one.
         var links=new WrapPanel();
         string notices=Path.Combine(AppContext.BaseDirectory,"THIRD_PARTY_NOTICES.md");
         foreach(var (label,target) in new[]{(T("GitHub 저장소","GitHub repository"),"https://github.com/deuxdoom/FrameDoubler"),
@@ -178,7 +182,7 @@ public sealed class SettingsWindow:Window
         }
         var stack=new StackPanel();
         stack.Children.Add(head);
-        stack.Children.Add(Card(deviceRow,links));
+        stack.Children.Add(Card(links));
         stack.Children.Add(Note(T("FrameDoubler는 MIT 라이선스로 배포하는 독립 프로젝트입니다.","FrameDoubler is an independent project released under the MIT License.")));
         return stack;
     }

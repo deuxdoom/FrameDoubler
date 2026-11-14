@@ -27,6 +27,8 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
     public ConversionResult? Result{get;set;}
     public TimeEstimate? Estimate{get;set;}
     public ImageSource? Thumbnail{get;set;}
+    // 1-based position in the queue; batch conversion follows this order.
+    public int Number{get;set;}
     public string State{get;set;}="pending";
     public string Metadata{get{if(Analysis is not { } a)return "";string motion=a.MotionFps is { } fps?$"~{fps:0.##}fps":translate("추정 불가","not estimated");
         string range=a.Source.HdrInput is { } hdr?$"{hdr.BitDepth}-bit HDR({hdr.Name}) → SDR":$"{a.Source.BitDepth}-bit SDR";
@@ -35,7 +37,7 @@ public sealed class QueueEntry(string input,Func<string,string,string> translate
         long seconds=(long)s.Duration.ToDouble();string length=$"{seconds/3600:00}:{seconds/60%60:00}:{seconds%60:00}";
         return $"{s.Codec.ToUpperInvariant()} · "+(rate is {} b?$"{(s.VideoBitrate is null?translate("전체 평균 ","Overall average "):"")}{b/1_000_000d:0.##} Mbps":translate("비트레이트 정보 없음","Bitrate unavailable"))+$" · {length}"+(a.IsSampled?translate(" · 구간 분석"," · Sampled"):"");}}
     public string Status=>State switch{"analyze"=>translate("분석 중","Analyzing"),"ready"=>translate("변환 준비","Ready"),"convert"=>translate("변환 중","Processing"),
-        "done"=>translate("검증 통과","Verified"),"unverified"=>translate("변환 완료 · 검증 안 함","Converted · not verified"),"warning"=>translate("검증 경고 · 결과 확인 필요","Quality warning · review output"),
+        "done"=>translate("구간 검증 통과","Sample verification passed"),"unverified"=>translate("변환 완료 · 검증 안 함","Converted · not verified"),"warning"=>translate("검증 경고 · 결과 확인 필요","Quality warning · review output"),
         "error"=>translate("오류 · 다시 시도 가능","Error · retry available"),"cancelled"=>translate("취소됨","Cancelled"),_=>translate("대기","Pending")};
     public event PropertyChangedEventHandler? PropertyChanged;
     public void Refresh(){PropertyChanged?.Invoke(this,new(null));}
@@ -51,6 +53,7 @@ public partial class MainWindow:Window
     private Preferences preferences=Preferences.Load();
     private CancellationTokenSource? work;
     private bool busy,ready,updating,closing;
+    private WindowState restoreState=WindowState.Normal;
     private Forms.NotifyIcon? tray;
     private readonly CancellationTokenSource lifetime=new();
     private UpdateRelease? availableRelease;
@@ -61,75 +64,61 @@ public partial class MainWindow:Window
     public void SelfTestOutputFolder(string path)=>OutputBox.Text=path;
     internal void SaveForUpdate(){Save();AllowExit();}
     private string T(string ko,string en)=>English?en:ko;
+    // Same rule as the pipeline (digits with an optional k/M); a typo is not saved over the last good value.
+    internal static bool ValidBitrate(string? value)=>string.IsNullOrEmpty(value)||System.Text.RegularExpressions.Regex.IsMatch(value,@"^\d+[kKmM]?$");
     private static string Selected(ComboBox box)=>(box.SelectedItem as Choice)?.Value??"auto";
     private static void Select(ComboBox box,string value)=>box.SelectedItem=box.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==value)??box.Items.OfType<Choice>().FirstOrDefault();
     private void Fill(ComboBox box,IEnumerable<Choice> choices,string? value=null){string selected=value??Selected(box);box.ItemsSource=choices.ToArray();Select(box,selected);}
     public MainWindow(){
-        InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;
+        InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;Entries.CollectionChanged+=(_,_)=>Renumber();
         CommandBindings.Add(new CommandBinding(ApplicationCommands.Open,(_,_)=>AddClicked(this,new RoutedEventArgs()),(_,e)=>e.CanExecute=!busy));
         updating=true;SetLanguage(preferences.Language,false);LanguageThumb.SizeChanged+=(_,_)=>MoveLanguageThumb(false);
         Fill(ModelBox,[new("v4.25","RIFE 4.25"),new("v4.26","RIFE 4.26")],preferences.Model);
-        OutputBox.Text=preferences.OutputDirectory;QualitySlider.Value=Math.Clamp(preferences.Quality,1,51);
+        OutputBox.Text=preferences.OutputDirectory;
         HardwareCheck.IsChecked=preferences.HardwareEncoding;VerifyCheck.IsChecked=preferences.Verify;
         Translate();Select(PresetBox,preferences.Preset);Select(FpsBox,preferences.Fps);updating=false;
-        // Hiding to the tray only happens through the confirmation dialog; a taskbar minimize stays a normal minimize.
-        StateChanged+=(_,_)=>{WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";};
+        StateChanged+=(_,_)=>{WindowBorder.CornerRadius=new(WindowState==WindowState.Maximized?0:12);MaximizeButton.Content=WindowState==WindowState.Maximized?"\uE923":"\uE922";
+            if(WindowState!=WindowState.Minimized)restoreState=WindowState;
+            if(WindowState==WindowState.Minimized&&preferences.MinimizeAction=="tray")HideToTray();};
         SizeChanged+=(_,_)=>AdaptLayout(ActualHeight);
         DragLeave+=(_,_)=>DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;
         foreach(var box in new[]{FpsBox,ModelBox,DeviceBox,EncoderBox})box.SelectionChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
         VerifyCheck.Checked+=(_,_)=>{if(!updating)ScheduleEstimate();};VerifyCheck.Unchecked+=(_,_)=>{if(!updating)ScheduleEstimate();};
-        QualitySlider.ValueChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
-        BitrateBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};HudBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
+        HudBox.TextChanged+=(_,_)=>{if(!updating)ScheduleEstimate();};
     }
     protected override void OnSourceInitialized(EventArgs e){base.OnSourceInitialized(e);WindowFrame.Attach(this);}
-    private void MinimizeClicked(object sender,RoutedEventArgs e)=>RequestExit(ExitTrigger.Minimize);
+    private void MinimizeClicked(object sender,RoutedEventArgs e){if(preferences.MinimizeAction=="tray")HideToTray();else WindowState=WindowState.Minimized;}
     private void MaximizeClicked(object sender,RoutedEventArgs e){if(WindowState==WindowState.Maximized)SystemCommands.RestoreWindow(this);else SystemCommands.MaximizeWindow(this);}
     private void CloseClicked(object sender,RoutedEventArgs e)=>RequestExit(ExitTrigger.Close);
-    public enum ExitTrigger{Close,Minimize,Tray}
+    public enum ExitTrigger{Close,Tray}
     // Test seam, like FilePicker: answers the exit/tray confirmation without showing the dialog.
     internal Func<ExitTrigger,DialogChoice>? ExitPrompt{get;set;}
     private bool exitConfirmed,asking;
     // Programmatic exits (update install, diagnostics, Windows sign-out) skip the confirmation.
     internal void AllowExit()=>exitConfirmed=true;
+    // Just a title and two buttons; tray/exit behaviour itself is chosen in Settings → Window and tray.
     internal BrandDialog CreateExitDialog(ExitTrigger trigger){
-        bool working=busy||measuring,canTray=trigger!=ExitTrigger.Tray;
-        var dialog=new BrandDialog(this,"FrameDoubler");
-        string? warning=working?T("종료하면 진행 중인 분석·변환을 취소하고 미완성 파일을 정리합니다.","Exiting cancels the running analysis or conversion and removes incomplete output."):null;
-        string message=canTray?T("트레이로 최소화하면 창이 사라져도 프로그램과 진행 중인 작업이 계속 실행됩니다. 트레이 아이콘을 두 번 클릭하면 창이 다시 열립니다.",
-                "Minimized to the tray, FrameDoubler and any running job keep going without a window. Double-click the tray icon to open it again.")
-            :T("종료하면 FrameDoubler와 처리에 사용하던 프로세스가 모두 끝납니다.","Exiting closes FrameDoubler and every process it started.");
+        var dialog=new BrandDialog(this,"FrameDoubler",400);
         var cancel=new DialogButton(T("취소","Cancel"),DialogChoice.Cancel,"TextButton");
-        bool minimize=trigger==ExitTrigger.Minimize;
-        var exit=new DialogButton(T("종료","Exit"),DialogChoice.Primary,minimize?"SecondaryButton":"PrimaryButton",!minimize);
-        var hide=new DialogButton(T("트레이로 최소화","Minimize to tray"),DialogChoice.Secondary,minimize?"PrimaryButton":"SecondaryButton",minimize);
-        if(minimize)dialog.Configure(BrandDialog.Glyphs.Tray,T("트레이로 최소화할까요?","Minimize to the tray?"),message,warning,cancel,exit,hide);
-        else if(canTray)dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,hide,exit);
-        else dialog.Configure(BrandDialog.Glyphs.Exit,T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),message,warning,cancel,exit);
-        if(canTray)dialog.AddRemember(T("이 선택을 기억하고 다시 묻지 않기 (설정에서 바꿀 수 있습니다)","Remember my choice (change it in Settings)"));
+        dialog.Configure(BrandDialog.Glyphs.Exit,busy||measuring?T("진행 중인 작업을 취소하고 종료할까요?","Cancel the running job and exit?"):T("FrameDoubler를 종료할까요?","Exit FrameDoubler?"),
+            "",null,cancel,new DialogButton(T("종료","Exit"),DialogChoice.Primary,"PrimaryButton",true));
         return dialog;
     }
     private void RequestExit(ExitTrigger trigger){
         if(asking||exitConfirmed)return;
         bool working=busy||measuring;
         // A remembered choice (Settings → Window and tray) skips the dialog; exiting while work runs is always confirmed.
-        string remembered=trigger switch{ExitTrigger.Minimize=>preferences.MinimizeAction,ExitTrigger.Close=>preferences.CloseAction,_=>preferences.CloseAction=="exit"?"exit":"ask"};
+        string remembered=trigger==ExitTrigger.Close?preferences.CloseAction:preferences.CloseAction=="exit"?"exit":"ask";
         if(ExitPrompt is null){
             if(remembered=="tray"&&trigger!=ExitTrigger.Tray){HideToTray();return;}
-            if(remembered=="taskbar"&&trigger==ExitTrigger.Minimize){WindowState=WindowState.Minimized;return;}
             if(remembered=="exit"&&!working){exitConfirmed=true;Close();return;}
         }
         asking=true;
         try{
-            DialogChoice choice;bool remember=false;
+            DialogChoice choice;
             if(ExitPrompt is not null)choice=ExitPrompt(trigger);
-            else{var dialog=CreateExitDialog(trigger);dialog.ShowDialog();choice=dialog.Choice;remember=dialog.Remember;}
-            if(remember&&choice!=DialogChoice.Cancel){
-                if(trigger==ExitTrigger.Close)preferences=preferences with{CloseAction=choice==DialogChoice.Secondary?"tray":"exit"};
-                else if(trigger==ExitTrigger.Minimize&&choice==DialogChoice.Secondary)preferences=preferences with{MinimizeAction="tray"};
-                Save();
-            }
-            if(choice==DialogChoice.Secondary)HideToTray();
-            else if(choice==DialogChoice.Primary){exitConfirmed=true;Close();}
+            else{var dialog=CreateExitDialog(trigger);dialog.ShowDialog();choice=dialog.Choice;}
+            if(choice==DialogChoice.Primary){exitConfirmed=true;Close();}
         }finally{asking=false;}
     }
     private void HideToTray(){if(tray is null){WindowState=WindowState.Minimized;return;}Hide();}
@@ -161,24 +150,27 @@ public partial class MainWindow:Window
         FileMetricLabel.Text=T("파일 프레임레이트","File frame rate");MotionMetricLabel.Text=T("추정 움직임","Estimated motion");Details.Header=T("처리 기록","Activity");
         EstimateTitle.Text=T("예상 소요 시간","Estimated time");EstimateAgain.ToolTip=T("현재 설정으로 다시 계산","Recalculate for current settings");
         SettingsTitle.Text=T("출력 설정","Output settings");OutputLabel.Text=T("저장 폴더","Output folder");PresetLabel.Text=T("프리셋","Preset");
-        FpsLabel.Text=T("목표 프레임레이트","Output frame rate");CodecLabel.Text=T("코덱","Codec");DeviceLabel.Text=T("추론 장치","Inference device");EncoderLabel.Text=T("인코더","Encoder");
-        QualityLabel.Text=T("품질 (낮을수록 고화질)","Quality (lower is better)");BitrateLabel.Text=T("목표 비트레이트 (예: 24M, 선택)","Target bitrate (e.g. 24M, optional)");
+        FpsLabel.Text=T("목표 프레임레이트","Output frame rate");DeviceLabel.Text=T("추론 장치","Inference device");EncoderLabel.Text=T("인코더","Encoder");
         HudLabel.Text=T("고정 HUD 영역 (X,Y,W,H; 선택)","Static HUD region (X,Y,W,H; optional)");ModelLabel.Text=T("RIFE 모델","RIFE model");
-        Advanced.Header=T("고급 설정","Advanced");HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 검증","Verify output");VerifyCheck.ToolTip=T("품질·프레임레이트·색상·오디오 동기를 검사합니다.","Check quality, frame rate, color and audio synchronization.");
-        RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("변환 시작","Convert");CancelButton.Content=T("취소","Cancel");
+        // Facts from notes/research.md R1, R2 and R7 (official README, same architecture, measured PSNR/speed).
+        ModelHelp.ToolTip=Hangul.KeepWords(T("RIFE 4.25 (기본값): 공식 프로젝트가 대부분의 장면에 권장하는 모델입니다.\nRIFE 4.26: 가장 최근에 공개된 모델로, 구조는 같고 새로 학습했습니다.\n두 모델은 속도가 같고, 게임 녹화 시험에서 화질 차이가 거의 없었습니다. 어색한 장면이 있으면 다른 모델로 바꿔 보세요.",
+            "RIFE 4.25 (default): recommended by the official project for most scenes.\nRIFE 4.26: the latest release, same architecture with newly trained weights.\nBoth run at the same speed and looked almost identical in our game-recording tests. If a scene looks wrong, try the other one."));
+        System.Windows.Automation.AutomationProperties.SetName(ModelHelp,T("RIFE 모델 설명","About RIFE models"));
+        HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 구간 검증","Verify output samples");VerifyCheck.ToolTip=T("처음·중간·끝 각 1분만 검사합니다(최대 3분, 겹치면 병합). 전체 메타데이터도 확인하며 검사 밖의 오류는 놓칠 수 있습니다.","Checks one minute each at the start, middle and end (up to three minutes; overlaps merged), plus global metadata. Errors outside the samples may be missed.");
+        RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("일괄 변환","Convert all");SelectedButton.Content=T("선택 변환","Convert selected");StartButton.ToolTip=T("변환하지 않은 영상을 목록 번호순으로 모두 변환합니다.","Converts every remaining video in list order.");SelectedButton.ToolTip=T("목록에서 선택한 영상만 번호순으로 변환합니다. Ctrl·Shift로 여러 개를 고를 수 있습니다.","Converts only the selected videos in list order. Use Ctrl or Shift to select several.");CancelButton.Content=T("취소","Cancel");
         OpenButton.Content=T("결과 열기","Open result");FolderButton.Content=T("폴더 열기","Open folder");UpdatesButton.ToolTip=T("업데이트","Updates");SettingsButton.ToolTip=T("설정","Settings");
         MinimizeButton.ToolTip=T("최소화","Minimize");MaximizeButton.ToolTip=T("최대화 / 복원","Maximize / restore");CloseButton.ToolTip=T("닫기","Close");BrowseButton.ToolTip=T("저장 폴더 선택","Choose output folder");
         foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton,SettingsButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
         System.Windows.Automation.AutomationProperties.SetName(EmptyPanel,T("영상 파일 선택","Choose video files"));
         OutputBox.ToolTip=T("비워 두면 원본 영상과 같은 폴더에 저장합니다.","Leave empty to save beside the source video.");
-        foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(CodecBox,CodecLabel.Text),(DeviceBox,DeviceLabel.Text),
-            (EncoderBox,EncoderLabel.Text),(ModelBox,ModelLabel.Text),(QualitySlider,QualityLabel.Text),(BitrateBox,BitrateLabel.Text),(HudBox,HudLabel.Text)})
+        foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(PresetBox,PresetLabel.Text),(DeviceBox,DeviceLabel.Text),
+            (EncoderBox,EncoderLabel.Text),(ModelBox,ModelLabel.Text),(HudBox,HudLabel.Text)})
             System.Windows.Automation.AutomationProperties.SetName(control,name);
-        Fill(PresetBox,[new("youtube","YouTube"),new("quality",T("품질 우선","Quality"))]);
+        RefreshPresets(Selected(PresetBox));
         Fill(FpsBox,[new("auto",T("입력에 맞춤 (권장)","Match input (recommended)")),new("60","60fps"),new("60000/1001","59.94fps"),new("120","120fps"),new("120000/1001","119.88fps")]);
         RefreshOptions();foreach(var entry in Entries)entry.Refresh();UpdateMetrics();updating=old;UpdateControls();
         UpdateHardwareText();
-        if(tray?.ContextMenuStrip is { } menu){menu.Items[0].Text=T("창 열기","Open window");menu.Items[2].Text=T("업데이트","Updates");menu.Items[3].Text=T("종료","Exit");}
+        if(tray?.ContextMenuStrip is BrandTrayMenu menu)menu.Translate(English);
     }
     private void UpdateHardwareText(){
         if(inventory is null){HardwareText.Text=T("하드웨어를 확인하고 있습니다…","Checking hardware…");return;}
@@ -193,9 +185,10 @@ public partial class MainWindow:Window
         if(!English)return message;
         if(stage=="fallback")return "CPU fallback: inference can be much slower.";
         if(stage=="encoder_fallback")return "Retrying with software encoding; performance can be lower.";
+        if(stage=="encoder_tuning_fallback")return "Quality acceleration is unavailable for this job; retrying the base encoder settings.";
         if(stage=="hardware")return "Inspecting device/encoder capabilities and transfer cost.";
         if(stage=="analyze"&&message.StartsWith("HDR(",StringComparison.Ordinal))return "HDR video is tone-mapped to SDR (BT.709, 8-bit) for conversion.";
-        return message.Replace("FP16 저장·FP32 연산","FP16 storage / FP32 arithmetic").Replace("FP32 저장·연산","FP32 storage / arithmetic")
+        return message.Replace("원본 비트레이트 정보가 없어 품질 기준으로 인코딩합니다.","Source bitrate unavailable; encoding by quality instead.").Replace("FP16 저장·FP32 연산","FP16 storage / FP32 arithmetic").Replace("FP32 저장·연산","FP32 storage / arithmetic")
             .Replace("고비트 심도","high bit depth").Replace("소프트웨어 인코더:","Software encoder:").Replace("인코더:","Encoder:")
             .Replace("하드웨어 인코딩보다 느릴 수 있습니다.","Can be slower than hardware encoding.")
             .Replace("CPU 추론: Vulkan보다 처리 속도가 크게 느려질 수 있습니다.","CPU inference can be much slower than Vulkan.")
@@ -206,14 +199,20 @@ public partial class MainWindow:Window
         bool deep=Entries.Any(x=>x.Analysis?.Source.BitDepth>8),hw=HardwareCheck.IsChecked==true;
         Fill(DeviceBox,new[]{new Choice("auto",T("자동 선택","Automatic"))}.Concat((inventory?.Gpus??new()).Where(x=>x.InferencePassed!=false&&x.SupportsWarp).Select(x=>new Choice($"gpu:{x.Index}",x.Name)))
             .Append(new("cpu",T("CPU (느림)","CPU (slow)"))));
-        var codecs=encoders.Where(x=>x.Available&&(!deep||x.TenBit)&&(hw||!x.Hardware)).Select(x=>x.Codec).Distinct().ToHashSet();
-        Fill(CodecBox,new[]{new Choice("auto",T("자동 (지원 기능에 맞춤)","Automatic (supported format)"))}.Concat(new[]{"h264","hevc","av1"}.Where(codecs.Contains).Select(x=>new Choice(x,x=="h264"?"H.264":x.ToUpperInvariant()))));
-        string? codec=Selected(CodecBox)=="auto"?null:Selected(CodecBox);
-        try{codec??=EncoderPolicy.DefaultCodec(encoders,Selected(PresetBox)=="youtube",deep,hw);}catch(InvalidOperationException){}
+        // The codec comes from the export preset; the encoder list offers what can encode it on this PC.
+        var preset=CurrentPreset;
+        PresetBox.ToolTip=OutputPresets.Describe(preset,English);
+        string? codec=preset.Codec is "auto" or "source"?null:preset.Codec;
+        if(preset.Codec=="source"&&(QueueList.SelectedItem as QueueEntry)?.Analysis?.Source is {} source)codec=OutputPresets.SourceCodec(source,encoders,hw);
+        try{codec??=EncoderPolicy.DefaultCodec(encoders,preset.Platform!="none",deep,hw);}catch(InvalidOperationException){}
         Fill(EncoderBox,new[]{new Choice("auto",T("자동 선택","Automatic"))}.Concat(encoders.Where(x=>x.Available&&x.Codec==codec&&(!deep||x.TenBit)&&(hw||!x.Hardware))
-            .Select(x=>new Choice(x.Name,x.Name+(x.Hardware?"":T(" · 소프트웨어"," · software"))))));
+            .Select(x=>new Choice(x.Name,EncoderName(x)))));
         updating=old;
     }
+    // Plain labels for non-specialists: which chip encodes, not the FFmpeg encoder name.
+    // Each codec has at most one encoder per backend, so the labels stay unique.
+    internal static string EncoderName(EncoderCapability encoder)=>encoder.Backend switch{
+        "nvenc"=>"NVENC (GPU)","amf"=>"AMF (GPU)","qsv"=>"QSV (GPU)",_=>encoder.Hardware?encoder.Name+" (GPU)":"CPU"};
     private void LanguageClicked(object sender,RoutedEventArgs e){if(busy||sender is not Button{Tag:string value}||value==language)return;SetLanguage(value,true);if(!updating&&IsInitialized)Translate();}
     // A two-segment switch: the accent thumb slides under the selected language.
     private void SetLanguage(string? value,bool animate){
@@ -258,13 +257,14 @@ public partial class MainWindow:Window
             entry.Thumbnail=image;entry.Refresh();
         }catch(Exception ex)when(ex is OperationCanceledException or IOException or TimeoutException or NotSupportedException or InvalidOperationException){}
     }
-    public async Task RunQueueAsync(){
+    // Batch: every remaining entry in list order. Selection: only the given entries, still in list order.
+    public async Task RunQueueAsync(IReadOnlyCollection<QueueEntry>? only=null){
         if(busy||!ready)return;
         busy=true;work=new CancellationTokenSource();UpdateControls();
         try{
             if(estimateTask is not null)await estimateTask;work.Token.ThrowIfCancellationRequested();
             var options=CurrentOptions();
-            foreach(var entry in Entries.Where(x=>x.Output is null&&x.Analysis is not null).ToArray()){
+            foreach(var entry in Entries.Where(x=>x.Output is null&&x.Analysis is not null&&(only is null||only.Contains(x))).ToArray()){
                 work.Token.ThrowIfCancellationRequested();QueueList.SelectedItem=entry;entry.State="convert";entry.Refresh();
                 string folder=string.IsNullOrWhiteSpace(OutputBox.Text)?Path.GetDirectoryName(entry.Input)!:Path.GetFullPath(OutputBox.Text);
                 string stem=Path.GetFileNameWithoutExtension(entry.Input)+"_smooth";string output=Path.Combine(folder,stem+".mp4");int index=2;
@@ -290,22 +290,70 @@ public partial class MainWindow:Window
     private HudRegion[] ParseHud()=>string.IsNullOrWhiteSpace(HudBox.Text)?Array.Empty<HudRegion>():HudBox.Text.Split(';',StringSplitOptions.RemoveEmptyEntries).Select(x=>{
         int[] p=x.Split(',').Select(int.Parse).ToArray();if(p.Length!=4)throw new ArgumentException("HUD: X,Y,W,H");return new HudRegion(p[0],p[1],p[2],p[3]);}).ToArray();
     private string Stage(string stage)=>stage switch{"analyze"=>T("영상 분석 중","Analyzing video"),"hardware"=>T("장치 확인 중","Checking hardware"),"model"=>T("모델 준비 중","Preparing model"),
-        "convert"=>T("보간·인코딩 중","Interpolating and encoding"),"mux"=>T("마무리 중","Finalizing"),"verify"=>T("품질·동기 검증 중","Verifying quality and sync"),
+        "convert"=>T("보간·인코딩 중","Interpolating and encoding"),"mux"=>T("마무리 중","Finalizing"),"verify"=>T("처음·중간·끝 구간 검증 중","Verifying start, middle and end"),
         "done"=>T("변환 완료","Conversion complete"),"warning"=>T("검증 경고 · 결과를 확인하세요","Quality warning · review the output"),"fallback"=>T("CPU 대체 경로 사용","Using CPU fallback"),"encoder_fallback"=>T("소프트웨어 인코딩으로 대체","Software encoding fallback"),_=>stage};
     private void UpdateControls(){
         if(!IsInitialized)return;
-        EmptyPanel.Visibility=Entries.Count==0?Visibility.Visible:Visibility.Collapsed;AddButton.IsEnabled=!busy&&!measuring;RemoveButton.IsEnabled=!busy&&QueueList.SelectedItem is not null;
+        EmptyPanel.Visibility=Entries.Count==0?Visibility.Visible:Visibility.Collapsed;AddButton.IsEnabled=!busy&&!measuring;RemoveButton.IsEnabled=!busy&&QueueList.SelectedItems.Count>0;
         EmptyPanel.IsEnabled=!busy;QueueCount.Text=Entries.Count.ToString();UpdateMetrics();
         SettingsPanel.IsEnabled=!busy;LanguageSwitch.IsEnabled=!busy;CancelButton.IsEnabled=work is not null||measuring;
         StartButton.IsEnabled=ready&&!busy&&!measuring&&Entries.Any(x=>x.Analysis is not null&&x.Output is null);
+        SelectedButton.IsEnabled=ready&&!busy&&!measuring&&SelectedForConversion().Length>0;
         OpenButton.IsEnabled=(QueueList.SelectedItem as QueueEntry)?.Output is { } output&&File.Exists(output);UpdatesButton.IsEnabled=!busy;SettingsButton.IsEnabled=!busy;
         if(!busy&&Entries.Count==0)StatusText.Text=T("영상을 추가해 주세요.","Add a video to begin.");
         RefreshEstimateText();
     }
     private void Log(string text){LogBox.AppendText(text+Environment.NewLine);LogBox.ScrollToEnd();}
     private async void StartClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync();
+    private async void SelectedClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync(SelectedForConversion());
+    internal QueueEntry[] SelectedInListOrder()=>Entries.Where(x=>QueueList.SelectedItems.Contains(x)).ToArray();
+    private QueueEntry[] SelectedForConversion()=>SelectedInListOrder().Where(x=>x.Analysis is not null&&x.Output is null).ToArray();
+    private void Renumber(){for(int i=0;i<Entries.Count;i++)if(Entries[i].Number!=i+1){Entries[i].Number=i+1;Entries[i].Refresh();}}
+    // Reordering: dragging an item moves it live under the pointer; locked while a job runs.
+    private const string QueueFormat="FrameDoubler.QueueEntry";
+    private Point dragStart;private QueueEntry? dragCandidate;private DateTime lastDragScroll;
+    private void QueuePressed(object sender,MouseButtonEventArgs e){dragStart=e.GetPosition(QueueList);dragCandidate=ItemAt(e.OriginalSource)?.DataContext as QueueEntry;}
+    private void QueueDragMove(object sender,MouseEventArgs e){
+        if(dragCandidate is null||e.LeftButton!=MouseButtonState.Pressed||busy||Entries.Count<2)return;
+        var moved=e.GetPosition(QueueList)-dragStart;
+        if(Math.Abs(moved.X)<SystemParameters.MinimumHorizontalDragDistance&&Math.Abs(moved.Y)<SystemParameters.MinimumVerticalDragDistance)return;
+        var entry=dragCandidate;dragCandidate=null;
+        DragDrop.DoDragDrop(QueueList,new DataObject(QueueFormat,entry),DragDropEffects.Move);
+    }
+    private void QueueDragOver(object sender,DragEventArgs e){
+        if(!e.Data.GetDataPresent(QueueFormat))return;   // files are handled by the window
+        e.Effects=busy?DragDropEffects.None:DragDropEffects.Move;e.Handled=true;
+        if(busy||e.Data.GetData(QueueFormat) is not QueueEntry moving)return;
+        // Near the top or bottom edge the list scrolls (one item per 0.25 s, the list scrolls by item)
+        // so entries hidden above or below can be reached.
+        double y=e.GetPosition(QueueList).Y;
+        if(Scroller(QueueList) is { } scroll&&DateTime.UtcNow-lastDragScroll>TimeSpan.FromMilliseconds(250)){
+            if(y<48){scroll.LineUp();lastDragScroll=DateTime.UtcNow;}else if(y>QueueList.ActualHeight-48){scroll.LineDown();lastDragScroll=DateTime.UtcNow;}
+        }
+        int from=Entries.IndexOf(moving),insert=InsertIndex(e);
+        int to=insert>from?insert-1:insert;
+        if(from>=0&&to!=from)MoveEntry(moving,to);
+    }
+    // Insertion point = before the first item whose vertical middle is below the pointer. Comparing against
+    // item middles (not the element under the pointer) keeps it stable across the gaps between cards.
+    private int InsertIndex(DragEventArgs e){
+        for(int i=0;i<Entries.Count;i++)
+            if(QueueList.ItemContainerGenerator.ContainerFromIndex(i) is ListBoxItem item&&e.GetPosition(item).Y<item.ActualHeight/2)return i;
+        return Entries.Count;
+    }
+    private static ScrollViewer? Scroller(DependencyObject root){
+        for(int i=0;i<VisualTreeHelper.GetChildrenCount(root);i++){var child=VisualTreeHelper.GetChild(root,i);if(child is ScrollViewer found)return found;if(Scroller(child) is { } deeper)return deeper;}
+        return null;
+    }
+    private void QueueDropped(object sender,DragEventArgs e){if(e.Data.GetDataPresent(QueueFormat))e.Handled=true;}
+    internal void MoveEntry(QueueEntry entry,int index){int from=Entries.IndexOf(entry);if(busy||from<0||index<0||index>=Entries.Count||from==index)return;Entries.Move(from,index);}
+    private static ListBoxItem? ItemAt(object source){
+        var node=source as DependencyObject;
+        while(node is not null and not ListBoxItem)node=node is Visual?VisualTreeHelper.GetParent(node):LogicalTreeHelper.GetParent(node);
+        return node as ListBoxItem;
+    }
     private void CancelClicked(object sender,RoutedEventArgs e){work?.Cancel();estimateCancel?.Cancel();}
-    private void RemoveClicked(object sender,RoutedEventArgs e){if(!busy&&QueueList.SelectedItem is QueueEntry item)Entries.Remove(item);RefreshOptions();UpdateControls();}
+    private void RemoveClicked(object sender,RoutedEventArgs e){if(!busy)foreach(var item in SelectedInListOrder())Entries.Remove(item);RefreshOptions();UpdateControls();}
     private void QueueChanged(object sender,SelectionChangedEventArgs e){UpdateMetrics();UpdateControls();}
     private void UpdateMetrics(){
         var analysis=(QueueList.SelectedItem as QueueEntry)?.Analysis;
@@ -318,13 +366,24 @@ public partial class MainWindow:Window
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();
     private void SettingsClicked(object sender,RoutedEventArgs e){if(!busy)new SettingsWindow(this).ShowDialog();}
+    // Export presets: built-ins plus the user's own, saved in settings.json.
+    internal OutputPreset CurrentPreset=>OutputPresets.Find(Selected(PresetBox));
+    private void RefreshPresets(string? select){
+        bool old=updating;updating=true;
+        Fill(PresetBox,OutputPresets.BuiltIns.Select(x=>new Choice(x.Id,OutputPresets.DisplayName(x,English))),select);
+        updating=old;
+    }
     // Used by the settings window; changes apply immediately and are saved to settings.json.
     internal Preferences Settings=>preferences;
     internal bool Working=>busy||measuring;
-    internal string HardwareSummary=>HardwareText.Text;
     internal void ChangeSettings(Func<Preferences,Preferences> change){preferences=change(preferences);Save();}
-    internal void ChangeLanguage(string value){if(value==language)return;SetLanguage(value,true);Translate();Save();}
-    internal Task CheckForUpdatesAsync()=>ShowUpdatesAsync();
+    // Settings → Advanced shows the main window's own advanced controls, so device/encoder lists,
+    // estimates and saving keep working unchanged. They return to the hidden host when the page closes.
+    internal FrameworkElement BorrowAdvanced(){Detach(AdvancedPanel);return AdvancedPanel;}
+    internal void ReturnAdvanced(){if(ReferenceEquals(AdvancedHost.Content,AdvancedPanel))return;Detach(AdvancedPanel);AdvancedHost.Content=AdvancedPanel;Save();}
+    private static void Detach(FrameworkElement element){
+        switch(element.Parent){case ContentControl host:host.Content=null;break;case Decorator border:border.Child=null;break;case Panel panel:panel.Children.Remove(element);break;}
+    }
     private async Task CheckUpdatesAsync(){try{availableRelease=await Updates.CheckAsync(lifetime.Token);MarkUpdate();}
         catch(OperationCanceledException){}catch(Exception ex){Log(T("업데이트 확인: ","Update check: ")+ex.Message);}}
     private void MarkUpdate(){if(availableRelease is null)return;UpdatesButton.ToolTip=T("업데이트 있음","Update available");UpdatesButton.Foreground=(Brush)new BrushConverter().ConvertFromString("#FF8C60")!;}
@@ -360,16 +419,24 @@ public partial class MainWindow:Window
     private async void OnDrop(object sender,DragEventArgs e){DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString("#3A454C")!;if(e.Data.GetData(DataFormats.FileDrop) is string[] files)await AddFilesAsync(files);}
     private void OnDragOver(object sender,DragEventArgs e){e.Effects=!busy&&e.Data.GetDataPresent(DataFormats.FileDrop)?DragDropEffects.Copy:DragDropEffects.None;DropBorder.BorderBrush=(Brush)new BrushConverter().ConvertFromString(e.Effects==DragDropEffects.Copy?"#FF8C60":"#3A454C")!;e.Handled=true;}
     private void SetupTray(){
-        var stream=System.Windows.Application.GetResourceStream(new Uri("Assets/app.ico",UriKind.Relative))!.Stream;
-        tray=new Forms.NotifyIcon{Icon=new System.Drawing.Icon(stream),Text="FrameDoubler",Visible=true};
-        var menu=new Forms.ContextMenuStrip();menu.Items.Add(T("창 열기","Open window"),null,(_,_)=>Restore());
-        menu.Items.Add("GitHub",null,(_,_)=>Open("https://github.com/deuxdoom/FrameDoubler"));menu.Items.Add(T("업데이트","Updates"),null,async(_,_)=>{Restore();await ShowUpdatesAsync();});
-        menu.Items.Add(T("종료","Exit"),null,(_,_)=>RequestExit(ExitTrigger.Tray));tray.ContextMenuStrip=menu;tray.DoubleClick+=(_,_)=>Restore();
+        if(tray is not null)return;
+        using var stream=System.Windows.Application.GetResourceStream(new Uri("Assets/app.ico",UriKind.Relative))!.Stream;
+        using var icon=new System.Drawing.Icon(stream);
+        tray=new Forms.NotifyIcon{Icon=(System.Drawing.Icon)icon.Clone(),Text="FrameDoubler",Visible=true,ContextMenuStrip=CreateTrayMenu()};
+        tray.DoubleClick+=(_,_)=>Restore();
     }
-    private void Restore(){Show();WindowState=WindowState.Normal;Activate();}
+    internal bool ActivateExistingWindow(){if(exitConfirmed||closing)return false;Restore();return true;}
+    private void Restore(){
+        tray?.ContextMenuStrip?.Close();
+        bool minimized=WindowState==WindowState.Minimized;var previous=restoreState;
+        Show();if(minimized)WindowState=previous;
+        var target=OwnedWindows.Cast<Window>().LastOrDefault(x=>x.IsVisible)??this;
+        if(target.WindowState==WindowState.Minimized)target.WindowState=WindowState.Normal;
+        target.Activate();SingleInstance.Foreground(target);
+    }
     private void Save(){
-        try{preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),Codec=Selected(CodecBox),
-            Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),Quality=(int)QualitySlider.Value,
+        try{preferences=new(){Language=language,OutputDirectory=OutputBox.Text,Preset=Selected(PresetBox),Fps=Selected(FpsBox),
+            Device=Selected(DeviceBox),DeviceName=(DeviceBox.SelectedItem as Choice)?.Label??"",Encoder=Selected(EncoderBox),Model=Selected(ModelBox),
             Verify=VerifyCheck.IsChecked==true,HardwareEncoding=HardwareCheck.IsChecked==true,
             CheckUpdates=preferences.CheckUpdates,CloseAction=preferences.CloseAction,MinimizeAction=preferences.MinimizeAction};preferences.Save();}catch(Exception ex){Log(ex.Message);}
     }
@@ -379,7 +446,7 @@ public partial class MainWindow:Window
         // Running jobs are cancelled first; their FFmpeg/engine processes are killed and incomplete output removed,
         // then the queue/estimate completion calls Close() again. The job object is the last safety net.
         if(busy||measuring){e.Cancel=true;closing=true;StatusText.Text=T("작업을 취소하고 정리한 뒤 종료합니다…","Cancelling and cleaning up before exit…");work?.Cancel();estimateCancel?.Cancel();return;}
-        lifetime.Cancel();Save();if(tray is not null){tray.Visible=false;tray.Dispose();tray=null;}
+        lifetime.Cancel();Save();DisposeTray();
     }
     public void PreviewLanguage(string value){SetLanguage(value,false);Translate();}
 }

@@ -8,6 +8,10 @@
 <meta property="og:title" content="FrameDoubler · 30fps 게임 녹화를 진짜 60fps로">
 <meta property="og:description" content="30fps 게임 녹화 영상을 실제 60fps로. 중복 프레임 감지와 RIFE AI 프레임 보간.">
 <meta property="og:image" content="https://deuxdoom.github.io/FrameDoubler/img/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="FrameDoubler 프로그램 UI와 30fps 게임 녹화의 AI 프레임 보간 기능 소개">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#14181B">
 <link rel="icon" href="img/icon.png">
@@ -190,6 +194,10 @@ nav a:hover { color: var(--text); background: var(--raised); }
 .gallery figcaption { color: var(--muted); font-size: .85rem; margin: 8px 4px 2px; }
 
 /* download */
+.version-line { margin-top: 14px; }
+.release-version { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--border);
+  border-radius: 7px; color: var(--muted); font-size: .85rem; text-decoration: none; transition: color .16s, background .16s, border-color .16s; }
+.release-version:hover, .release-version:focus-visible { color: #14181B; background: #FFD54F; border-color: #FFD54F; }
 .dl { display: grid; gap: 24px; grid-template-columns: 1fr; margin-top: 36px; }
 @media (min-width: 900px) { .dl { grid-template-columns: 1fr 1fr; } }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: clamp(20px, 3vw, 30px); }
@@ -240,9 +248,10 @@ footer a { color: var(--muted); }
       <h1><span data-i18n="hero.title1">30fps 게임 녹화를</span><span class="accent" data-i18n="hero.title2">진짜 60fps로</span></h1>
       <p class="lead" data-i18n="hero.lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
       <div class="cta">
-        <a class="btn primary" id="download-button" href="https://github.com/deuxdoom/FrameDoubler/releases/latest"><span data-i18n="hero.download">내려받기</span> <small id="latest-version">Windows 11</small></a>
+        <a class="btn primary" id="download-button" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/latest/download/FrameDoubler.zip"><span data-i18n="hero.download">내려받기</span> <small>ZIP · Windows 11</small></a>
         <a class="btn" href="#why" data-i18n="hero.why">무엇이 다른가요</a>
       </div>
+      <p class="version-line"><a class="release-version" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span data-i18n="download.version">최신 버전</span><span data-latest-version></span></a></p>
       <div class="badges"><span>Windows 11 x64</span><span data-i18n="badge.gpu">Vulkan GPU · CPU 대체</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span data-i18n="badge.portable">설치 없이 압축만 풀기</span><span data-i18n="badge.license">MIT 라이선스</span></div>
     </div>
 
@@ -307,7 +316,7 @@ footer a { color: var(--muted); }
       <li class="reveal" style="--i:2"><h3 data-i18n="step3.title">중복 프레임 처리</h3><p data-i18n="step3.text"><span class="s">압축 때문에 조금씩 달라진 중복 프레임도 판정합니다.</span> <span class="s">프레임 드롭으로 3번, 4번 반복된 구간과 정지 화면도 구분합니다.</span></p></li>
       <li class="reveal" style="--i:3"><h3 data-i18n="step4.title">RIFE AI 보간</h3><p data-i18n="step4.text"><span class="s">남은 프레임 사이의 정확한 시각에 새 프레임을 만듭니다.</span> <span class="s">ncnn과 Vulkan으로 제조사와 관계없이 GPU에서 실행합니다.</span> <span class="s">장면이 바뀌는 순간에는 두 화면을 섞지 않습니다.</span></p></li>
       <li class="reveal" style="--i:4"><h3 data-i18n="step5.title">인코딩</h3><p data-i18n="step5.text"><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">H.264, HEVC, AV1로 만들고 길이와 오디오 싱크를 유지합니다.</span></p></li>
-      <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증 (선택)</h3><p data-i18n="step6.text"><span class="s">원하면 변환 뒤에 결과 파일의 프레임레이트, 길이, 오디오 동기, 색상을 다시 검사합니다.</span> <span class="s">남은 중복 프레임의 비율도 함께 보고합니다.</span></p></li>
+      <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증 (선택)</h3><p data-i18n="step6.text"><span class="s">처음·중간·끝 각 1분만 검사합니다(최대 3분, 겹침 병합).</span> <span class="s">전체 메타데이터도 확인하지만 검사 밖의 오류는 놓칠 수 있습니다.</span></p></li>
     </ol>
   </div>
 </section>
@@ -334,15 +343,15 @@ footer a { color: var(--muted); }
       <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3 data-i18n="card1.title">자동 분석</h3><p data-i18n="card1.text"><span class="s">코덱, 비트레이트, 길이와 함께 파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">1~2시간 녹화도 여러 구간만 읽어 바로 분석합니다.</span></p></article>
       <article class="card reveal" style="--i:1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="12" height="12" rx="2"/><rect x="9" y="8" width="12" height="12" rx="2"/></svg><h3 data-i18n="card2.title">중복·정지 화면 구분</h3><p data-i18n="card2.text">프레임 드롭으로 생긴 반복과 일시 정지 메뉴 같은 정지 화면을 구별합니다.</p></article>
       <article class="card reveal" style="--i:2"><svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M9 8l6 4-6 4z"/></svg><h3 data-i18n="card3.title">장면 전환 보호</h3><p data-i18n="card3.text"><span class="s">컷이 바뀌는 순간에는 보간하지 않습니다.</span> <span class="s">두 장면이 겹쳐 보이는 프레임이 생기지 않습니다.</span></p></article>
-      <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3 data-i18n="card4.title">제조사와 관계없는 GPU 가속</h3><p data-i18n="card4.text"><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU에서 동작합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
+      <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3 data-i18n="card4.title">제조사와 관계없는 GPU 가속</h3><p data-i18n="card4.text"><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU를 지원 대상으로 합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
       <article class="card reveal" style="--i:4"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg><h3 data-i18n="card5.title">동작하는 인코더만 선택</h3><p data-i18n="card5.text"><span class="s">NVENC, AMF, QSV와 소프트웨어 인코더로 짧게 인코딩해 봅니다.</span> <span class="s">성공한 코덱만 메뉴에 보여 줍니다.</span></p></article>
-      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">YouTube 프리셋</h3><p data-i18n="card6.text"><span class="s">해상도와 fps에 맞는 권장 비트레이트의 MP4를 한 번에 만듭니다.</span> <span class="s">보관용으로 119.88·120fps 출력도 고를 수 있습니다.</span></p></article>
+      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">출력 프리셋</h3><p data-i18n="card6.text">원본 비트레이트 유지·fps 비례 증가 또는 YouTube 4K(45Mbps)·1080p(10Mbps)를 고릅니다. 원본 프리셋의 오디오는 패스스루합니다.</p></article>
       <article class="card reveal" style="--i:6"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><h3 data-i18n="card7.title">오디오 싱크와 색상 보존</h3><p data-i18n="card7.text"><span class="s">영상 길이를 프레임 단위로 맞춥니다.</span> <span class="s">오디오의 시작 시각과 색상 정보도 원본 그대로 유지합니다.</span> <span class="s">HDR 영상은 SDR로 변환합니다.</span></p></article>
       <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3 data-i18n="card8.title">고정 HUD 보호</h3><p data-i18n="card8.text"><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
-      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4"/></svg><h3 data-i18n="card9.title">예상 소요 시간</h3><p data-i18n="card9.text"><span class="s">변환 전에 선택한 장치와 설정으로 짧게 실제 처리를 해 보고 예상 시간을 알려 줍니다.</span> <span class="s">끝낸 작업이 쌓이면 예상이 더 정확해집니다.</span></p></article>
-      <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3 data-i18n="card10.title">대기열과 명령줄</h3><p data-i18n="card10.text"><span class="s">여러 영상을 대표 장면 썸네일과 함께 보여 주고 순서대로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
+      <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4"/></svg><h3 data-i18n="card9.title">예상 소요 시간</h3><p data-i18n="card9.text">장치 실측과 완료 작업을 반영해 하나의 예상 소요 시간과 완료 예정 시각을 알려 줍니다. 추정 범위는 도움말에서 확인합니다.</p></article>
+      <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3 data-i18n="card10.title">대기열과 명령줄</h3><p data-i18n="card10.text"><span class="s">여러 영상을 썸네일과 함께 보여 주고, 끌어서 순서를 바꾸며, 전체나 고른 영상만 번호순으로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
       <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">포터블 실행과 검증된 업데이트</h3><p data-i18n="card11.text"><span class="s">설정과 기록은 실행 파일이 있는 폴더에 저장합니다.</span> <span class="s">업데이트는 SHA-256과 모든 파일의 해시가 일치할 때만 설치하고, 실패하면 이전 버전으로 되돌립니다.</span></p></article>
-      <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3 data-i18n="card12.title">트레이와 한국어·영어</h3><p data-i18n="card12.text"><span class="s">최소화하거나 닫을 때 트레이에서 계속 변환할지, 종료할지 묻습니다.</span> <span class="s">설정 창에서 매번 묻지 않도록 정할 수 있습니다.</span> <span class="s">화면은 한국어와 영어를 지원합니다.</span></p></article>
+      <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3 data-i18n="card12.title">트레이와 한국어·영어</h3><p data-i18n="card12.text">최소화는 기본으로 작업 표시줄에 남고, 설정에서 트레이로 바꿀 수 있습니다. 중복 실행은 기존 창을 엽니다. 화면과 트레이 메뉴는 한국어·영어를 지원합니다.</p></article>
     </div>
   </div>
 </section>
@@ -351,13 +360,13 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <p class="eyebrow reveal" data-i18n="screens.eyebrow">실제 화면</p>
     <h2 class="reveal" data-i18n="screens.title">파일 fps와 움직임 fps를 한눈에</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증, 예상 소요 시간만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 고급 설정에 접어 두었습니다.</span></p>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증, 예상 소요 시간만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 설정 창의 고급에 있습니다.</span></p>
     <img class="shot reveal" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1475" height="1000" loading="lazy"
-         alt="FrameDoubler 메인 화면: 파일 프레임레이트 60fps와 실제 움직임 29.81fps, 변환 완료와 검증 통과가 표시되어 있습니다." data-i18n-attr="alt:screens.alt">
+         alt="FrameDoubler 1.0.1 메인 화면: 영상 썸네일, 출력 프리셋, 예상 시간과 구간 검증 결과" data-i18n-attr="alt:screens.alt">
     <div class="gallery">
       <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" data-en-src="img/screen-en.png" width="1475" height="1000" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" data-i18n-attr="alt:gallery1.alt"><figcaption data-i18n="gallery1.caption">끌어 놓거나 클릭하여 영상을 추가합니다.</figcaption></figure>
       <figure class="reveal" style="--i:1"><img src="img/screen-en.png" data-en-src="img/screen-empty.png" width="1475" height="1000" loading="lazy" alt="영어로 표시한 FrameDoubler 화면" data-i18n-attr="alt:gallery2.alt"><figcaption data-i18n="gallery2.caption">한국어와 영어를 바로 전환합니다.</figcaption></figure>
-      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" data-en-src="img/screen-update-en.png" width="900" height="675" loading="lazy" alt="새 버전의 변경 사항과 설치 버튼이 있는 업데이트 창" data-i18n-attr="alt:gallery3.alt"><figcaption data-i18n="gallery3.caption">업데이트는 변경 사항을 확인한 뒤 설치합니다.</figcaption></figure>
+      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" data-en-src="img/screen-update-en.png" width="900" height="775" loading="lazy" alt="새 버전의 변경 사항과 설치 단계가 있는 업데이트 창" data-i18n-attr="alt:gallery3.alt"><figcaption data-i18n="gallery3.caption">새 버전이 있으면 변경 사항과 설치 단계를 보여 줍니다.</figcaption></figure>
     </div>
   </div>
 </section>
@@ -369,8 +378,10 @@ footer a { color: var(--muted); }
     <div class="dl">
       <div class="panel reveal">
         <h3 data-i18n="start.title">시작하기</h3>
+        <div class="cta"><a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/latest/download/FrameDoubler.zip"><span data-i18n="download.file">ZIP 내려받기</span><small>FrameDoubler.zip</small></a></div>
+        <p class="version-line"><a class="release-version" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span data-i18n="download.version">최신 버전</span><span data-latest-version></span></a></p>
         <ol>
-          <li data-i18n="start.step1"><a href="https://github.com/deuxdoom/FrameDoubler/releases/latest">최신 릴리스</a>에서 <b>FrameDoubler.zip</b>(약 208MB)을 내려받습니다.</li>
+          <li data-i18n="start.step1">위 버튼으로 <b>FrameDoubler.zip</b>(약 208MB)을 내려받습니다.</li>
           <li data-i18n="start.step2"><span class="s">원하는 위치에 압축을 풉니다.</span> <span class="s">풀린 <code>FrameDoubler</code> 폴더는 통째로 유지합니다(약 460MB).</span></li>
           <li data-i18n="start.step3"><code>FrameDoubler.exe</code>를 실행하고 영상을 끌어다 놓습니다.</li>
         </ol>
@@ -381,12 +392,11 @@ footer a { color: var(--muted); }
         <ul>
           <li data-i18n="req.os"><b>Windows 11</b> 64비트</li>
           <li data-i18n="req.gpu"><span class="s"><b>Vulkan을 지원하는 GPU</b>와 최신 드라이버 권장 (NVIDIA, AMD, Intel).</span> <span class="s">없으면 CPU로 처리하며 크게 느려집니다.</span></li>
-          <li data-i18n="req.sdr">SDR 영상</li>
+          <li data-i18n="req.sdr">SDR · HDR(HLG/PQ → SDR) 영상</li>
         </ul>
         <h3 style="margin-top:22px" data-i18n="verify.title">파일 검증</h3>
         <pre>Get-FileHash <b>FrameDoubler.zip</b> -Algorithm SHA256</pre>
-        <p class="note" data-i18n="verify.note">SHA-256 값은 릴리스 설명에 적혀 있습니다.</p>
-        <div class="cta"><a class="btn primary" href="https://github.com/deuxdoom/FrameDoubler/releases/latest" data-i18n="verify.button">릴리스 페이지 열기</a></div>
+        <p class="note" data-i18n="verify.note">SHA-256 값은 버전 링크의 릴리스 설명에서 확인합니다.</p>
       </div>
     </div>
   </div>
@@ -447,7 +457,7 @@ footer a { color: var(--muted); }
     "step5.title": "Encoding",
     "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "Writes H.264, HEVC or AV1 and keeps the length and audio sync."),
     "step6.title": "Output verification (optional)",
-    "step6.text": s("If you want, checks the frame rate, length, audio sync and colour of the result after conversion.", "It also reports the share of duplicate frames left."),
+    "step6.text": s("Checks one minute at the start, middle and end (up to three minutes; overlaps merged).", "Global metadata is also checked, but errors outside the samples may be missed."),
     "results.eyebrow": "Results", "results.title": "Tested on a real 4K game recording",
     "stat1.text": s("The estimated real motion.", "The file was 60fps, but the motion was 30fps."),
     "stat2.unit": "frames", "stat2.text": s("New in-between frames.", "They fill the duplicate slots among 1,283 frames."),
@@ -459,32 +469,33 @@ footer a { color: var(--muted); }
     "card1.title": "Automatic analysis", "card1.text": s("Shows codec, bitrate and length with the file fps and the estimated motion fps side by side.", "Even one- or two-hour recordings are analysed right away from a few sampled sections."),
     "card2.title": "Duplicates and still screens", "card2.text": "Tells dropped-frame repeats apart from still screens such as pause menus.",
     "card3.title": "Scene change protection", "card3.text": s("Does not interpolate at a cut.", "No frame shows two scenes overlapping."),
-    "card4.title": "GPU acceleration from any vendor", "card4.text": s("Runs on NVIDIA, AMD and Intel Vulkan GPUs.", "Without a usable GPU it uses the CPU and tells you it will be slower."),
+    "card4.title": "GPU acceleration from any vendor", "card4.text": s("Runs on Compatible NVIDIA, AMD and Intel Vulkan GPUs.", "Without a usable GPU it uses the CPU and tells you it will be slower."),
     "card5.title": "Only encoders that work", "card5.text": s("Runs a short test encode with NVENC, AMF, QSV and software encoders.", "Only codecs that succeed appear in the menu."),
-    "card6.title": "YouTube preset", "card6.text": s("Creates an MP4 at the recommended bitrate for its resolution and frame rate in one step.", "119.88 and 120fps output is also available for archiving."),
+    "card6.title": "Export presets", "card6.text": "Keep source bitrate, scale it with fps, or choose YouTube 4K (45 Mbps) or 1080p (10 Mbps). Both Source presets pass audio through.",
     "card7.title": "Audio sync and colour preserved", "card7.text": s("Matches the video length frame by frame.", "Keeps the audio start time and colour information of the original.", "HDR video is converted to SDR."),
     "card8.title": "Static HUD protection", "card8.text": s("Mark areas that never move, such as a minimap or subtitles.", "Pixels in those areas stay exactly as in the original."),
-    "card9.title": "Time estimate", "card9.text": s("Before converting, a short real run on the chosen device and settings gives an estimated time.", "Estimates get more accurate as finished jobs accumulate."),
-    "card10.title": "Queue and command line", "card10.text": s("Lists videos with a representative thumbnail and converts them one after another.", "The bundled command-line tool can process a whole folder."),
+    "card9.title": "Time estimate", "card9.text": "Device measurements and completed jobs give one estimated duration and a completion clock. The uncertainty range remains in the tooltip.",
+    "card10.title": "Queue and command line", "card10.text": s("Lists videos with thumbnails, lets you drag them into order and converts all or only the selected ones in that order.", "The bundled command-line tool can process a whole folder."),
     "card11.title": "Portable, with verified updates", "card11.text": s("Settings and history stay in the folder next to the executable.", "Updates install only when the SHA-256 and every file hash match, and roll back if anything fails."),
-    "card12.title": "Tray, Korean and English", "card12.text": s("Minimising or closing asks whether to keep converting in the tray or to exit.", "The interface is available in Korean and English.", "Settings can make that choice permanent."),
+    "card12.title": "Tray, Korean and English", "card12.text": "Minimize keeps the window in the taskbar by default; the tray is optional in Settings. A second launch activates the existing window. The interface and tray menu support Korean and English.",
     "screens.eyebrow": "Screenshots", "screens.title": "File fps and motion fps at a glance",
     "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder, verification and the time estimate.",
-                      "Device and encoder options are tucked away under Advanced settings."),
-    "screens.alt": "FrameDoubler main window: file frame rate 60fps, real motion 29.81fps, conversion complete and verification passed.",
+                      "Device and encoder options live under Advanced in the settings window."),
+    "screens.alt": "FrameDoubler 1.0.1 main window: video thumbnail, export preset, time estimate and sample verification result",
     "gallery1.alt": "First screen for dropping or choosing videos", "gallery1.caption": "Drop or click to add videos.",
     "gallery2.alt": "FrameDoubler shown in Korean", "gallery2.caption": "Switch between Korean and English instantly.",
-    "gallery3.alt": "Update window with the release notes and an install button", "gallery3.caption": "Review the changes before installing an update.",
+    "gallery3.alt": "Update window with the release notes and installation steps", "gallery3.caption": "A new version shows its changes and installation steps.",
     "download.eyebrow": "Download", "download.title": "No installer, just unzip",
+    "download.file": "Download ZIP", "download.version": "Latest version", "download.notes": "Release details",
     "start.title": "Getting started",
-    "start.step1": 'Download <b>FrameDoubler.zip</b> (about 208MB) from the <a href="https://github.com/deuxdoom/FrameDoubler/releases/latest">latest release</a>.',
+    "start.step1": 'Use the button above to download <b>FrameDoubler.zip</b> (about 208MB).',
     "start.step2": s("Unzip it wherever you like.", "Keep the extracted <code>FrameDoubler</code> folder together (about 460MB)."),
     "start.step3": "Run <code>FrameDoubler.exe</code> and drop in your videos.",
     "start.note": s("The .NET runtime, both RIFE models and FFmpeg are included.", "There is no need to install Python, the CUDA Toolkit or another SDK, or to download models."),
     "req.title": "Requirements", "req.os": "<b>Windows 11</b> 64-bit",
     "req.gpu": s("<b>A GPU with Vulkan support</b> and a current driver recommended (NVIDIA, AMD, Intel).", "Without one, processing runs on the CPU and is much slower."),
-    "req.sdr": "SDR video",
-    "verify.title": "File verification", "verify.note": "The SHA-256 value is listed in the release notes.", "verify.button": "Open the releases page",
+    "req.sdr": "SDR or HDR video (HLG/PQ converted to SDR)",
+    "verify.title": "File verification", "verify.note": "Follow the version link to find the SHA-256 value in the release notes.",
     "footer.credit": 'FrameDoubler · MIT license · Uses <a href="https://github.com/hzwer/Practical-RIFE">Practical-RIFE</a> models for interpolation and <a href="https://github.com/Tencent/ncnn">ncnn</a> for inference.',
     "footer.changelog": "Changelog", "footer.notices": "Open source notices",
   };
@@ -557,13 +568,16 @@ footer a { color: var(--muted); }
   }, { threshold: 0.6 });
   if (!reduce) document.querySelectorAll("[data-count]").forEach(element => counters.observe(element));
 
-  /* ---------- Latest version on the download button ---------- */
+  /* ---------- Separate release version and direct ZIP links ---------- */
   fetch("https://api.github.com/repos/deuxdoom/FrameDoubler/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(response => response.ok ? response.json() : null)
     .then(release => {
       if (release && /^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
-        document.getElementById("latest-version").textContent = release.tag_name;
-        document.getElementById("download-button").href = release.html_url;
+        document.querySelectorAll("[data-latest-version]").forEach(element => element.textContent = release.tag_name);
+        document.querySelectorAll("[data-release-notes]").forEach(element => element.href = `https://github.com/deuxdoom/FrameDoubler/releases/tag/${release.tag_name}`);
+        const zip = release.assets?.find(asset => asset.name === "FrameDoubler.zip");
+        const direct = `https://github.com/deuxdoom/FrameDoubler/releases/download/${release.tag_name}/FrameDoubler.zip`;
+        if (zip?.browser_download_url === direct) document.querySelectorAll("[data-download-zip]").forEach(element => element.href = direct);
       }
     })
     .catch(() => {});

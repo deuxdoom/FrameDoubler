@@ -18,6 +18,16 @@ internal static class PipelineTests
         assert(info.Fps==30&&info.Pts.Length==60,"Probe 30fps timestamps");
         var options=new ConversionOptions{Codec="h264",Verify=true};
         var normal=await pipeline.RunAsync(source,Path.Combine(root,"60.mp4"),options);
+        // Match source: same codec as the input (H.264 here), bitrate from the source, audio copied.
+        var matched=await pipeline.RunAsync(source,Path.Combine(root,"match-source.mp4"),options with{MatchSource=true});
+        var matchedInfo=await MediaProbe.ReadAsync(paths,matched.Output);
+        assert(matchedInfo.Codec==info.Codec&&matchedInfo.Width==info.Width&&matched.Verification?.Ok==true&&matched.Fps==60,"Match-source preset keeps codec and size");
+        async Task<string> AudioHash(string path){var result=await ProcessRunner.RunAsync(paths.FFmpeg,["-v","error","-i",path,"-map","0:a:0","-c:a","copy","-f","hash","-hash","sha256","-"]);if(result.ExitCode!=0)throw new IOException(result.Error);return result.Output.Trim();}
+        assert(await AudioHash(source)==await AudioHash(matched.Output),"Source preset audio packets are passed through unchanged");
+        // Export preset: output height 90 with Twitch delivery (AAC audio, 2 s keyframes) and verification.
+        var scaled=await pipeline.RunAsync(source,Path.Combine(root,"scaled-twitch.mp4"),options with{Platform="twitch",OutputHeight=90});
+        var scaledInfo=await MediaProbe.ReadAsync(paths,scaled.Output);
+        assert(scaledInfo.Width==160&&scaledInfo.Height==90&&scaled.Verification?.Ok==true&&scaledInfo.Audio.Length==1&&scaledInfo.Audio[0].Codec=="aac","Preset height scales the output; Twitch delivery encodes AAC");
         assert(normal.Frames==120&&normal.Interpolated==59&&normal.Verification?.Ok==true,"True 30 to 60 inference and audio verification");
         string small=Path.Combine(root,"small.mp4");
         await FF("-f","lavfi","-i","color=s=128x128:r=30:d=0.4","-c:v","libopenh264","-b:v","1M",small);

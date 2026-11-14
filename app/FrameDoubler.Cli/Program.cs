@@ -5,20 +5,30 @@ using var cancel=new CancellationTokenSource();
 Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancel.Cancel();};
 try{
     var paths=AppPaths.Discover();var pipeline=new ConversionPipeline(paths);
-    if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | estimate FILE [--verify] | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER");return 0;}
+    if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | estimate FILE [--verify] | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER\n"+
+        "  --preset source|source-scaled|youtube-2160|youtube-1080  --height N");return 0;}
     string? Get(string name){int i=Array.IndexOf(args,name);if(i<0)return null;if(i+1>=args.Length)throw new ArgumentException("Missing value: "+name);return args[i+1];}
     bool Has(string name)=>args.Contains(name);
     var json=new JsonSerializerOptions{WriteIndented=true};
     void Print(object value)=>Console.WriteLine(JsonSerializer.Serialize(value,json));
     var progress=new Progress<ConversionProgress>(x=>{if(!Has("--quiet"))Console.Error.WriteLine($"{x.Stage} {x.Frames}/{x.Total} {x.Message}");});
-    ConversionOptions Options()=>new(){Fps=Get("--fps") is { } fps?Rational.Parse(fps):null,
-        Model=Get("--model")??"v4.25",Device=Get("--device")??"auto",Encoder=Get("--encoder")??"auto",Codec=Get("--codec"),
-        Youtube=Get("--preset")=="youtube",Quality=int.Parse(Get("--quality")??"19"),Bitrate=Get("--bitrate"),
-        Deduplicate=!Has("--no-dedup"),Verify=!Has("--no-verify"),Overwrite=Has("--overwrite"),HardwareEncoding=!Has("--software"),
-        MaxFrames=Get("--max-frames") is { } max?int.Parse(max):null,
-        Hud=args.Select((x,i)=>(x,i)).Where(x=>x.x=="--hud-region").Select(x=>{
-            int[] values=args[x.i+1].Split(',').Select(int.Parse).ToArray();
-            if(values.Length!=4)throw new ArgumentException("HUD must be X,Y,W,H");return new HudRegion(values[0],values[1],values[2],values[3]);}).ToArray()};
+    // Four fixed presets, source by default. CLI overrides remain explicit.
+    ConversionOptions Options(){
+        string? key=Get("--preset");
+        var preset=key is null?OutputPresets.Find("source"):OutputPresets.FindExact(key)??throw new ArgumentException("Unknown preset: "+key);
+        var options=OutputPresets.Apply(preset,new ConversionOptions{Fps=Get("--fps") is { } fps?Rational.Parse(fps):null,
+            Model=Get("--model")??"v4.25",Device=Get("--device")??"auto",Encoder=Get("--encoder")??"auto",
+            Deduplicate=!Has("--no-dedup"),Verify=!Has("--no-verify"),Overwrite=Has("--overwrite"),HardwareEncoding=!Has("--software"),
+            MaxFrames=Get("--max-frames") is { } max?int.Parse(max):null,
+            Hud=args.Select((x,i)=>(x,i)).Where(x=>x.x=="--hud-region").Select(x=>{
+                int[] values=args[x.i+1].Split(',').Select(int.Parse).ToArray();
+                if(values.Length!=4)throw new ArgumentException("HUD must be X,Y,W,H");return new HudRegion(values[0],values[1],values[2],values[3]);}).ToArray()});
+        if(Get("--codec") is { } codec)options=options with{Codec=codec};
+        if(Get("--quality") is { } quality)options=options with{Quality=int.Parse(quality),QualityOnly=true,MatchSource=false};
+        if(Get("--bitrate") is { } bitrate)options=options with{Bitrate=bitrate};
+        if(Get("--height") is { } height)options=options with{OutputHeight=int.Parse(height)};
+        return options;
+    }
     switch(args[0]){
         case "hardware":{var found=await pipeline.HardwareAsync(cancel.Token);Print(new{found.Hardware,found.Encoders});break;}
         case "analyze":Print(await pipeline.AnalyzeAsync(args[1],progress,cancel.Token));break;

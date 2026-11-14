@@ -7,6 +7,7 @@ public sealed record EncoderCapability(string Name, string Codec, string Backend
     bool TenBit, string? Reason, double? ProbeMilliseconds = null)
 {
     public bool Hardware => Backend != "software";
+    public bool HighQualityTuning{get;init;}
 }
 public sealed record EncoderChoice(EncoderCapability Encoder, string Explanation);
 
@@ -34,13 +35,17 @@ public static class EncoderDetector
                 // Check produced bit depth, not merely FFmpeg exit status: encoders may
                 // silently convert unsupported 10-bit input back to 8-bit.
                 bool ten = eight.Success && (await ProbeAsync(paths, name, true, cancel)).Success;
-                result.Add(new(name,codec,backend,eight.Success&&bitrate.Success,ten,eight.Reason??bitrate.Reason,watch.Elapsed.TotalMilliseconds));
+                bool highQuality=backend=="nvenc"&&eight.Success&&bitrate.Success
+                    &&(await ProbeAsync(paths,name,false,cancel,highQuality:true)).Success
+                    &&(await ProbeAsync(paths,name,false,cancel,bitrate:true,highQuality:true)).Success
+                    &&(!ten||(await ProbeAsync(paths,name,true,cancel,highQuality:true)).Success);
+                result.Add(new(name,codec,backend,eight.Success&&bitrate.Success,ten,eight.Reason??bitrate.Reason,watch.Elapsed.TotalMilliseconds){HighQualityTuning=highQuality});
             }
         }
         return result;
     }
 
-    private static async Task<(bool Success, string? Reason)> ProbeAsync(AppPaths paths, string name, bool deep, CancellationToken cancel,bool bitrate=false)
+    private static async Task<(bool Success, string? Reason)> ProbeAsync(AppPaths paths, string name, bool deep, CancellationToken cancel,bool bitrate=false,bool highQuality=false)
     {
         string folder = Path.Combine(WorkRoot, "encoder-probes");
         Directory.CreateDirectory(folder);
@@ -50,7 +55,7 @@ public static class EncoderDetector
                 "-frames:v","2","-an","-threads","2","-pix_fmt",deep?"yuv420p10le":"yuv420p"};
             string codec=name.StartsWith("h264",StringComparison.Ordinal)||name=="libopenh264"?"h264":name.StartsWith("hevc",StringComparison.Ordinal)||name=="libkvazaar"?"hevc":"av1";
             string backend=name.EndsWith("_nvenc",StringComparison.Ordinal)?"nvenc":name.EndsWith("_amf",StringComparison.Ordinal)?"amf":name.EndsWith("_qsv",StringComparison.Ordinal)?"qsv":"software";
-            args.AddRange(EncoderPolicy.Arguments(new(name,codec,backend,true,deep,null),19,bitrate?"1M":null));
+            args.AddRange(EncoderPolicy.Arguments(new EncoderCapability(name,codec,backend,true,deep,null){HighQualityTuning=highQuality},19,bitrate?"1M":null));
             args.Add(output);
             var check = await ProcessRunner.RunAsync(paths.FFmpeg, args, cancel, TimeSpan.FromSeconds(15));
             if (check.ExitCode != 0) return (false, Tail(check.Error));
@@ -99,7 +104,11 @@ public static class EncoderPolicy
     {
         if (quality is < 1 or > 51) throw new ArgumentOutOfRangeException(nameof(quality));
         var args = new List<string>{"-c:v",encoder.Name};
-        if(encoder.Backend=="nvenc")args.AddRange(["-preset","p5"]);
+        if(encoder.Backend=="nvenc"){
+            args.AddRange(["-preset",encoder.HighQualityTuning?"p7":"p5"]);
+            // Optional and runtime-probed. Unsupported devices keep the tested base path.
+            if(encoder.HighQualityTuning)args.AddRange(["-tune","hq","-multipass","fullres","-rc-lookahead","32"]);
+        }
         if(encoder.Name=="libsvtav1")args.AddRange(["-preset","8","-svtav1-params","lp=4"]);
         if (bitrate is not null) {
             if(encoder.Backend=="nvenc")args.AddRange(["-rc","vbr"]);

@@ -40,10 +40,12 @@ public sealed partial class ConversionPipeline
     private string PerformanceKey(MediaInfo source,ConversionOptions options,DeviceChoice device,EncoderCapability encoder,Rational fps){
         engineFingerprint??=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths.Engine)));
         var gpu=device.Gpu;
-        return TimeEstimates.Key("estimate-v1",engineFingerprint,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
+        return TimeEstimates.Key("estimate-v2",engineFingerprint,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
             // Tone-mapped HDR decodes slower; mark only those keys so existing SDR history stays valid.
             device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.HdrInput is { } hdr?$"{source.Codec}+tonemap-{hdr.Name}":source.Codec,source.Fps.ToString(),fps.ToString(),
-            options.Model,encoder.Name,options.Quality,options.Bitrate,options.Youtube,options.Deduplicate,options.Hud.Length);
+            // Platform/size/quality-only are folded into the encoder part so existing YouTube and quality keys stay valid.
+            options.Model,encoder.Name+(options.Platform is "twitch" or "chzzk"?"/"+options.Platform:"")+(options.OutputHeight is int h?"@"+h:"")+(options.QualityOnly&&options.Platform is not null?"+cq":"")+(options.MatchSource?"+src":""),
+            options.Quality,options.Bitrate,options.Youtube,options.Deduplicate,options.Hud.Length,options.ScaleSourceBitrate,source.VideoBitrate,source.OverallBitrate,string.Join(' ',EncoderPolicy.Arguments(encoder,options.Quality,options.Bitrate)));
     }
     public async Task<TimeEstimate> EstimateAsync(AnalysisResult analysis,ConversionOptions options,CancellationToken cancel=default,bool refresh=false){
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancel);deadline.CancelAfter(TimeSpan.FromSeconds(45));
@@ -53,12 +55,13 @@ public sealed partial class ConversionPipeline
     private async Task<TimeEstimate> MeasureEstimateAsync(AnalysisResult analysis,ConversionOptions options,CancellationToken cancel,bool refresh=false){
         var source=analysis.Source;var devices=await HardwareAsync(cancel);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
-        if(fps<=0||fps>1000||options.Youtube&&fps>60)throw new ArgumentException("YouTube 프리셋은 60fps까지 지원합니다.");
+        if(fps<=0||fps>1000||options.Platform is not null&&fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
         ulong required=checked((ulong)source.Width*(ulong)source.Height*(source.BitDepth>8?768UL:384UL));
         var device=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8)device=device with{HalfStorage=false};
-        string codec=options.Codec??EncoderPolicy.DefaultCodec(devices.Encoders,options.Youtube,source.BitDepth>8,options.HardwareEncoding);
+        var (codec,bitrate)=OutputPresets.Encoding(source,options,devices.Encoders,fps);
         var encoder=EncoderPolicy.Choose(devices.Encoders,codec,options.Encoder,source.BitDepth>8,options.HardwareEncoding).Encoder;
+        if(!options.HighQualityEncoding)encoder=encoder with{HighQualityTuning=false};
         string key=PerformanceKey(source,options,device,encoder,fps);
         if(!refresh&&TimeEstimates.Load(key) is {} cached)return TimeEstimates.Predict(cached,analysis,fps,options.Verify);
         byte[]? first=null,second=null;Signature? before=null;
@@ -82,10 +85,13 @@ public sealed partial class ConversionPipeline
         try{
             var header=source with{Pts=[0],Audio=[]};var clock=Stopwatch.StartNew();double warm=0;
             await using(var writer=new VideoEncoder(paths,Path.Combine(folder,"probe.mp4"),header,fps,encoder,options.Quality,
-                options.Bitrate??(options.Youtube?YoutubeBitrate(source.Width,source.Height,fps):null),options.Youtube,(Rational)24/fps)){
+                bitrate,
+                options.Platform,(Rational)24/fps,options.OutputHeight)){
                 for(int i=0;i<24;i++){await writer.WriteAsync(i%2==0?first:second,cancel);if(i==3)warm=clock.Elapsed.TotalSeconds;}
                 await writer.CompleteAsync(cancel);encode=Math.Max(.000001,(clock.Elapsed.TotalSeconds-warm)/20);
             }
+        }catch(EncodingException)when(encoder.HighQualityTuning){
+            return await MeasureEstimateAsync(analysis,options with{HighQualityEncoding=false},cancel,refresh);
         }catch(EncodingException)when(options.Encoder=="auto"&&options.HardwareEncoding&&encoder.Hardware){
             return await MeasureEstimateAsync(analysis,options with{HardwareEncoding=false},cancel,refresh);
         }finally{
@@ -96,7 +102,7 @@ public sealed partial class ConversionPipeline
         TimeEstimates.Save(profile);return TimeEstimates.Predict(profile,analysis,fps,options.Verify);
     }
     private void RecordPerformance(MediaInfo source,ConversionOptions options,DeviceChoice device,EncoderCapability encoder,long output,long interpolated,double seconds){
-        try{if(options.MaxFrames is null)TimeEstimates.Observe(PerformanceKey(source,options,device,encoder,options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps)),source.FrameCount,output,interpolated,options.Verify,seconds);}
+        try{if(options.MaxFrames is null)TimeEstimates.Observe(PerformanceKey(source,options,device,encoder,options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps)),source.FrameCount,output,interpolated,options.Verify,seconds,source.Duration);}
         catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){}
     }
 }

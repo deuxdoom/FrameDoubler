@@ -85,12 +85,15 @@ public sealed class VideoEncoder:IAsyncDisposable
     private bool completed;
     public long FramesWritten{get;private set;}
     public VideoEncoder(AppPaths paths,string output,MediaInfo source,Rational fps,EncoderCapability encoder,
-        int quality,string? bitrate,bool youtube,Rational duration)
+        int quality,string? bitrate,string? platform,Rational duration,int? height=null)
     {
         var videoStart=source.Start;
         var origin=source.Audio.Select(x=>x.Start).Append(videoStart).Min();
         string matrix=source.ColorSpace is "bt2020nc" or "bt2020ncl"?"bt2020":source.ColorSpace??"";
-        string filter=$"scale=out_range={(source.ColorRange=="pc"?"pc":"tv")}";
+        // Optional resize to the preset height (Lanczos), done in the same scale step as the RGB→YUV conversion.
+        var (outWidth,outHeight)=OutputPresets.OutputSize(source.Width,source.Height,height);
+        string resize=outWidth!=source.Width||outHeight!=source.Height?$"w={outWidth}:h={outHeight}:flags=lanczos:":"";
+        string filter=$"scale={resize}out_range={(source.ColorRange=="pc"?"pc":"tv")}";
         if(Meaningful(matrix))filter+=":out_color_matrix="+matrix;
         string pixel=source.BitDepth>8?"p010le":"yuv420p";
         // Software encoders commonly accept planar 10-bit, not semi-planar P010.
@@ -110,14 +113,17 @@ public sealed class VideoEncoder:IAsyncDisposable
         var bitstream=ColourBitstream(encoder.Codec,source);
         if(bitstream is not null)args.AddRange(["-bsf:v",bitstream]);
         args.AddRange(["-fps_mode","passthrough","-enc_time_base:v",((Rational)1/fps).ToString()]);
-        if(youtube){
-            if(fps>60)throw new ArgumentException("YouTube preset supports up to 60fps");
-            args.AddRange(["-g",Math.Max(1,(int)Math.Round(fps.ToDouble()/2)).ToString(),"-flags","+cgop",
+        if(platform is not null){
+            if(fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
+            args.AddRange(["-g",Math.Max(1,(int)Math.Round(fps.ToDouble()*OutputPresets.GopSeconds(platform))).ToString(),"-flags","+cgop",
                 "-c:a","aac","-profile:a","aac_low","-ar:a","48000","-af","aresample=async=1:first_pts=0"]);
             if(encoder.Codec=="h264")args.AddRange(["-profile:v","high","-bf","2"]);
             for(int i=0;i<source.Audio.Length;i++){
-                int count=source.Audio[i].Channels is 1 or 2 or 6?source.Audio[i].Channels:2;
-                args.AddRange([$"-ac:a:{i}",count.ToString(),$"-b:a:{i}",(count==1?128000:count==6?512000:384000).ToString()]);
+                // App audio policy: 256k, or 192k for source tracks below 256k/unknown.
+                if(platform=="youtube"){
+                    int count=source.Audio[i].Channels is 1 or 2 or 6?source.Audio[i].Channels:2;
+                    args.AddRange([$"-ac:a:{i}",count.ToString(),$"-b:a:{i}",OutputPresets.AudioBitrate(source.Audio[i]).ToString()]);
+                }else args.AddRange([$"-ac:a:{i}","2",$"-b:a:{i}","160000"]);
             }
         }else args.AddRange(["-c:a","copy"]);
         args.AddRange(["-t",(videoStart-origin+duration).Seconds(),"-movflags","+faststart"]);
