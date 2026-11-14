@@ -284,7 +284,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <a class="brand" href="#top"><img src="img/symbol.svg" alt="">FrameDoubler</a>
     <nav>
-      <a class="opt" href="#new" data-i18n="nav.new">1.0.1</a>
+      <a class="opt" href="#new" data-i18n="nav.new">1.0.2</a>
       <a class="opt" href="#why" data-i18n="nav.why">왜 필요한가</a>
       <a class="opt" href="#how" data-i18n="nav.how">작동 방식</a>
       <a class="opt" href="#features" data-i18n="nav.features">기능</a>
@@ -303,7 +303,7 @@ footer a { color: var(--muted); }
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 1.0.1</b><span data-i18n="news.text">원본 유지 프리셋 · HDR 변환 · 썸네일과 대기열 · 설정 창</span><i aria-hidden="true">→</i></a>
+      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 1.0.2</b><span data-i18n="news.text">안정적인 업데이트 설치 · 버전별 ZIP · settings.ini</span><i aria-hidden="true">→</i></a>
       <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">게임 녹화 영상을 위한 RIFE 프레임 보간 도구</p>
       <h1 class="rise" style="--i:2;margin-top:12px"><span data-i18n="hero.title1">30fps 게임 녹화를</span><span class="shine" data-i18n="hero.title2">진짜 60fps로</span></h1>
       <p class="lead rise" style="--i:3" data-i18n="hero.lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
@@ -337,9 +337,9 @@ footer a { color: var(--muted); }
 
 <section id="new">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="new.eyebrow">1.0.1 새 기능</p>
+    <p class="eyebrow reveal" data-i18n="new.eyebrow">1.0.1 · 1.0.2 새 기능</p>
     <h2 class="reveal" data-i18n="new.title">처음 쓰는 사람도, 원본 그대로</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">기본 프리셋은 원본의 해상도, 코덱, 비트레이트를 유지하고 프레임만 채웁니다.</span> <span class="s">HDR 영상, 대기열, 설정과 종료까지 1.0.1에서 함께 다듬었습니다.</span></p>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">기본 프리셋은 원본의 해상도, 코덱, 비트레이트를 유지하고 프레임만 채웁니다.</span> <span class="s">HDR 영상, 대기열, 설정과 종료까지 1.0.1에서 함께 다듬었습니다.</span> <span class="s">1.0.2부터는 업데이트를 별도 설치 창에서 진행하고, 실패하면 되돌립니다.</span></p>
     <div class="tiles">
       <article class="tile reveal" style="--i:0"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M9 12h6M12 9v6"/></svg></span><h3 data-i18n="new1.title">원본 유지 프리셋</h3><p data-i18n="new1.text">해상도와 가능한 원본 코덱, 비트레이트를 그대로 두고 보간만 합니다. 오디오는 손대지 않고 그대로 넘깁니다. fps에 비례해 비트레이트를 늘리는 원본 프리셋과 YouTube 4K·1080p 프리셋도 있습니다.</p></article>
       <article class="tile reveal" style="--i:1"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><h3 data-i18n="new2.title">HDR 영상도 바로 변환</h3><p data-i18n="new2.text">HLG·PQ HDR 영상을 SDR(BT.709)로 톤 매핑해 변환합니다. 목록에는 HDR(HLG) → SDR처럼 표시하고, 썸네일도 변환된 색으로 보여 줍니다.</p></article>
@@ -424,7 +424,7 @@ footer a { color: var(--muted); }
       <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3 data-i18n="card8.title">고정 HUD 보호</h3><p data-i18n="card8.text"><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
       <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4"/></svg><h3 data-i18n="card9.title">예상 소요 시간</h3><p data-i18n="card9.text">장치 실측과 완료 작업을 반영해 하나의 예상 소요 시간과 완료 예정 시각을 알려 줍니다. 추정 범위는 도움말에서 확인합니다.</p></article>
       <article class="card reveal" style="--i:9"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><h3 data-i18n="card10.title">대기열과 명령줄</h3><p data-i18n="card10.text"><span class="s">여러 영상을 썸네일과 함께 보여 주고, 끌어서 순서를 바꾸며, 전체나 고른 영상만 번호순으로 변환합니다.</span> <span class="s">함께 들어 있는 명령줄 도구로 폴더 전체를 처리할 수도 있습니다.</span></p></article>
-      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">포터블 실행과 검증된 업데이트</h3><p data-i18n="card11.text"><span class="s">설정과 기록은 실행 파일이 있는 폴더에 저장합니다.</span> <span class="s">업데이트는 SHA-256과 모든 파일의 해시가 일치할 때만 설치하고, 실패하면 이전 버전으로 되돌립니다.</span></p></article>
+      <article class="card reveal" style="--i:10"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg><h3 data-i18n="card11.title">포터블 실행과 검증된 업데이트</h3><p data-i18n="card11.text">설정(settings.ini)과 기록은 실행 파일이 있는 폴더에 저장합니다. 업데이트는 모든 파일의 해시를 확인하고, 프로그램이 종료된 뒤 설치 창에서 교체하며, 실패하면 이전 버전으로 되돌립니다.</p></article>
       <article class="card reveal" style="--i:11"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg><h3 data-i18n="card12.title">트레이와 한국어·영어</h3><p data-i18n="card12.text">최소화는 기본으로 작업 표시줄에 남고, 설정에서 트레이로 바꿀 수 있습니다. 중복 실행은 기존 창을 엽니다. 화면과 트레이 메뉴는 한국어·영어를 지원합니다.</p></article>
     </div>
   </div>
@@ -437,7 +437,7 @@ footer a { color: var(--muted); }
     <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증, 예상 소요 시간만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 설정 창의 고급에 있습니다.</span></p>
     <div class="shot-wrap reveal">
       <img class="shot" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1475" height="1000" loading="lazy"
-           alt="FrameDoubler 1.0.1 메인 화면: 영상 썸네일, 출력 프리셋, 예상 시간과 구간 검증 결과" data-i18n-attr="alt:screens.alt">
+           alt="FrameDoubler 메인 화면: 영상 썸네일, 출력 프리셋, 예상 시간과 구간 검증 결과" data-i18n-attr="alt:screens.alt">
     </div>
     <div class="gallery">
       <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" data-en-src="img/screen-en.png" width="1475" height="1000" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" data-i18n-attr="alt:gallery1.alt"><figcaption data-i18n="gallery1.caption">끌어 놓거나 클릭하여 영상을 추가합니다.</figcaption></figure>
@@ -499,8 +499,8 @@ footer a { color: var(--muted); }
   const EN = {
     "meta.title": "FrameDoubler · Real 60fps from 30fps game recordings",
     "meta.description": "FrameDoubler finds the duplicate frames in 60fps recordings of 30fps games and fills them with RIFE AI frames to make real 60fps video on Windows.",
-    "nav.new": "1.0.1", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
-    "news.badge": "New 1.0.1", "news.text": "Source preset · HDR conversion · thumbnails and queue · settings window",
+    "nav.new": "1.0.2", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
+    "news.badge": "New 1.0.2", "news.text": "Reliable update installer · versioned ZIP · settings.ini",
     "hero.eyebrow": "RIFE frame interpolation for game recordings",
     "hero.title1": "30fps game recordings", "hero.title2": "to real 60fps",
     "hero.lead": s("Recorded at 60fps, but it still looks like 30fps?", "FrameDoubler finds the <b>duplicate frames</b> in the file.",
@@ -513,8 +513,8 @@ footer a { color: var(--muted); }
     "tag.output": "FrameDoubler<small>file 60fps · motion 60fps</small>",
     "demo.note": s("The same section of a 4K Fire Emblem Fortune’s Weave recording.", "If the difference is hard to see, slow it down.",
                    "At real speed the difference shows on 60Hz or faster displays."),
-    "new.eyebrow": "New in 1.0.1", "new.title": "Easy from the first run, true to the source",
-    "new.lead": s("The default preset keeps the source resolution, codec and bitrate and only adds frames.", "HDR video, the queue, settings and exit were refined in 1.0.1 as well."),
+    "new.eyebrow": "New in 1.0.1 · 1.0.2", "new.title": "Easy from the first run, true to the source",
+    "new.lead": s("The default preset keeps the source resolution, codec and bitrate and only adds frames.", "HDR video, the queue, settings and exit were refined in 1.0.1 as well.", "From 1.0.2, updates run in a separate installer window and roll back on failure."),
     "new1.title": "Source presets", "new1.text": "Keeps the resolution and, when possible, the source codec and bitrate, and only interpolates. Audio passes through untouched. A source preset that scales the bitrate with fps and YouTube 4K and 1080p presets are also included.",
     "new2.title": "HDR video, converted", "new2.text": "HLG and PQ HDR video is tone-mapped to SDR (BT.709) for conversion. The list shows HDR(HLG) → SDR, and thumbnails use the converted colours.",
     "new3.title": "Thumbnails and queue", "new3.text": "Every video shows a representative frame and a number. Drag to reorder, then convert all in order or only the selected ones.",
@@ -562,12 +562,12 @@ footer a { color: var(--muted); }
     "card8.title": "Static HUD protection", "card8.text": s("Mark areas that never move, such as a minimap or subtitles.", "Pixels in those areas stay exactly as in the original."),
     "card9.title": "Time estimate", "card9.text": "Device measurements and completed jobs give one estimated duration and a completion clock. The uncertainty range remains in the tooltip.",
     "card10.title": "Queue and command line", "card10.text": s("Lists videos with thumbnails, lets you drag them into order and converts all or only the selected ones in that order.", "The bundled command-line tool can process a whole folder."),
-    "card11.title": "Portable, with verified updates", "card11.text": s("Settings and history stay in the folder next to the executable.", "Updates install only when the SHA-256 and every file hash match, and roll back if anything fails."),
+    "card11.title": "Portable, with verified updates", "card11.text": "Settings (settings.ini) and history stay next to the executable. Updates verify every file hash, are swapped in by a separate installer window after FrameDoubler exits, and roll back if anything fails.",
     "card12.title": "Tray, Korean and English", "card12.text": "Minimize keeps the window in the taskbar by default; the tray is optional in Settings. A second launch activates the existing window. The interface and tray menu support Korean and English.",
     "screens.eyebrow": "Screenshots", "screens.title": "File fps and motion fps at a glance",
     "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder, verification and the time estimate.",
                       "Device and encoder options live under Advanced in the settings window."),
-    "screens.alt": "FrameDoubler 1.0.1 main window: video thumbnail, export preset, time estimate and sample verification result",
+    "screens.alt": "FrameDoubler main window: video thumbnail, export preset, time estimate and sample verification result",
     "gallery1.alt": "First screen for dropping or choosing videos", "gallery1.caption": "Drop or click to add videos.",
     "gallery2.alt": "FrameDoubler shown in Korean", "gallery2.caption": "Switch between Korean and English instantly.",
     "gallery3.alt": "Update window with the release notes and installation steps", "gallery3.caption": "A new version shows its changes and installation steps.",

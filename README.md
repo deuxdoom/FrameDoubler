@@ -192,6 +192,8 @@ Get-FileHash FrameDoubler_v102.zip -Algorithm SHA256
 - 설정과 성능 기록은 새 버전으로 옮깁니다. 설치 폴더 옆에는 가장 최근의 백업(`FrameDoubler.previous-…`) 하나만 남깁니다.
 - 1.0.0과 1.0.1의 자동 업데이트는 `FrameDoubler.zip`이라는 이름의 파일만 찾습니다. 릴리스에 그 이름의 파일이 없으면 위 링크에서 새 ZIP을 받아 새 폴더에 풀고, 이전 폴더의 `settings.json`과 `performance.json`을 새 폴더로 복사합니다.
 
+<img src="docs/img/screen-installer.png" alt="업데이트 설치 창: 종료 대기, 현재 버전 백업, 새 버전 설치, 새 버전 시작 단계" width="420">
+
 <a id="cli"></a>
 
 ## ⌨️ 명령줄
