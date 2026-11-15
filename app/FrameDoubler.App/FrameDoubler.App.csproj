@@ -11,5 +11,7 @@
     <ProjectReference Include="..\FrameDoubler.Core\FrameDoubler.Core.csproj" />
     <Resource Include="..\..\assets\icons\app-icon-256.png" Link="Assets\icon.png" />
     <Resource Include="..\..\assets\icons\app-icon.ico" Link="Assets\app.ico" />
+    <Resource Include="Assets\Fonts\PretendardJPVariable.ttf" />
+    <Content Include="Assets\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

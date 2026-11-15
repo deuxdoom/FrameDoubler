@@ -93,7 +93,7 @@ public sealed class InstallerWindow:Window
         text.Children.Add(title);text.Children.Add(info);Grid.SetColumn(text,1);row.Children.Add(text);parent.Children.Add(row);
         return new(phase,marker,mark,title,info);
     }
-    private static readonly FontFamily Icons=new("Segoe Fluent Icons"),Plain=new("Segoe UI");
+    private static readonly FontFamily Icons=new("Segoe Fluent Icons"),Plain=UiFonts.Text;
     private static void Set(Step step,StepState state,string? detail=null){
         step.Mark.FontFamily=state==StepState.Active?Plain:Icons;step.Mark.FontSize=state==StepState.Active?9:10;
         switch(state){

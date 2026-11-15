@@ -30,7 +30,7 @@ public sealed class CaptureView:UserControl
     private static SolidColorBrush Brush(string value){var b=(SolidColorBrush)new BrushConverter().ConvertFromString(value)!;b.Freeze();return b;}
     private static readonly Brush Muted=Brush("#A6B1B8"),Faint=Brush("#6F7C84"),Text=Brush("#F3F1EB"),Surface=Brush("#1A2024"),Line=Brush("#2B3338"),
         Accent=Brush("#FF8C60"),Good=Brush("#5BD38A"),Warn=Brush("#F4BD83"),Bad=Brush("#FF6B6B");
-    private static readonly FontFamily Mono=new("Cascadia Mono, Consolas"),Icons=new("Segoe Fluent Icons");
+    private static readonly FontFamily Mono=UiFonts.Text,Icons=new("Segoe Fluent Icons");
 
     private CaptureInventory? inventory;
     private LiveSession? session;
@@ -942,7 +942,7 @@ internal sealed class PreviewHost:HwndHost
 internal sealed class LiveMetric:StackPanel
 {
     private readonly TextBlock caption=new(){FontSize=12,Foreground=Brushes.LightGray,TextWrapping=TextWrapping.NoWrap};
-    private readonly TextBlock number=new(){FontSize=23,FontWeight=FontWeights.SemiBold,FontFamily=new FontFamily("Cascadia Mono, Consolas"),Text="—",TextWrapping=TextWrapping.NoWrap};
+    private readonly TextBlock number=new(){FontSize=23,FontWeight=FontWeights.SemiBold,FontFamily=UiFonts.Text,Text="—",TextWrapping=TextWrapping.NoWrap};
     private readonly TextBlock unitText=new(){FontSize=11,Foreground=Brushes.LightGray,VerticalAlignment=VerticalAlignment.Bottom,Margin=new Thickness(4,0,0,4),TextWrapping=TextWrapping.NoWrap};
     private readonly TextBlock hint=new(){FontSize=10.5,Foreground=Brushes.LightGray,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis};
     public string Caption{get=>caption.Text;set=>caption.Text=value;}

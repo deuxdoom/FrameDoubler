@@ -13,6 +13,8 @@ on first launch. Choose another card or exact mode as needed (NV12, YUY2, UYVY o
 compressed MJPG modes are not listed and HDR/P010 remains unavailable). Media Foundation
 is preferred; devices exposed only through DirectShow are also listed. The picture is processed on the GPU:
 
+The app includes Pretendard JP Variable for Latin, Hangul and Japanese text and file names; no font installation is needed.
+
 Frame generation and duplicate removal are **off by default**. Enable either in the side panel
 when wanted; saved choices are remembered. Actual game fps is shown only with duplicate removal on.
 

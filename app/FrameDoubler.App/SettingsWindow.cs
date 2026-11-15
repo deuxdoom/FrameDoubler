@@ -185,7 +185,7 @@ public sealed class SettingsWindow:Window
         void RefreshAll(){foreach(var a in actions)boxes[a.Key].Content=string.IsNullOrEmpty(a.Get(owner.Settings))?T("없음","None"):a.Get(owner.Settings);}
         var rows=new System.Collections.Generic.List<UIElement>();
         foreach(var a in actions){
-            var box=new Button{Style=(Style)FindResource("SecondaryButton"),MinWidth=150,MinHeight=34,Padding=new Thickness(12,4,12,4),FontFamily=new FontFamily("Cascadia Mono, Consolas")};
+            var box=new Button{Style=(Style)FindResource("SecondaryButton"),MinWidth=150,MinHeight=34,Padding=new Thickness(12,4,12,4),FontFamily=UiFonts.Text};
             boxes[a.Key]=box;bool capturing=false;
             box.Click+=(_,_)=>{capturing=true;box.Content=T("키를 누르세요…","Press keys…");box.Focus();};
             box.LostKeyboardFocus+=(_,_)=>{if(capturing){capturing=false;RefreshAll();}};

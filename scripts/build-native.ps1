@@ -94,6 +94,7 @@ Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\ffmpeg\LICENSE.txt') -Dest
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'app\NATIVE-NOTICES.md') -Destination (Join-Path $Destination 'THIRD_PARTY_NOTICES.md')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'app\README.md') -Destination (Join-Path $Destination 'README.md')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'app\HARDWARE-TESTS.md') -Destination (Join-Path $Destination 'HARDWARE-TESTS.md')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'app\FrameDoubler.App\Assets\Fonts\OFL.txt') -Destination (Join-Path $Destination 'licenses\PretendardJP-OFL.txt')
 & (Join-Path $Destination 'ffmpeg\ffmpeg.exe') -version | Set-Content -LiteralPath (Join-Path $Destination 'ffmpeg-version.txt') -Encoding utf8
 & (Join-Path $Destination 'ffmpeg\ffmpeg.exe') -buildconf 2>&1 | Set-Content -LiteralPath (Join-Path $Destination 'ffmpeg-buildconf.txt') -Encoding utf8
 $NoticeRoot=Join-Path $Destination 'licenses\dotnet'

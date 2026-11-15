@@ -1,5 +1,12 @@
 # FrameDoubler native package notices
 
+## Pretendard JP Variable
+
+The app embeds the unmodified Pretendard JP Variable font by Kil Hyung-jin under
+the SIL Open Font License 1.1. The font needs no system installation. The full
+copyright notices and license are in `licenses/PretendardJP-OFL.txt`.
+Source: <https://github.com/orioncactus/pretendard>.
+
 FrameDoubler is MIT licensed. This package uses the independently authored
 C#/.NET 10 application and C++ ncnn/Vulkan engine. Python, PyTorch, Qt/PySide,
 CUDA Toolkit and GPU drivers are not included. Video2X/Flowframes code or model

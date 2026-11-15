@@ -7,6 +7,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
 
@@ -20,6 +21,14 @@ public partial class MainWindow
         async Task Idle(){await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);}
         Check(WindowStyle==WindowStyle.None&&ResizeMode==ResizeMode.CanMinimize&&WindowChrome.GetWindowChrome(this).ResizeBorderThickness.Left==0,"Frameless fixed-size window with minimize");
         Check(VerifyCheck.IsChecked==false,"Verification starts unchecked");
+        foreach(var weight in new[]{FontWeights.Normal,FontWeights.Medium,FontWeights.SemiBold,FontWeights.Bold}){
+            var face=new Typeface(FontFamily,FontStyles.Normal,weight,FontStretches.Normal);
+            bool loaded=face.TryGetGlyphTypeface(out var glyph);
+            const string sample="FrameDoubler 30fps → 60fps · 캡처 미리보기 프레임 생성 녹화 저장 힣 · 日本語 キャプチャ 録画 音声 同期";
+            Check(loaded&&glyph.FontUri.ToString().Contains("pretendardjpvariable.ttf",StringComparison.OrdinalIgnoreCase)&&
+                glyph.Weight==weight&&!face.IsBoldSimulated&&sample.All(c=>glyph.CharacterToGlyphMap.TryGetValue(c,out var index)&&index!=0),
+                "Embedded Pretendard JP resolves actual weight and Latin/Hangul/Japanese glyphs "+weight.ToOpenTypeWeight());
+        }
         int picks=0;FilePicker=()=>{picks++;return[];};
         var peer=new ButtonAutomationPeer(EmptyPanel);((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();await Idle();
         Check(picks==1,"Drop target click invokes file chooser");
