@@ -10,7 +10,7 @@ internal static class LiveTests
         Directory.CreateDirectory(root);
         try{
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",root);
-            var saved=new Preferences{StartPage="convert",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
+            var saved=new Preferences{StartPage="convert",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureDeviceId="device-path-2",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
                 LiveFrameGeneration="vfx",LiveMultiplier=2,LiveAntiAlias=3,LiveDedup=false,LiveRange="full",LiveMatrix="601",LiveVfxQuality=2,LiveVolume=35,LiveMute=true,
                 LiveAudioOffset=-40,LiveStats=false,LiveSync="tearing",LiveAspect="fill",LiveOutputCap="144",LiveHoldOriginal=false,LiveDlssMotion="nvof",LiveEdgeAegis=true,
                 ScreenshotDirectory="F:\\캡처 사진; #1",RecordingDirectory="F:\\녹화 = 영상",RecordingCodec="hevc",RecordingBitrate=80,
@@ -121,6 +121,11 @@ internal static class LiveTests
             "Engine status JSON is read with missing stage times kept as unknown, not zero");
         assert(status.CaptureState==""&&status.AudioOutputState==""&&status.AudioOutputAttempts==0&&new Preferences().CaptureAudioOutput=="default",
             "Older engines have unknown endpoint health; new installations follow the system output");
+        foreach(double rate in new[]{0.0,29.97,60.0}){
+            var shown=LiveStatus.Parse("{\"distinctFps\":"+rate.ToString(System.Globalization.CultureInfo.InvariantCulture)+",\"presentedFps\":144,\"stages\":{},\"totals\":{},\"recording\":{}}");
+            assert(shown.ShownFps==rate,"The display rate preserves changed-picture counts, including zero: "+rate);
+        }
+        assert(status.DistinctFps is null&&status.ShownFps==status.PresentedFps,"Only older engines without distinctFps use the Present rate");
         var saving=LiveStatus.Parse("{\"running\":true,\"stages\":{},\"totals\":{},\"recording\":{\"active\":false,\"finalizing\":true,\"fps\":120,\"path\":\"record.mp4\"}}");
         assert(!saving.Recording&&saving.RecordingFinalizing&&saving.RecordingFps==120&&saving.RecordingPath=="record.mp4",
             "Saving is distinct from active recording and retains the declared video rate");
@@ -146,6 +151,18 @@ internal static class LiveTests
                 "Diagnostics hide the profile path, user name and device instance IDs but keep vendor/product numbers and other words: "+masked);
         }
         assert(inventory.MatchingAudio(device)?.Id=="card","The capture card's own audio input is matched by name, not the default microphone");
+        {
+            var second=device with{Id="second-card"};
+            var duplicateCards=new CaptureInventory([device,second],inventory.Audio);
+            assert(duplicateCards.PreferredDevice(second.Id,device.Name)==second&&duplicateCards.PreferredDevice("",device.Name)==device,
+                "A saved device path survives reordered identical names; old name-only settings still load");
+            assert(duplicateCards.MatchingAudio(device)is null&&new CaptureInventory([device],[new("a",device.Name,false),new("b",device.Name,false)]).MatchingAudio(device)is null,
+                "Ambiguous cards or audio endpoints require an explicit audio choice");
+            var mf=device with{Id=@"\\?\usb#instance-a#{mf-class}\global"};
+            var ds=device with{Id=@"dshow:\\?\usb#instance-a#{dshow-class}\global"};
+            assert(new CaptureInventory([mf,ds],inventory.Audio).MatchingAudio(mf)?.Id=="card",
+                "Two APIs for one PnP instance share the audio match despite different interface-class GUIDs");
+        }
         {
             var mic=new AudioInput("mic","Microphone (USB Audio Device)",true);
             CaptureDevice Card(string name)=>new(name,"id-"+name,"",[]);

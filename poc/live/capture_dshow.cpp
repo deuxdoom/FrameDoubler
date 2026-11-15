@@ -116,6 +116,11 @@ std::vector<Entry> enumerate() {
         if (SUCCEEDED(moniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&bag)))) {
             Entry e; e.name = bagString(bag.Get(), L"FriendlyName");
             std::string path = bagString(bag.Get(), L"DevicePath");
+            if (path.empty()) {
+                LPOLESTR display = nullptr;
+                if (SUCCEEDED(moniker->GetDisplayName(nullptr, nullptr, &display)) && display) path = utf8(display);
+                CoTaskMemFree(display);
+            }
             e.id = "dshow:" + (path.empty() ? "name:" + e.name + "#" + std::to_string(index) : path);
             e.moniker = moniker;
             out.push_back(std::move(e));
@@ -376,19 +381,22 @@ std::unique_ptr<CaptureSource> openCapture(const std::string& id, const VideoMod
     if (id.rfind("dshow:", 0) == 0) return nullptr;
     // Some drivers list a mode through Media Foundation but only deliver it through
     // DirectShow. Try the DirectShow entry of the same device when it offers the same mode.
-    std::string name;
-    for (auto& d : listVideoDevices(false)) if (d.id == id) name = d.name;
-    if (name.empty()) return nullptr;
     capture.reset(); // release the device before the second attempt
-    for (auto& d : listDirectShowDevices(true)) {
-        if (d.name != name) continue;
+    const auto devices = listVideoDevices(false, true);
+    const auto selected = std::find_if(devices.begin(), devices.end(), [&](const auto& d) { return d.id == id; });
+    if (selected == devices.end()) return nullptr;
+    const auto directShow = listDirectShowDevices(true);
+    const int match = captureCounterpart(*selected, devices, directShow);
+    if (match >= 0) {
+        const auto& d = directShow[size_t(match)];
         bool offered = false;
         for (auto& m : d.modes) offered |= m.width == mode.width && m.height == mode.height && m.format == mode.format &&
             uint64_t(m.fpsNum) * mode.fpsDen == uint64_t(mode.fpsNum) * m.fpsDen;
-        if (!offered) continue;
+        if (!offered) return nullptr;
         auto fallback = std::make_unique<DirectShowCapture>();
         std::string second;
         if (fallback->open(d.id, mode, second)) { note = "Media Foundation could not open this mode (" + error + "); using DirectShow"; error.clear(); return fallback; }
+        if (!second.empty()) error += "; DirectShow: " + second;
     }
     return nullptr;
 }

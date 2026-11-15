@@ -200,7 +200,7 @@ private:
     std::shared_ptr<Recorder> getRecorder() { std::lock_guard<std::mutex> lock(recorderMutex_); return recorder_; }
     void finishRecording();
     void publish();
-    ColorSetup color() const;
+    ColorSetup color(const Options& o) const;
     ColorInfo device_;                                  // colour the capture device states
     std::string colorJson();
     // The generator making in-between pictures now: 3 DLSS, 2 NVIDIA VFX, 1 FrameDoubler's own
@@ -375,10 +375,10 @@ std::string Session::colorJson() {
            "\",\"colorMatrix\":\"" + (bt709 ? "709" : "601") + "\",\"colorMatrixSource\":\"" + source(o.matrix, device_.matrix) + "\"";
 }
 
-ColorSetup Session::color() const {
+ColorSetup Session::color(const Options& o) const {
     ColorSetup c;
-    c.limited = options_.range == 1 || (options_.range == 0 && device_.range != 2);
-    c.bt709 = options_.matrix == 1 || (options_.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
+    c.limited = o.range == 1 || (o.range == 0 && device_.range != 2);
+    c.bt709 = o.matrix == 1 || (o.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
     return c;
 }
 
@@ -678,8 +678,8 @@ void Session::processFresh(const Packet& p) {
     gpu_.keepOriginals(o.compare != 0, keepError);
     if (!keepError.empty()) log_.add("warning", "comparison view: " + keepError);
     gpu_.timer.mark(gpu_.context(), StageUpload, true);
-    if (format_ == PixelFormat::NV12) gpu_.upload(slot, data, width_, data + size_t(width_) * height_, width_, format_, color(), o.aa);
-    else gpu_.upload(slot, data, width_ * bytesPerPixel(format_), nullptr, 0, format_, color(), o.aa);
+    if (format_ == PixelFormat::NV12) gpu_.upload(slot, data, width_, data + size_t(width_) * height_, width_, format_, color(o), o.aa);
+    else gpu_.upload(slot, data, width_ * bytesPerPixel(format_), nullptr, 0, format_, color(o), o.aa);
     gpu_.timer.mark(gpu_.context(), StageUpload, false);
     slotId_[slot]=uniqueId_+1;
     {
@@ -749,14 +749,18 @@ void Session::renderLoop() {
         // Up to 3 s: the recording's fixed rate comes from the learned content period.
         if (pendingRecording && (recordingOptions.fg == 0 || !recordingOptions.dedup || contentClockStable_ || now100ns()-recordingRequested >= 30000000)) {
             pendingRecording = false;
-            Options o; { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
             RecorderConfig rc;
-            rc.directory = wide(get(config_, "recordDir"));
+            Options o;
+            {
+                std::lock_guard<std::mutex> lock(optionsMutex_);
+                o = options_;
+                rc.directory = wide(get(config_, "recordDir"));
+                rc.hevc = get(config_, "recordCodec") == "hevc";
+                rc.bitrateMbps = getInt(config_, "recordBitrate", 0);
+            }
             if (rc.directory.empty()) { wchar_t* videos = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos))) { rc.directory = std::wstring(videos) + L"\\FrameDoubler"; CoTaskMemFree(videos); } }
             rc.width = width_; rc.height = height_;
             recordingRate(effective(o), rc.fpsNum, rc.fpsDen);
-            rc.hevc = get(config_, "recordCodec") == "hevc";
-            rc.bitrateMbps = getInt(config_, "recordBitrate", 0);
             rc.audio = audio_.running() || replayAudio_;
             auto r = std::make_shared<Recorder>();
             std::string path, error;
@@ -1016,7 +1020,8 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         if (screenshotRequest_.exchange(false)) {
             std::vector<uint8_t> rgba;
             if (gpu_.readback(sourceTexture, rgba)) {
-                std::wstring dir = wide(get(config_, "screenshotDir"));
+                std::wstring dir;
+                { std::lock_guard<std::mutex> settings(optionsMutex_); dir = wide(get(config_, "screenshotDir")); }
                 if (dir.empty()) { wchar_t* pictures = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pictures))) { dir = std::wstring(pictures) + L"\\FrameDoubler"; CoTaskMemFree(pictures); } }
                 const int w = width_, h = height_;
                 screenshotJobs_.erase(std::remove_if(screenshotJobs_.begin(), screenshotJobs_.end(), [](auto& job) { return job.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }), screenshotJobs_.end());
@@ -1044,6 +1049,8 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
 void Session::publish() {
     const int64_t now = now100ns();
     if (now - windowStart_ < 10000000) return;
+    int audioOffset;
+    { std::lock_guard<std::mutex> lock(optionsMutex_); audioOffset = options_.audioOffsetMs; }
     std::lock_guard<std::mutex> lock(statsMutex_);
     window_.seconds = double(now - windowStart_) / 1e7;
     published_ = window_;
@@ -1064,7 +1071,7 @@ void Session::publish() {
         const double picture = window_.latency / window_.latencyCount + (window_.scanoutCount ? window_.scanout / window_.scanoutCount : 0);
         const double own = audio_.ownLatencyMs();
         pictureLatencyMs_ = picture;
-        const int target = std::clamp(int(std::lround(picture - (own > 0 ? own : 15.0))) + options_.audioOffsetMs, 20, 400);
+        const int target = std::clamp(int(std::lround(picture - (own > 0 ? own : 15.0))) + audioOffset, 20, 400);
         audioDelayMs_ = target; audio_.setDelay(target);
     }
     window_ = {};
@@ -1256,6 +1263,7 @@ std::string selfTest(const Settings& s) {
         ok ? ++passed : ++failed;
     };
     check("capture-callback-lifetime", captureCallbackSelfTest(), "sample reference, type-change flag, latched failure and late callback after cancellation");
+    check("capture-identities", captureIdentitySelfTest(), "stable API pairing; duplicate friendly names never select another card");
     {
         const int w = 128, h = 72;
         std::vector<uint8_t> black(size_t(w) * h, 16), white(black.size(), 235), fade(black.size(), 36), moved(black.size()), shifted(black.size());

@@ -17,6 +17,14 @@ public sealed record CaptureMode(int Width,int Height,int FpsNum,int FpsDen,stri
 }
 public sealed record CaptureDevice(string Name,string Id,string Error,IReadOnlyList<CaptureMode> Modes)
 {
+    public string Api {get;init;}="";
+    internal string Identity{get{
+        string key=Id;
+        if(key.StartsWith("dshow:",StringComparison.OrdinalIgnoreCase))key=key[6..];
+        if(key.StartsWith("@device:pnp:",StringComparison.OrdinalIgnoreCase))key=key[12..];
+        int at=key.IndexOf("#{",StringComparison.Ordinal),end=at<0?-1:key.IndexOf('}',at+2);
+        return key.StartsWith(@"\\?\",StringComparison.Ordinal)&&end>=0?key.Remove(at,end-at+1):key;
+    }}
     // The best default: the largest picture, then the highest rate, NV12 before YUY2.
     public CaptureMode? PreferredMode=>Modes.Where(m=>m.Supported).OrderByDescending(m=>m.Width*m.Height).ThenByDescending(m=>Math.Round(m.Fps,2)<=60.01?m.Fps:0)
         .ThenByDescending(m=>m.Fps).ThenBy(m=>m.Format=="NV12"?0:1).FirstOrDefault();
@@ -25,6 +33,9 @@ public sealed record AudioInput(string Id,string Name,bool Default);
 public sealed record CaptureInventory(IReadOnlyList<CaptureDevice> Video,IReadOnlyList<AudioInput> Audio)
 {
     public IReadOnlyList<AudioInput> AudioOutputs {get;init;}=[];
+    public CaptureDevice? PreferredDevice(string savedId,string savedName)=>
+        Video.FirstOrDefault(d=>d.Id==savedId)??(savedId.Length==0?Video.FirstOrDefault(d=>d.Name==savedName):null)
+        ??Video.FirstOrDefault(d=>d.Modes.Any(m=>m.Supported))??Video.FirstOrDefault();
     // Capture cards expose "<name>-Video" and an audio endpoint containing "<name>".
     // The card's own audio input: its name contains the card name (AVerMedia "...-Video" /
     // "HDMI/Line In(...-Audio)", Elgato "Digital Audio Interface (<card>)", Magewell), otherwise
@@ -33,11 +44,13 @@ public sealed record CaptureInventory(IReadOnlyList<CaptureDevice> Video,IReadOn
     private static readonly HashSet<string> GenericWords=new(StringComparer.OrdinalIgnoreCase){"video","audio","capture","usb","usb2","usb3","hdmi","digital","interface","device","line","in","input","microphone","mic","the","and","with","stream","streaming","camera","webcam","game","4k","1080p","hd","pro"};
     private static string[] Words(string text)=>System.Text.RegularExpressions.Regex.Split(text,@"[^\p{L}\p{N}+.]+").Where(x=>x.Length>=2&&!GenericWords.Contains(x)).ToArray();
     public AudioInput? MatchingAudio(CaptureDevice device){
+        if(Video.Where(d=>string.Equals(d.Name,device.Name,StringComparison.OrdinalIgnoreCase)).Select(d=>d.Identity).Distinct(StringComparer.OrdinalIgnoreCase).Count()>1)return null;
         string name=device.Name;
         foreach(string suffix in new[]{"-Video"," Video"," (Video)"})if(name.EndsWith(suffix,StringComparison.OrdinalIgnoreCase))name=name[..^suffix.Length];
         var words=Words(name);
         if(words.Length==0)return null;   // "USB Video" alone says nothing about which input belongs to it
-        if(Audio.FirstOrDefault(a=>a.Name.Contains(name,StringComparison.OrdinalIgnoreCase)) is {} direct)return direct;
+        var direct=Audio.Where(a=>a.Name.Contains(name,StringComparison.OrdinalIgnoreCase)).ToArray();
+        if(direct.Length>0)return direct.Length==1?direct[0]:null;
         var best=Audio.Select(a=>(a,score:Words(a.Name).Count(w=>words.Contains(w,StringComparer.OrdinalIgnoreCase)))).Where(x=>x.score>0)
             .OrderByDescending(x=>x.score).ToList();
         return best.Count>0&&(best.Count==1||best[0].score>best[1].score)?best[0].a:null;
@@ -60,9 +73,9 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
     // The multiplier actually run (1 = no generator; 0 = older engine).
     public int Multiplier {get;init;}
     // Pictures shown per second that differ from the one before (repeats not counted);
-    // 0 = older engine, which reported only Present calls.
-    public double DistinctFps {get;init;}
-    public double ShownFps=>DistinctFps>0?DistinctFps:PresentedFps;
+    // null = older engine, which reported only Present calls. Zero is a valid rate.
+    public double? DistinctFps {get;init;}
+    public double ShownFps=>DistinctFps??PresentedFps;
     // Of those, generated pictures per second (whether interpolation really takes place).
     public double DistinctGeneratedFps {get;init;}
     // Capture callback of an original -> the vblank that showed it (null = not measured / older engine).
@@ -101,7 +114,7 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
             new(N(stages,"upload"),N(stages,"motion"),N(stages,"interpolate"),N(stages,"present"),N(stages,"encode")),S(r,"fg"),S(r,"vfxRuntime"),
             (int)(N(r,"audioDelayMs")??0),B(r,"audio"),(long)(N(totals,"input")??0),(long)(N(totals,"unique")??0),(long)(N(totals,"duplicates")??0),(long)(N(totals,"dropped")??0),
             B(recording,"active"),S(recording,"path"),N(recording,"seconds")??0,(long)(N(recording,"dropped")??0),events){TargetFps=N(r,"targetFps")??0,
-                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DistinctFps=N(r,"distinctFps")??0,DistinctGeneratedFps=N(r,"distinctGeneratedFps")??0,ShownLatencyMs=N(r,"shownLatencyMs"),DlssMotion=S(r,"dlssMotion"),EdgeAegis=B(r,"edgeAegis"),MotionWarning=S(r,"motionWarning"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
+                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DistinctFps=N(r,"distinctFps"),DistinctGeneratedFps=N(r,"distinctGeneratedFps")??0,ShownLatencyMs=N(r,"shownLatencyMs"),DlssMotion=S(r,"dlssMotion"),EdgeAegis=B(r,"edgeAegis"),MotionWarning=S(r,"motionWarning"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
                 CaptureState=S(r,"captureState"),AudioInputState=S(r,"audioInputState"),AudioOutputState=S(r,"audioOutputState"),AudioOutputId=S(r,"audioOutputId"),AudioOutputName=S(r,"audioOutputName"),
                 AudioQueueMs=(int)(N(r,"audioQueueMs")??0),AudioBufferMs=(int)(N(r,"audioBufferMs")??0),AudioOutputAttempts=(long)(N(r,"audioOutputAttempts")??0),AudioUnderruns=(long)(N(r,"audioUnderruns")??0),
                 RecordingFinalizing=B(recording,"finalizing"),RecordingStarting=B(recording,"starting"),RecordingFps=N(recording,"fps")??0};
@@ -202,7 +215,8 @@ public static class LiveEngine
         foreach(var d in document.RootElement.GetProperty("video").EnumerateArray()){
             var modes=d.GetProperty("modes").EnumerateArray().Select(m=>new CaptureMode(m.GetProperty("width").GetInt32(),m.GetProperty("height").GetInt32(),
                 m.GetProperty("fpsNum").GetInt32(),m.GetProperty("fpsDen").GetInt32(),m.GetProperty("format").GetString()??"",m.GetProperty("supported").GetBoolean())).ToList();
-            video.Add(new(d.GetProperty("name").GetString()??"",d.GetProperty("id").GetString()??"",d.GetProperty("error").GetString()??"",modes));
+            video.Add(new(d.GetProperty("name").GetString()??"",d.GetProperty("id").GetString()??"",d.GetProperty("error").GetString()??"",modes){
+                Api=d.TryGetProperty("api",out var api)?api.GetString()??"":""});
         }
         foreach(var a in document.RootElement.GetProperty("audio").EnumerateArray())
             audio.Add(new(a.GetProperty("id").GetString()??"",a.GetProperty("name").GetString()??"",a.GetProperty("default").GetBoolean()));

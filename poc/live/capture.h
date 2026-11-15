@@ -70,6 +70,9 @@ struct AudioEndpoint { std::string id, name; bool isDefault = false; };
 // visible to Media Foundation). allDirectShow also lists DirectShow entries of MF devices.
 std::vector<VideoDevice> listVideoDevices(bool withModes, bool allDirectShow = false);
 std::vector<VideoDevice> listDirectShowDevices(bool withModes);
+// Pair APIs by device path first. A friendly-name fallback must be unique on both sides.
+int captureCounterpart(const VideoDevice& device, const std::vector<VideoDevice>& source, const std::vector<VideoDevice>& target);
+bool captureIdentitySelfTest();
 std::vector<AudioEndpoint> listAudioEndpoints(bool capture);
 std::string devicesJson(const std::vector<VideoDevice>& video, const std::vector<AudioEndpoint>& audio);
 

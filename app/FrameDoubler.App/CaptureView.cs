@@ -42,7 +42,8 @@ public sealed class CaptureView:UserControl
     private LiveStatus? last;
     private readonly GpuUsage gpuUsage=new();
     private readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(250)};
-    private bool updating,starting,immersive,loaded;
+    private bool updating,starting,immersive,loaded,active,shutDown;
+    private int sessionVersion;
     private string statusMessage="";
     private string captureFailure="";
     private readonly ComboBox audioOutputBox=new(){Margin=new Thickness(0,8,0,0)};
@@ -188,10 +189,11 @@ public sealed class CaptureView:UserControl
         var tabsRow=new Grid{Margin=new Thickness(8,8,8,4)};
         static double Ems(string text)=>text.Sum(c=>c>=0xAC00&&c<=0xD7A3?1.0:c==' '?0.3:0.62)+2.0;
         int column=0;
-        foreach(var (key,ko,en) in new[]{("quality","화질","Quality"),("fg","프레임 생성","Frame Gen"),("color","색","Colour"),("audio","오디오","Audio"),("display","표시","Display")}){
+        foreach(var (key,ko,en) in new[]{("quality","화질","Quality"),("fg","프레임 생성","Frames"),("color","색","Colour"),("audio","오디오","Audio"),("display","표시","Display")}){
             var rb=new RadioButton{Style=(Style)owner.FindResource("TabSegment"),GroupName="CaptureTabs",IsChecked=key==tab};
             var col=new ColumnDefinition();tabsRow.ColumnDefinitions.Add(col);Grid.SetColumn(rb,column++);
             L(s=>{rb.Content=new TextBlock{Text=s,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis};col.Width=new GridLength(Ems(s),GridUnitType.Star);},ko,en);
+            L(s=>rb.ToolTip=s,ko,key=="fg"?"Frame generation":en);
             rb.Checked+=(_,_)=>{tab=key;tabContent.Content=tabPages[key];};
             tabButtons[key]=rb;tabsRow.Children.Add(rb);
         }
@@ -532,17 +534,20 @@ public sealed class CaptureView:UserControl
 
     // ---------------------------------------------------------------- devices and session
     public async Task ActivateAsync(){
+        if(shutDown)return;
+        active=true;
         if(!LiveEngine.Available){ShowStatus(null);statusMessage=T("실시간 엔진(fdlive.dll)을 찾지 못했습니다.","The live engine (fdlive.dll) was not found.");ShowStatus(null);return;}
         timer.Start();
         if(loaded)return;
         loaded=true;
         await RefreshDevicesAsync();
+        if(!active||shutDown)return;
         _=ProbeMultiplierAsync();
         // Fresh installations also start the selected supported device. Previously only
         // a remembered device started, leaving a first launch on an empty preview.
         if(deviceBox.SelectedItem is DeviceChoice&&modeBox.SelectedItem is ModeChoice)await StartAsync();
     }
-    public void Deactivate(){if(!Recording&&!Saving&&!StartingRecording){Stop();}}
+    public void Deactivate(){active=false;if(!Recording&&!Saving&&!StartingRecording){timer.Stop();Stop();}}
     private sealed record DeviceChoice(CaptureDevice Device,string Label){public override string ToString()=>Label;}
     private sealed record ModeChoice(FrameDoubler.Core.CaptureMode Mode,string Label){public override string ToString()=>Label;}
     // Shows 3x/4x only when the driver allows them (see LiveEngine.ProbeMaxMultiplier).
@@ -584,10 +589,11 @@ public sealed class CaptureView:UserControl
         if(inventory is null)return;
         bool old=updating;updating=true;
         string? selected=keepSelection?(deviceBox.SelectedItem as DeviceChoice)?.Device.Id:null;
-        var devices=inventory.Video.Select(d=>new DeviceChoice(d,T("캡처 카드 · ","Capture card · ")+d.Name)).ToArray();
+        var devices=inventory.Video.Select((d,index)=>new DeviceChoice(d,T("캡처 카드 · ","Capture card · ")+d.Name+
+            (inventory.Video.Count(v=>v.Name==d.Name)>1?$" · {(d.Api=="dshow"?"DirectShow":"MF")} {index+1}":""))).ToArray();
         deviceBox.ItemsSource=devices;
-        deviceBox.SelectedItem=devices.FirstOrDefault(d=>d.Device.Id==selected)??devices.FirstOrDefault(d=>d.Device.Name==owner.Settings.CaptureDevice)
-            ??devices.FirstOrDefault(d=>d.Device.Modes.Any(m=>m.Supported))??devices.FirstOrDefault();
+        var preferred=inventory.PreferredDevice(owner.Settings.CaptureDeviceId,owner.Settings.CaptureDevice);
+        deviceBox.SelectedItem=devices.FirstOrDefault(d=>d.Device.Id==selected)??devices.FirstOrDefault(d=>d.Device==preferred);
         FillModes();FillAudio();
         updating=old;
         if(devices.Length==0)statusMessage=T("캡처 장치가 없습니다. 연결을 확인하세요.","No capture device found. Check the connection.");
@@ -626,26 +632,38 @@ public sealed class CaptureView:UserControl
     private async Task RestartAsync(){if(session is not null&&!Recording){Stop();await StartAsync();}}
     private async Task ToggleRunningAsync(){if(session is null)await StartAsync();else if(Recording){statusMessage=T("녹화를 먼저 멈추세요.","Stop the recording first.");ShowStatus(last);}else Stop();}
     public async Task StartAsync(){
-        if(session is not null||starting)return;
-        if(deviceBox.SelectedItem is not DeviceChoice d||modeBox.SelectedItem is not ModeChoice m){statusMessage=T("장치와 모드를 고르세요.","Choose a device and mode.");ShowStatus(last);return;}
+        if(shutDown||session is not null||starting)return;
+        if(deviceBox.SelectedItem is not DeviceChoice d||modeBox.SelectedItem is not ModeChoice m){
+            statusMessage=deviceBox.SelectedItem is DeviceChoice unavailable
+                ?unavailable.Device.Error is {Length:>0} error?error:T("지원하는 SDR 입력 모드가 없습니다. 카드 드라이버와 입력 형식을 확인하세요.","No supported SDR input mode. Check the card driver and input format.")
+                :T("장치와 모드를 고르세요.","Choose a device and mode.");ShowStatus(last);return;
+        }
+        int version=++sessionVersion;
         starting=true;UpdateStart();
-        host.Visibility=Visibility.Visible;placeholder.Visibility=Visibility.Collapsed;
-        await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);   // let the host create its window
-        var p=owner.Settings;IntPtr window=host.Handle;string? audio=AudioId();
-        captureFailure="";statusMessage=T("시작하는 중…","Starting…");ShowStatus(null);
         try{
-            session=await Task.Run(()=>LiveEngine.Open(d.Device,m.Mode,audio,options,p.EffectiveScreenshotDirectory,p.EffectiveRecordingDirectory,p.RecordingCodec,p.RecordingBitrate,window,p.CaptureAudioOutput));
-            owner.ChangeSettings(q=>q with{CaptureDevice=d.Device.Name,CaptureMode=m.Mode.Key});
+            host.Visibility=Visibility.Visible;placeholder.Visibility=Visibility.Collapsed;
+            await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render);   // let the host create its window
+            if(version!=sessionVersion||shutDown)return;
+            var p=owner.Settings;IntPtr window=host.Handle;string? audio=AudioId();
+            var requestedOptions=options;
+            captureFailure="";statusMessage=T("시작하는 중…","Starting…");ShowStatus(null);
+            var opened=await Task.Run(()=>LiveEngine.Open(d.Device,m.Mode,audio,requestedOptions,p.EffectiveScreenshotDirectory,p.EffectiveRecordingDirectory,p.RecordingCodec,p.RecordingBitrate,window,p.CaptureAudioOutput));
+            if(version!=sessionVersion||shutDown){await Task.Run(opened.Dispose);return;}
+            session=opened;
+            if(options!=requestedOptions)session.Apply(options);
+            owner.ChangeSettings(q=>q with{CaptureDevice=d.Device.Name,CaptureDeviceId=d.Device.Id,CaptureMode=m.Mode.Key});
             statusMessage="";fpsHistory.Clear();
             KeepAwake.Set(true);
             owner.LogCapture(T("미리보기 시작: ","Preview started: ")+d.Device.Name+" · "+m.Mode.Label);
         }catch(Exception ex){
+            if(version!=sessionVersion||shutDown)return;
             session=null;statusMessage=ex.Message;host.Visibility=Visibility.Collapsed;placeholder.Visibility=Visibility.Visible;
             owner.LogCapture(T("미리보기 실패: ","Preview failed: ")+ex.Message);
         }finally{starting=false;UpdateStart();UpdateRecordButton();ShowStatus(last);}
     }
     public string? StatusJson()=>session?.StatusJson();
     public void Stop(){
+        ++sessionVersion;
         KeepAwake.Set(false);
         countdown?.Stop();countdownLeft=0;
         var s=session;session=null;last=null;
@@ -654,7 +672,7 @@ public sealed class CaptureView:UserControl
         UpdateStart();UpdateRecordButton();ShowStatus(null);
     }
     // Closing the window: finish a recording and release the device.
-    public void Shutdown(){timer.Stop();KeepAwake.Set(false);gpuUsage.Dispose();var s=session;session=null;s?.Dispose();}
+    public void Shutdown(){shutDown=true;active=false;++sessionVersion;timer.Stop();countdown?.Stop();KeepAwake.Set(false);gpuUsage.Dispose();var s=session;session=null;s?.Dispose();}
     // Offers the NVIDIA VFX download when it is missing; true when it is installed.
     private bool EnsureVfx(){
         if(LiveEngine.VfxInstalled)return true;
@@ -872,6 +890,8 @@ public sealed class CaptureView:UserControl
         // The quality choice belongs to NVIDIA VFX only.
         if(qualityRow is not null)qualityRow.Visibility=options.FrameGeneration=="vfx"||s?.FrameGeneration=="vfx"?Visibility.Visible:Visibility.Collapsed;
         bool motionLocked=starting||countdownLeft>0||s is {Recording:true} or {RecordingStarting:true} or {RecordingFinalizing:true};
+        deviceBox.IsEnabled=modeBox.IsEnabled=audioBox.IsEnabled=!motionLocked;
+        startButton.IsEnabled=!motionLocked;
         toggles["nvof"].IsEnabled=!motionLocked&&options.FrameGeneration!="vfx";
         toggles["edgeAegis"].IsEnabled=toggles["nvof"].IsEnabled&&options.DlssMotion=="nvof";
         string motionStatus=options.FrameGeneration=="vfx"||s?.FrameGeneration=="vfx"?T("VFX 사용 중에는 적용되지 않습니다.","Not applied while VFX is active.")
@@ -898,7 +918,7 @@ public sealed class CaptureView:UserControl
             statusDot.Fill=Faint;pathText.Text=Hangul.KeepWords(statusMessage.Length>0?statusMessage:T("미리보기가 꺼져 있습니다","Preview is off"));
         }else{
             string rec=s.Recording?T($" · ● 녹화 {TimeSpan.FromSeconds(Math.Floor(s.RecordingSeconds)):mm\\:ss}",$" · ● REC {TimeSpan.FromSeconds(Math.Floor(s.RecordingSeconds)):mm\\:ss}"):"";
-            liveText.Text=(statusMessage.Length>0?statusMessage+"  |  ":"")+T("● 실시간","● LIVE")+" · "+T("지연","latency")+$" {(s.LatencyMs is {} lt?lt.ToString("0",CultureInfo.InvariantCulture):"—")} ms"+rec;
+            liveText.Text=(statusMessage.Length>0?statusMessage+"  |  ":"")+T("● 실시간","● LIVE")+" · "+T("지연","latency")+$" {(shownLatency is {} lt?lt.ToString("0",CultureInfo.InvariantCulture):"—")} ms"+rec;
             if(s.CaptureState=="waiting"&&statusMessage.Length==0)liveText.Text=T("영상 입력을 기다리는 중…","Waiting for video input…");
             liveText.Foreground=statusMessage.Length>0?Warn:Muted;
             statusDot.Fill=s.CaptureFailed?Bad:Good;

@@ -24,6 +24,7 @@ public sealed record Preferences
     // Capture preview (live engine).
     public string StartPage{get;init;}="capture";
     public string CaptureDevice{get;init;}="";
+    public string CaptureDeviceId{get;init;}="";
     public string CaptureMode{get;init;}="";
     public string CaptureAudio{get;init;}="auto";
     public string CaptureAudioOutput{get;init;}="default";
@@ -129,7 +130,7 @@ public sealed record Preferences
             Verify=B(nameof(Verify),false),HardwareEncoding=B(nameof(HardwareEncoding),true),CheckUpdates=B(nameof(CheckUpdates),true),
             CloseAction=S(nameof(CloseAction),"ask"),MinimizeAction=S(nameof(MinimizeAction),"taskbar"),
             StartPage=S(nameof(StartPage),"capture"),CaptureDevice=S(nameof(CaptureDevice),""),CaptureMode=S(nameof(CaptureMode),""),CaptureAudio=S(nameof(CaptureAudio),"auto"),
-            CaptureAudioOutput=S(nameof(CaptureAudioOutput),"default"),
+            CaptureDeviceId=S(nameof(CaptureDeviceId),""),CaptureAudioOutput=S(nameof(CaptureAudioOutput),"default"),
             LiveDlssMotion=S(nameof(LiveDlssMotion),"none"),LiveEdgeAegis=B(nameof(LiveEdgeAegis),false),
             LiveFrameGeneration=S(nameof(LiveFrameGeneration),"off"),LiveMultiplier=I(nameof(LiveMultiplier),2),LiveAntiAlias=I(nameof(LiveAntiAlias),0),LiveDedup=B(nameof(LiveDedup),false),
             LiveRange=S(nameof(LiveRange),"auto"),LiveVfxQuality=I(nameof(LiveVfxQuality),1),LiveVolume=I(nameof(LiveVolume),100),LiveMute=B(nameof(LiveMute),false),
@@ -154,6 +155,7 @@ public sealed record Preferences
         Add(nameof(Verify),Verify);Add(nameof(HardwareEncoding),HardwareEncoding);Add(nameof(CheckUpdates),CheckUpdates);Add(nameof(CloseAction),CloseAction);Add(nameof(MinimizeAction),MinimizeAction);
         Add(nameof(StartPage),StartPage);Add(nameof(CaptureDevice),CaptureDevice);Add(nameof(CaptureMode),CaptureMode);Add(nameof(CaptureAudio),CaptureAudio);
         Add(nameof(CaptureAudioOutput),CaptureAudioOutput);
+        Add(nameof(CaptureDeviceId),CaptureDeviceId);
         Add(nameof(LiveDlssMotion),LiveDlssMotion);Add(nameof(LiveEdgeAegis),LiveEdgeAegis);
         Add(nameof(LiveFrameGeneration),LiveFrameGeneration);Add(nameof(LiveMultiplier),LiveMultiplier);Add(nameof(LiveAntiAlias),LiveAntiAlias);Add(nameof(LiveDedup),LiveDedup);
         Add(nameof(LiveRange),LiveRange);Add(nameof(LiveVfxQuality),LiveVfxQuality);Add(nameof(LiveVolume),LiveVolume);Add(nameof(LiveMute),LiveMute);Add(nameof(LiveAudioOffset),LiveAudioOffset);

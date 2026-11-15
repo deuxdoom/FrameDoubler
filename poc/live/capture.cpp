@@ -126,11 +126,21 @@ HRESULT createReader(IMFMediaSource* source, IMFSourceReaderCallback* callback, 
 }
 
 HRESULT typeHandler(IMFMediaSource* source, IMFMediaTypeHandler** handler) {
-    ComPtr<IMFPresentationDescriptor> pd; ComPtr<IMFStreamDescriptor> sd; BOOL selected = FALSE;
+    *handler = nullptr;
+    ComPtr<IMFPresentationDescriptor> pd;
     HRESULT hr = source->CreatePresentationDescriptor(&pd);
-    if (SUCCEEDED(hr)) hr = pd->GetStreamDescriptorByIndex(0, &selected, &sd);
-    if (SUCCEEDED(hr)) hr = sd->GetMediaTypeHandler(handler);
-    return hr;
+    if (FAILED(hr)) return hr;
+    DWORD count = 0;
+    hr = pd->GetStreamDescriptorCount(&count);
+    if (FAILED(hr)) return hr;
+    for (DWORD i = 0; i < count; ++i) {
+        ComPtr<IMFStreamDescriptor> sd; ComPtr<IMFMediaTypeHandler> candidate; BOOL selected = FALSE; GUID major{};
+        if (SUCCEEDED(pd->GetStreamDescriptorByIndex(i, &selected, &sd)) && SUCCEEDED(sd->GetMediaTypeHandler(&candidate)) &&
+            SUCCEEDED(candidate->GetMajorType(&major)) && major == MFMediaType_Video) {
+            *handler = candidate.Detach(); return S_OK;
+        }
+    }
+    return MF_E_INVALIDSTREAMNUMBER;
 }
 
 struct MfSession {
@@ -140,7 +150,47 @@ struct MfSession {
 };
 
 std::string lower(std::string s) { for (auto& c : s) c = char(std::tolower(static_cast<unsigned char>(c))); return s; }
+std::string deviceKey(std::string id) {
+    id = lower(std::move(id));
+    if (id.rfind("dshow:", 0) == 0) id.erase(0, 6);
+    if (id.rfind("@device:pnp:", 0) == 0) id.erase(0, 12);
+    // MF and DirectShow use different interface-class GUIDs for the same PnP instance.
+    // Keep the instance and reference suffix, stripping only that class GUID.
+    const auto at = id.find("#{"), end = at == std::string::npos ? at : id.find('}', at + 2);
+    if (id.rfind("\\\\?\\", 0) == 0 && end != std::string::npos) id.erase(at, end - at + 1);
+    return id;
+}
 } // namespace
+
+int captureCounterpart(const VideoDevice& device, const std::vector<VideoDevice>& source, const std::vector<VideoDevice>& target) {
+    const auto key = deviceKey(device.id);
+    int found = -1;
+    for (size_t i = 0; !key.empty() && i < target.size(); ++i) if (deviceKey(target[i].id) == key) {
+        if (found >= 0) return -1;
+        found = int(i);
+    }
+    if (found >= 0) return found;
+    const auto name = lower(device.name);
+    if (name.empty() || std::count_if(source.begin(), source.end(), [&](const auto& d) { return d.api == device.api && lower(d.name) == name; }) != 1) return -1;
+    for (size_t i = 0; i < target.size(); ++i) if (lower(target[i].name) == name) {
+        if (found >= 0) return -1;
+        found = int(i);
+    }
+    return found;
+}
+
+bool captureIdentitySelfTest() {
+    VideoDevice a; a.name = "USB Capture"; a.id = "device-a"; a.api = "mf";
+    VideoDevice b = a; b.id = "device-b";
+    VideoDevice da = a; da.id = "dshow:DEVICE-A"; da.api = "dshow";
+    VideoDevice db = da; db.id = "dshow:device-b";
+    VideoDevice other = da; other.id = "dshow:other";
+    VideoDevice pnp = a; pnp.id = "\\\\?\\usb#instance-a#{mf-class}\\global";
+    VideoDevice dpnp = da; dpnp.id = "dshow:\\\\?\\usb#instance-a#{dshow-class}\\global";
+    return captureCounterpart(a, {a,b}, {db,da}) == 1 && captureCounterpart(a, {a,b}, {other}) == -1 &&
+        captureCounterpart(a, {a}, {other,db}) == -1 && captureCounterpart(a, {a}, {other}) == 0 &&
+        captureCounterpart(pnp, {pnp}, {dpnp}) == 0;
+}
 
 void copyToProcessing(const FrameView& v, uint8_t* dst) {
     const size_t w = size_t(v.width), h = size_t(v.height);
@@ -230,9 +280,20 @@ std::vector<VideoDevice> listVideoDevices(bool withModes, bool allDirectShow) {
     }
     // Capture cards whose drivers only register DirectShow filters are invisible to Media
     // Foundation; list them too, under their own API.
-    for (auto& d : listDirectShowDevices(withModes)) {
-        bool known = false;
-        for (auto& m : devices) if (m.api == "mf" && lower(m.name) == lower(d.name)) known = true;
+    const auto mfDevices = devices;
+    const auto directShow = listDirectShowDevices(withModes);
+    for (auto d : directShow) {
+        const int match = captureCounterpart(d, directShow, mfDevices);
+        bool known = match >= 0;
+        if (known && withModes) {
+            const auto& m = mfDevices[size_t(match)];
+            // Keep a selectable DirectShow entry when MF cannot list usable modes or
+            // DirectShow offers native modes that MF does not expose.
+            known = m.error.empty() && std::any_of(m.modes.begin(), m.modes.end(), [](const auto& v) { return formatSupported(v.format); }) &&
+                std::all_of(d.modes.begin(), d.modes.end(), [&](const auto& v) {
+                    return !formatSupported(v.format) || std::any_of(m.modes.begin(), m.modes.end(), [&](const auto& mv) { return sameMode(v,mv); });
+                });
+        }
         if (!known || allDirectShow) devices.push_back(std::move(d));
     }
     return devices;
