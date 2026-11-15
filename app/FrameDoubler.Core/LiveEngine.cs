@@ -59,6 +59,12 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
     public int DlssMaxMultiplier {get;init;}
     // The multiplier actually run (1 = no generator; 0 = older engine).
     public int Multiplier {get;init;}
+    // Pictures shown per second that differ from the one before (repeats not counted);
+    // 0 = older engine, which reported only Present calls.
+    public double DistinctFps {get;init;}
+    public double ShownFps=>DistinctFps>0?DistinctFps:PresentedFps;
+    // Of those, generated pictures per second (whether interpolation really takes place).
+    public double DistinctGeneratedFps {get;init;}
     public string DlssMotion {get;init;}="";
     public bool EdgeAegis {get;init;}
     public string MotionWarning {get;init;}="";
@@ -93,7 +99,7 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
             new(N(stages,"upload"),N(stages,"motion"),N(stages,"interpolate"),N(stages,"present"),N(stages,"encode")),S(r,"fg"),S(r,"vfxRuntime"),
             (int)(N(r,"audioDelayMs")??0),B(r,"audio"),(long)(N(totals,"input")??0),(long)(N(totals,"unique")??0),(long)(N(totals,"duplicates")??0),(long)(N(totals,"dropped")??0),
             B(recording,"active"),S(recording,"path"),N(recording,"seconds")??0,(long)(N(recording,"dropped")??0),events){TargetFps=N(r,"targetFps")??0,
-                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DlssMotion=S(r,"dlssMotion"),EdgeAegis=B(r,"edgeAegis"),MotionWarning=S(r,"motionWarning"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
+                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DistinctFps=N(r,"distinctFps")??0,DistinctGeneratedFps=N(r,"distinctGeneratedFps")??0,DlssMotion=S(r,"dlssMotion"),EdgeAegis=B(r,"edgeAegis"),MotionWarning=S(r,"motionWarning"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
                 CaptureState=S(r,"captureState"),AudioInputState=S(r,"audioInputState"),AudioOutputState=S(r,"audioOutputState"),AudioOutputId=S(r,"audioOutputId"),AudioOutputName=S(r,"audioOutputName"),
                 AudioQueueMs=(int)(N(r,"audioQueueMs")??0),AudioBufferMs=(int)(N(r,"audioBufferMs")??0),AudioOutputAttempts=(long)(N(r,"audioOutputAttempts")??0),AudioUnderruns=(long)(N(r,"audioUnderruns")??0),
                 RecordingFinalizing=B(recording,"finalizing"),RecordingStarting=B(recording,"starting"),RecordingFps=N(recording,"fps")??0};

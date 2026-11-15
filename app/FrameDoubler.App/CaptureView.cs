@@ -183,10 +183,16 @@ public sealed class CaptureView:UserControl
 
         // Side panel: tabs and cards.
         BuildTabs();
-        var tabsRow=new UniformGrid{Rows=1,Margin=new Thickness(8,8,8,4)};
+        // Tab widths follow their labels and a label never wraps: in equal fifths "프레임 생성"
+        // broke as "프레임 생 / 성" with the embedded font (implicit TextBlock wrapping).
+        var tabsRow=new Grid{Margin=new Thickness(8,8,8,4)};
+        static double Ems(string text)=>text.Sum(c=>c>=0xAC00&&c<=0xD7A3?1.0:c==' '?0.3:0.62)+2.0;
+        int column=0;
         foreach(var (key,ko,en) in new[]{("quality","화질","Quality"),("fg","프레임 생성","Frame Gen"),("color","색","Colour"),("audio","오디오","Audio"),("display","표시","Display")}){
             var rb=new RadioButton{Style=(Style)owner.FindResource("TabSegment"),GroupName="CaptureTabs",IsChecked=key==tab};
-            L(s=>rb.Content=s,ko,en);rb.Checked+=(_,_)=>{tab=key;tabContent.Content=tabPages[key];};
+            var col=new ColumnDefinition();tabsRow.ColumnDefinitions.Add(col);Grid.SetColumn(rb,column++);
+            L(s=>{rb.Content=new TextBlock{Text=s,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis};col.Width=new GridLength(Ems(s),GridUnitType.Star);},ko,en);
+            rb.Checked+=(_,_)=>{tab=key;tabContent.Content=tabPages[key];};
             tabButtons[key]=rb;tabsRow.Children.Add(rb);
         }
         tabContent.Content=tabPages[tab];
@@ -772,7 +778,7 @@ public sealed class CaptureView:UserControl
         last=status;
         foreach(var e in status.Events)HandleEvent(e);
         if(status.CaptureFailed&&!Recording)statusMessage=CaptureFailureMessage();
-        fpsHistory.Add(status.PresentedFps);
+        fpsHistory.Add(status.ShownFps);
         UpdateRecordButton();ShowStatus(status);
     }
     private string CaptureFailureMessage(){
@@ -827,18 +833,26 @@ public sealed class CaptureView:UserControl
         values["upload"].Text=Ms(s?.Stages.Upload);values["motion"].Text=Ms(s?.Stages.Motion);values["fg"].Text=Ms(s?.Stages.Interpolate);
         values["present"].Text=Ms(s?.Stages.Present);values["encode"].Text=Ms(s?.Stages.Encode);values["total"].Text=s is null?"—":Ms(s.Stages.Total);
         values["encode"].ToolTip=T("NV12 변환과 인코더에 넘기는 그래픽 큐의 경과 시간입니다. 대기를 포함하며 하드웨어 인코더 자체의 처리 시간은 아닙니다.","Elapsed graphics-queue time for NV12 conversion and encoder submission, including waits. This is not the hardware encoder's own processing time.");
-        double target=s?.TargetFps is >0?s.TargetFps:0;
         latencyMetric.Set(s?.LatencyMs?.ToString("0",CultureInfo.InvariantCulture)??"—","ms",T("낮을수록 빠름","Lower is faster"));
         latencyMetric.ToolTip=T("캡처 프레임 시각부터 앱이 화면을 제출할 때까지의 추정 지연입니다. 모니터 자체 지연은 포함하지 않으며 외부 실측값은 아닙니다.","Estimated time from the captured frame timestamp to the app's display submission. Excludes the monitor's own delay; this is not an external latency measurement.");
         gpuUsage.SelectAdapter(s?.GpuLuid??"");
         double? gpuPercent=s is null?null:gpuUsage.Percent;
         gpuMetric.Set(gpuPercent?.ToString("0",CultureInfo.InvariantCulture)??"—","%",T("선택한 GPU 전체","Selected GPU, all apps"),gpuPercent is >=90?Warn:Text);
         gpuMetric.ToolTip=T("선택한 GPU 전체에서 가장 바쁜 엔진의 사용률입니다. 다른 프로그램의 사용량도 포함합니다. 약 1초마다 갱신하며 미측정은 —입니다.","Usage of the busiest engine on the selected GPU, including other apps. Updated about once a second; — means unavailable.");
-        rateMetric.Set(s is null?"—":s.PresentedFps.ToString("0.0",CultureInfo.InvariantCulture),"fps",s is null?T("신호 대기","Waiting for input"):target>0?T($"목표 {target:0.#} fps",$"Target {target:0.#} fps"):T("목표 감지 중","Detecting target"),s is null||target<=0?Text:s.PresentedFps>=target*.97?Good:s.PresentedFps>=target*.85?Warn:Bad);
-        rateMetric.ToolTip=T("앱이 화면을 제출한 초당 프레임 수입니다. 목표에 가까울수록 처리 속도가 충분합니다. 모니터가 실제로 보여 주는 프레임 수와는 다를 수 있습니다.","Frames submitted for display per second. Near the target means processing is keeping up. The monitor's actual displayed rate may differ.");
-        graphCaption.Text=s is null?T("최근 1분 표시 속도 · 신호 대기","Last minute of display rate · waiting for input"):target>0?T($"최근 1분 표시 속도 · 점선: 목표 {target:0.#} fps",$"Last minute of display rate · dashed: target {target:0.#} fps"):T("최근 1분 표시 속도 · 목표 감지 중","Last minute of display rate · detecting target");
+        // Pictures that really changed on screen: duplicate removal leaves the game's own frames,
+        // frame generation adds its pictures (30 fps game: 30, 2x 60, 3x 90, 4x 120).
+        // As in Veyra, the shown rate itself is the headline and there is no target; the caption
+        // tells whether interpolation really takes place (originals + generated pictures).
+        double shown=s?.ShownFps??0,generated=s?.DistinctGeneratedFps??0;
+        bool fgOn=s is not null&&s.FrameGeneration is not ("off" or "none" or "loading");
+        string split=s is null?T("신호 대기","Waiting for input"):fgOn?T($"원본 {shown-generated:0} + 생성 {generated:0}",$"{shown-generated:0} orig + {generated:0} gen")
+            :options.Dedup?T("원본만 · 중복 제거","originals only · deduplicated"):T("원본만","originals only");
+        rateMetric.Set(s is null?"—":shown.ToString("0.0",CultureInfo.InvariantCulture),"fps",split,s is null?Text:fgOn?(generated>0?Good:Warn):Text);
+        rateMetric.ToolTip=T("화면에 실제로 바뀌어 표시된 초당 프레임 수입니다. 중복 제거를 켜면 반복 프레임은 세지 않고, 프레임 생성을 켜면 원본과 생성 프레임을 함께 셉니다. 모니터가 실제로 보여 주는 수와는 다를 수 있습니다.",
+            "Pictures per second that actually changed on screen. With duplicate removal repeats are not counted; with frame generation originals and generated pictures are both counted. The monitor's actual displayed rate may differ.");
+        graphCaption.Text=s is null?T("최근 1분 표시 속도 · 신호 대기","Last minute of display rate · waiting for input"):T("최근 1분 표시 속도","Last minute of display rate");
         graphCaption.ToolTip=graphCaption.Text;
-        fpsHistory.Target=target;
+        fpsHistory.Target=0;
         string fg=s is null?T("신호 대기","Waiting for input"):s.FrameGeneration=="off"?T("프레임 생성 꺼짐","Frame generation off"):backend+(s.Multiplier>1?$" {s.Multiplier}×":"");
         featureText.Text=Hangul.KeepWords(fg+" · "+(options.Dedup?T("중복 제거 켬","Dedup on"):T("중복 제거 끔","Dedup off"))+(options.AntiAlias>0?" · AA":""));
         contentHint.Text=s is null?"":options.Dedup?T($"감지된 콘텐츠: 약 {s.ContentFps:0.0}fps · 중복 {s.Duplicates:N0}장 제거",$"Detected content: about {s.ContentFps:0.0} fps · {s.Duplicates:N0} repeats removed")

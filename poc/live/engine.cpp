@@ -142,7 +142,7 @@ struct Options {
     int outputCap = 0;     // 0 off, -1 the display's refresh rate, otherwise frames per second
 };
 
-struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0; double latency = 0, dedupMs = 0, vfxMs = 0, scanout = 0; int latencyCount = 0, vfxCount = 0, scanoutCount = 0; };
+struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0, distinct = 0, distinctGenerated = 0; double latency = 0, dedupMs = 0, vfxMs = 0, scanout = 0; int latencyCount = 0, vfxCount = 0, scanoutCount = 0; };
 
 // An output rate as a fraction signal*multiplier*p/q (q <= 6), else 1e7/period. A grid
 // slower than the outputs loses pictures, a faster one only leaves gaps, so the nearest
@@ -319,6 +319,8 @@ private:
     std::array<std::pair<uint32_t, int64_t>, 16> presentEnds_{};   // DXGI present count -> Present return
     size_t presentHead_ = 0;
     uint32_t lastShownPresent_ = 0;
+    uint64_t shownPicture_ = 0, shownA_ = 0, shownB_ = 0;   // the picture last shown (distinct count)
+    double shownPhase_ = -1;
     std::atomic<double> pictureLatencyMs_{0};   // capture PTS -> scanout, last window
     // Recent "B arrival - first k/N picture" leads and "B arrival - generated picture prepared"
     // times (render thread). VFX blocks the CPU while it runs (5-8 ms at 2x in a live test), so
@@ -967,6 +969,15 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             shown = gpu_.displayStats();
             std::lock_guard<std::mutex> s(statsMutex_);
             ++window_.presented;
+            // A picture different from the last one shown: with FG off and duplicate removal
+            // this counts the game's real frames (30, not the 60 Presents that repeat them),
+            // with Nx the originals plus the generated pictures.
+            const uint64_t picture = sourceSlot >= 0 ? slotId_[sourceSlot] : 0, pairA = sourceSlot >= 0 ? 0 : plan.idA, pairB = sourceSlot >= 0 ? 0 : plan.idB;
+            const double phase = sourceSlot >= 0 ? 0.0 : plan.phase;
+            if (picture != shownPicture_ || pairA != shownA_ || pairB != shownB_ || phase != shownPhase_) {
+                ++window_.distinct; shownPicture_ = picture; shownA_ = pairA; shownB_ = pairB; shownPhase_ = phase;
+                if (sourceSlot < 0) ++window_.distinctGenerated;
+            }
             if (shown.valid) {
                 presentEnds_[presentHead_++ % presentEnds_.size()] = {shown.lastPresent, presentEnd};
                 if (shown.shownPresent != lastShownPresent_) {
@@ -1078,13 +1089,14 @@ std::string Session::status() {
         ",\"captureState\":" + jsonString(capture_ && capture_->failed() ? "failed" : totalInput_ ? "active" : "waiting") +
         ",\"width\":" + std::to_string(width_) + ",\"height\":" + std::to_string(height_) +
         ",\"format\":" + jsonString(formatName(format_)) + colorJson() + ",\"modeFps\":" + fixed(double(fpsNum_) / fpsDen_, 3) +
-        ",\"targetFps\":" + fixed(gen == 0 ? double(fpsNum_) / fpsDen_ : 1e7 / outputInterval(o), 3) +
+        // Without a generator and with duplicate removal the target is the game's own rate.
+        ",\"targetFps\":" + fixed(gen != 0 ? 1e7 / outputInterval(o) : o.dedup && contentPeriod_.load() > 0 ? 1e7 / double(contentPeriod_.load()) : double(fpsNum_) / fpsDen_, 3) +
         ",\"multiplier\":" + std::to_string(gen == 0 ? 1 : o.multiplier) +
         ",\"gpu\":" + jsonString(gpu_.adapterName()) +
         ",\"gpuLuid\":" + jsonString(gpuLuidText) +
         ",\"inputFps\":" + fixed(w.input / sec) + ",\"contentFps\":" + fixed(w.unique / sec) +
         ",\"outputFps\":" + fixed(w.outputs / sec) + ",\"interpolatedFps\":" + fixed(w.interpolated / sec) +
-        ",\"presentedFps\":" + fixed(w.presented / sec) + ",\"displayHz\":" + std::to_string(displayHz_.load()) +
+        ",\"presentedFps\":" + fixed(w.presented / sec) + ",\"distinctFps\":" + fixed(w.distinct / sec) + ",\"distinctGeneratedFps\":" + fixed(w.distinctGenerated / sec) + ",\"displayHz\":" + std::to_string(displayHz_.load()) +
         ",\"tearing\":" + (gpu_.tearingSupported() ? "true" : "false") +
         ",\"skipped\":" + std::to_string(w.skipped) + ",\"dedupMs\":" + fixed(w.input ? w.dedupMs / double(w.input) : 0, 3) +
         ",\"latencyMs\":" + (w.latencyCount ? fixed(w.latency / w.latencyCount, 1) : std::string("null")) +
