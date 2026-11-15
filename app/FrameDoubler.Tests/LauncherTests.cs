@@ -70,6 +70,11 @@ internal static class LauncherTests
         }
 
         // Missing pieces of dll/ give a clear message instead of a .NET install prompt.
+        string blockedReport=Path.Combine(root,"blocked-report-directory");File.WriteAllText(blockedReport,"This is a file, not a directory.");
+        var diagnosticFailure=await Run(Info(Path.Combine(app,"FrameDoubler.exe"),root,"--ui-test",Path.Combine(blockedReport,"report.json")),60);
+        assert(diagnosticFailure.ExitCode==1&&diagnosticFailure.Error.Contains("Could not write diagnostic report",StringComparison.Ordinal),
+            "An unwritable diagnostic report returns failure without a second unhandled exception: "+diagnosticFailure.Error);
+
         foreach(string missing in new[]{"hostfxr.dll","FrameDoubler.Cli.dll"}){
             string broken=Path.Combine(root,"broken "+missing);Directory.CreateDirectory(Path.Combine(broken,"dll"));
             File.Copy(cli,Path.Combine(broken,"FrameDoubler.Cli.exe"));

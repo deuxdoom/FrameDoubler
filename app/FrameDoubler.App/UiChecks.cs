@@ -19,6 +19,8 @@ public partial class MainWindow
         var passed=new List<string>();
         void Check(bool condition,string name){if(!condition)throw new InvalidOperationException("UI: "+name);passed.Add(name);}
         async Task Idle(){await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ApplicationIdle);}
+        // These checks exercise the conversion page; fresh settings open on capture.
+        ShowPage("convert");await Idle();UpdateLayout();
         Check(WindowStyle==WindowStyle.None&&ResizeMode==ResizeMode.CanMinimize&&WindowChrome.GetWindowChrome(this).ResizeBorderThickness.Left==0,"Frameless fixed-size window with minimize");
         Check(VerifyCheck.IsChecked==false,"Verification starts unchecked");
         foreach(var weight in new[]{FontWeights.Normal,FontWeights.Medium,FontWeights.SemiBold,FontWeights.Bold}){

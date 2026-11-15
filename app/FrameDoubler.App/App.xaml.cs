@@ -101,7 +101,13 @@ public partial class App:System.Windows.Application
             // "--updated <request>" is not a video; only plain file arguments are queued.
             if(!updated&&e.Args.Length>0)await window.AddFilesAsync(e.Args.Where(File.Exists));
         }catch(Exception ex){
-            if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal))await File.WriteAllTextAsync(e.Args[1]+".error.txt",ex.ToString());
+            if(e.Args.Length>=2&&e.Args[0].StartsWith("--",StringComparison.Ordinal)){
+                try{
+                    string report=Path.GetFullPath(e.Args[1]+".error.txt");
+                    Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+                    await File.WriteAllTextAsync(report,ex.ToString());
+                }catch(Exception reportError){Console.Error.WriteLine(ex+Environment.NewLine+"Could not write diagnostic report: "+reportError.Message);}
+            }
             else MessageBox.Show(ex.Message,"FrameDoubler",MessageBoxButton.OK,MessageBoxImage.Error);
             (MainWindow as MainWindow)?.AllowExit();
             Shutdown(1);
