@@ -53,9 +53,12 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
 The preview occupies a centered 16:9 rectangle and double-clicking it toggles full screen.
 The compact main window has a fixed size that fits the monitor's work area and Windows
 scale; its controls scale separately from the native preview. Minimize and move remain available.
-The two panels below show signal and processing time, and smoothness: displayed/game fps,
-generated frames per second, live processing/latency/GPU-budget bars and the last minute
-of output fps. Only the development PC's capture card has been tested; other cards and GPUs are unverified.
+The two panels below show signal and processing time, and preview status: estimated picture
+delay in milliseconds, measured GPU usage including other apps, and display submissions per
+second against the target. The graph shows the last minute of display rate with a dashed
+target line. Tooltips explain the measurements and show long names and status messages.
+The recording timer includes hours for long sessions. Only the development PC's capture
+card has been tested; other cards and GPUs are unverified.
 
 ## Converting files
 

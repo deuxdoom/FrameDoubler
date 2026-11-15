@@ -62,9 +62,10 @@ public sealed class CaptureView:UserControl
     private readonly Border sidePanel=new(),statsRow=new(),topBar=new(),liveBar=new();
     private readonly ContentControl tabContent=new();
     private readonly Dictionary<string,TextBlock> values=new();
-    private readonly BudgetBar processingGauge=new(),gpuGauge=new(),loadGauge=new();
-    private readonly Sparkline fpsHistory=new(){Height=26};
-    private readonly TextBlock bigFps=new(){FontSize=30,FontWeight=FontWeights.SemiBold,FontFamily=Mono,Text="—"},contentFps=new(){FontSize=18,FontFamily=Mono,Text="—",VerticalAlignment=VerticalAlignment.Bottom,Margin=new Thickness(0,0,0,4)},featureText=new(){FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis,Height=42,Margin=new Thickness(0,8,0,0)};
+    private readonly LiveMetric latencyMetric=new(),gpuMetric=new(),rateMetric=new();
+    private readonly Sparkline fpsHistory=new(){Height=28};
+    private readonly TextBlock graphCaption=new(){FontSize=11,Foreground=Muted,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis,Margin=new Thickness(0,6,0,3)};
+    private readonly TextBlock featureText=new(){FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis,Margin=new Thickness(0,5,0,0)};
     private readonly Dictionary<string,ToggleButton> toggles=new();
     private readonly Dictionary<string,List<RadioButton>> segments=new();
     private readonly Slider volume=new(){Minimum=0,Maximum=100,Width=170},offset=new(){Minimum=-200,Maximum=500,Width=170,TickFrequency=10,IsSnapToTickEnabled=true};
@@ -128,15 +129,20 @@ public sealed class CaptureView:UserControl
         // preview status row, so shrinking the window never wraps toolbar controls.
         deviceBox.Width=double.NaN;deviceBox.MinWidth=0;modeBox.Width=double.NaN;
         deviceBox.ClipToBounds=true;modeBox.ClipToBounds=true;
+        foreach(var box in new[]{deviceBox,modeBox})box.SetBinding(ToolTipProperty,new System.Windows.Data.Binding("SelectedItem.Label"){Source=box});
         Grid.SetColumn(deviceBox,1);Grid.SetColumn(modeBox,2);left.Children.Add(deviceBox);left.Children.Add(modeBox);
         deviceBox.SelectionChanged+=(_,_)=>{if(!updating)DeviceChanged();};
         modeBox.SelectionChanged+=(_,_)=>{if(!updating)ModeChanged();};
         bar.Children.Add(left);
         var actions=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
-        startButton.Style=(Style)owner.FindResource("PrimaryButton");startButton.MinHeight=36;startButton.Padding=new Thickness(16,6,16,6);startButton.Click+=async(_,_)=>await ToggleRunningAsync();
+        startButton.Style=(Style)owner.FindResource("PrimaryButton");startButton.MinHeight=36;startButton.Width=148;startButton.Padding=new Thickness(16,6,16,6);startButton.Click+=async(_,_)=>await ToggleRunningAsync();
         screenshotButton.Content=null;
         var shot=IconButton("","스크린샷","Screenshot",TakeScreenshot);
-        var recordContent=new StackPanel{Orientation=Orientation.Horizontal};recordContent.Children.Add(recordDot);recordContent.Children.Add(recordText);
+        var recordContent=new Grid();recordContent.ColumnDefinitions.Add(new(){Width=GridLength.Auto});recordContent.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        recordDot.VerticalAlignment=VerticalAlignment.Center;recordText.VerticalAlignment=VerticalAlignment.Center;recordText.TextWrapping=TextWrapping.NoWrap;recordText.TextTrimming=TextTrimming.CharacterEllipsis;
+        recordText.SetBinding(ToolTipProperty,new System.Windows.Data.Binding(nameof(TextBlock.Text)){Source=recordText});
+        recordContent.Children.Add(recordDot);Grid.SetColumn(recordText,1);recordContent.Children.Add(recordText);
+        recordButton.HorizontalContentAlignment=HorizontalAlignment.Stretch;
         recordButton.Content=recordContent;recordButton.Style=(Style)owner.FindResource("SecondaryButton");recordButton.MinHeight=36;recordButton.Padding=new Thickness(13,6,13,6);recordButton.Margin=new Thickness(8,0,0,0);
         // Reserve the translated stop caption and timer even while idle so recording
         // cannot change the header's wrap count or the available preview height.
@@ -188,7 +194,9 @@ public sealed class CaptureView:UserControl
         var footer=new Grid{Margin=new Thickness(16,8,16,10)};footer.ColumnDefinitions.Add(new(){Width=GridLength.Auto});footer.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         footer.RowDefinitions.Add(new(){Height=GridLength.Auto});footer.RowDefinitions.Add(new(){Height=GridLength.Auto});
         footer.Children.Add(statusDot);
-        pathText.FontSize=12;pathText.Foreground=Muted;pathText.TextWrapping=TextWrapping.Wrap;Grid.SetColumn(pathText,1);footer.Children.Add(pathText);
+        pathText.FontSize=12;pathText.Foreground=Muted;pathText.TextWrapping=TextWrapping.NoWrap;pathText.TextTrimming=TextTrimming.CharacterEllipsis;
+        pathText.SetBinding(ToolTipProperty,new System.Windows.Data.Binding(nameof(TextBlock.Text)){Source=pathText});
+        Grid.SetColumn(pathText,1);footer.Children.Add(pathText);
         var side=new Grid();side.RowDefinitions.Add(new(){Height=GridLength.Auto});side.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});side.RowDefinitions.Add(new(){Height=GridLength.Auto});
         side.Children.Add(tabsRow);Grid.SetRow(scroll,1);side.Children.Add(scroll);
         var sep=new Border{Height=1,Background=Line,VerticalAlignment=VerticalAlignment.Top};Grid.SetRow(sep,2);side.Children.Add(sep);Grid.SetRow(footer,2);side.Children.Add(footer);
@@ -204,22 +212,14 @@ public sealed class CaptureView:UserControl
         combined.Children.Add(signalRows);Grid.SetColumn(stagesGrid,2);combined.Children.Add(stagesGrid);
         var signal=StatCard("신호와 처리 시간","Signal and processing time",combined);
         var pacing=new StackPanel();
-        var fpsLine=new StackPanel{Orientation=Orientation.Horizontal};
-        fpsLine.Children.Add(bigFps);
-        var outLabel=Label("화면 표시 fps","display fps",12,Muted);outLabel.VerticalAlignment=VerticalAlignment.Bottom;outLabel.Margin=new Thickness(8,0,14,6);fpsLine.Children.Add(outLabel);
-        fpsLine.Children.Add(new Border{Width=1,Background=Line,Margin=new Thickness(0,6,14,6)});
-        fpsLine.Children.Add(contentFps);
-        var contentLabel=Label("게임 실제 fps","game fps",12,Muted);contentLabel.VerticalAlignment=VerticalAlignment.Bottom;contentLabel.Margin=new Thickness(8,0,0,6);fpsLine.Children.Add(contentLabel);
-        pacing.Children.Add(fpsLine);
-        pacing.Children.Add(Rows(("generated","만든 프레임/초","Generated frames/s")));
-        var gauges=new UniformGrid{Rows=1,Margin=new Thickness(0,4,0,0)};
-        foreach(var (g,ko,en) in new[]{(processingGauge,"처리 / 프레임 예산","Processing / budget"),(gpuGauge,"GPU 사용률","GPU usage"),(loadGauge,"프레임 예산 사용","Frame budget used")}){
-            L(s=>g.Caption=s,ko,en);g.Height=40;g.Margin=new Thickness(0,0,8,0);gauges.Children.Add(g);
+        var metrics=new UniformGrid{Rows=1};
+        foreach(var (metric,ko,en) in new[]{(latencyMetric,"화면 지연","Picture delay"),(gpuMetric,"GPU 사용률","GPU usage"),(rateMetric,"표시 속도","Display rate")}){
+            L(s=>metric.Caption=s,ko,en);metric.Margin=new Thickness(0,0,10,0);metrics.Children.Add(metric);
         }
-        fpsHistory.Height=18;featureText.Height=18;featureText.Margin=new Thickness(0,4,0,0);featureText.TextWrapping=TextWrapping.NoWrap;
-        pacing.Children.Add(gauges);pacing.Children.Add(fpsHistory);pacing.Children.Add(featureText);
+        rateMetric.Margin=new Thickness(0);
+        pacing.Children.Add(metrics);pacing.Children.Add(graphCaption);pacing.Children.Add(fpsHistory);pacing.Children.Add(featureText);
         featureText.SetBinding(ToolTipProperty,new System.Windows.Data.Binding(nameof(TextBlock.Text)){Source=featureText});
-        var pace=StatCard("부드러움","Smoothness",pacing);
+        var pace=StatCard("미리보기 상태","Preview status",pacing);
         stats.Children.Add(signal);Grid.SetColumn(pace,2);stats.Children.Add(pace);
         statsRow.Child=stats;
 
@@ -228,7 +228,7 @@ public sealed class CaptureView:UserControl
         Grid.SetColumnSpan(topBar,3);layout.Children.Add(topBar);
         Grid.SetRow(previewColumn,1);layout.Children.Add(previewColumn);
         Grid.SetRow(sidePanel,1);Grid.SetColumn(sidePanel,2);layout.Children.Add(sidePanel);
-        Grid.SetRow(statsRow,2);Grid.SetColumnSpan(statsRow,3);statsRow.Height=180;layout.Children.Add(statsRow);
+        Grid.SetRow(statsRow,2);Grid.SetColumnSpan(statsRow,3);layout.Children.Add(statsRow);
         Content=new Border{Padding=new Thickness(24,14,24,20),Child=layout};
         L(s=>placeholderTitle.Text=s,"캡처 장치를 고르고 미리보기를 시작하세요","Choose a capture device and start the preview");
         L(s=>placeholderHint.Text=Hangul.KeepWords(s),"60Hz 신호 속 30fps 게임 화면의 반복 프레임을 걸러 내고, 그 사이를 실시간으로 채워 부드럽게 보여 줍니다. 다른 프로그램이 장치를 쓰고 있으면 먼저 닫아 주세요.",
@@ -239,9 +239,10 @@ public sealed class CaptureView:UserControl
     private StackPanel Rows(params (string key,string ko,string en)[] rows){
         var stack=new StackPanel();
         foreach(var (key,ko,en) in rows){
-            var g=new Grid{Margin=new Thickness(0,3,0,3)};g.ColumnDefinitions.Add(new(){Width=GridLength.Auto});g.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
-            g.Children.Add(Label(ko,en,12.5,Muted));
+            var g=new Grid{Margin=new Thickness(0,2,0,2)};g.ColumnDefinitions.Add(new(){Width=GridLength.Auto});g.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+            var caption=Label(ko,en,12.5,Muted);caption.TextWrapping=TextWrapping.NoWrap;g.Children.Add(caption);
             var value=new TextBlock{FontFamily=Mono,FontSize=12.5,Foreground=Text,TextAlignment=TextAlignment.Right,TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,Margin=new Thickness(12,0,0,0),Text="—"};
+            value.SetBinding(ToolTipProperty,new System.Windows.Data.Binding(nameof(TextBlock.Text)){Source=value});
             Grid.SetColumn(value,1);g.Children.Add(value);values[key]=value;stack.Children.Add(g);
         }
         return stack;
@@ -346,7 +347,7 @@ public sealed class CaptureView:UserControl
 
         // ---- Quality
         var aaToggle=Toggle("aa",options.AntiAlias>0,on=>{int v=on?Math.Max(1,lastAa):0;SetOptions(options with{AntiAlias=v},q=>q with{LiveAntiAlias=v});});
-        aaSubtitle.FontSize=11.5;aaSubtitle.Foreground=Faint;
+        aaSubtitle.FontSize=11.5;aaSubtitle.Foreground=Faint;aaSubtitle.TextWrapping=TextWrapping.Wrap;
         var methodChip=new TextBlock();L(t=>methodChip.Text=t,"경계 추적","Edge tracing");
         var methodChipBox=Chip(methodChip);methodChipBox.Margin=new Thickness(0);
         aaTime.FontFamily=Mono;aaTime.FontSize=12.5;aaTime.Foreground=Good;
@@ -396,7 +397,7 @@ public sealed class CaptureView:UserControl
         var audioPage=new StackPanel();audioPage.Children.Add(audioCard);tabPages["audio"]=audioPage;
 
         // ---- Display
-        outputSubtitle.FontSize=11.5;outputSubtitle.Foreground=Faint;
+        outputSubtitle.FontSize=11.5;outputSubtitle.Foreground=Faint;outputSubtitle.TextWrapping=TextWrapping.Wrap;
         var syncRow=OptionRow("화면 동기화","Display sync","자동(권장): 티어링 없이 새로 고침마다 가장 새 프레임을 보여 지연이 가장 적습니다. VSync: 모든 프레임이 새로 고침을 기다립니다. 티어링 허용: 지연이 가장 짧지만 찢김이 보일 수 있습니다.",
             "Auto (recommended): no tearing; each refresh shows the newest frame for the lowest latency. VSync: every frame waits for a refresh. Allow tearing: shortest delay, tear lines may appear.",
             Segments("sync",options.Sync,v=>SetOptions(options with{Sync=v},q=>q with{LiveSync=v}),("auto","자동","Auto"),("vsync","VSync","VSync"),("tearing","티어링 허용","Allow tearing")),stacked:true);
@@ -730,7 +731,9 @@ public sealed class CaptureView:UserControl
     }
     private void UpdateRecordButton(){
         bool rec=Recording;
-        recordText.Text=Saving?T("저장 중…","Saving…"):countdownLeft>0?T($"{countdownLeft} · 취소",$"{countdownLeft} · Cancel"):StartingRecording?T("시작 취소","Cancel start"):rec?T("녹화 중지 ","Stop ")+TimeSpan.FromSeconds(Math.Floor(last?.RecordingSeconds??0)).ToString(@"mm\:ss",CultureInfo.InvariantCulture):T("녹화","Record");
+        var elapsed=TimeSpan.FromSeconds(Math.Max(0,Math.Floor(last?.RecordingSeconds??0)));
+        string time=elapsed.TotalHours>=1?((long)elapsed.TotalHours).ToString(CultureInfo.InvariantCulture)+elapsed.ToString(@"\:mm\:ss",CultureInfo.InvariantCulture):elapsed.ToString(@"mm\:ss",CultureInfo.InvariantCulture);
+        recordText.Text=Saving?T("저장 중…","Saving…"):countdownLeft>0?T($"{countdownLeft} · 취소",$"{countdownLeft} · Cancel"):StartingRecording?T("시작 취소","Cancel start"):rec?T("중지 ","Stop ")+time:T("녹화","Record");
         recordDot.Fill=rec?Bad:Brush("#B85050");
         recordButton.BorderBrush=rec?Bad:Brush("#44535D");
         recordButton.IsEnabled=session is not null&&!Saving;
@@ -743,7 +746,7 @@ public sealed class CaptureView:UserControl
         last=status;
         foreach(var e in status.Events)HandleEvent(e);
         if(status.CaptureFailed&&!Recording)statusMessage=CaptureFailureMessage();
-        if(status.OutputFps>0)fpsHistory.Add(status.OutputFps);
+        fpsHistory.Add(status.PresentedFps);
         UpdateRecordButton();ShowStatus(status);
     }
     private string CaptureFailureMessage(){
@@ -797,23 +800,20 @@ public sealed class CaptureView:UserControl
         values["gpu"].Text=s is null?"—":s.Gpu;
         values["upload"].Text=Ms(s?.Stages.Upload);values["motion"].Text=Ms(s?.Stages.Motion);values["fg"].Text=Ms(s?.Stages.Interpolate);
         values["present"].Text=Ms(s?.Stages.Present);values["encode"].Text=Ms(s?.Stages.Encode);values["total"].Text=s is null?"—":Ms(s.Stages.Total);
-        double target=s?.TargetFps is >0?s.TargetFps:60;
-        bigFps.Text=s is null?"—":s.PresentedFps.ToString("0.0",CultureInfo.InvariantCulture);
-        bigFps.Foreground=s is null?Text:s.PresentedFps>=target*0.97?Good:s.PresentedFps>=target*0.85?Warn:Bad;
-        contentFps.Text=s is null||!options.Dedup?"—":s.ContentFps.ToString("0.0",CultureInfo.InvariantCulture);
-        values["generated"].Text=s is null?"—":s.InterpolatedFps.ToString("0.0",CultureInfo.InvariantCulture);
-        double budget=1000/Math.Max(1,target);
-        processingGauge.Set(s is null?0:s.Stages.Total/budget,s is null?"—":$"{s.Stages.Total:0.0} / {budget:0.0}","ms");
+        double target=s?.TargetFps is >0?s.TargetFps:0;
+        latencyMetric.Set(s?.LatencyMs?.ToString("0",CultureInfo.InvariantCulture)??"—","ms",T("낮을수록 빠름","Lower is faster"));
+        latencyMetric.ToolTip=T("캡처 프레임 시각부터 앱이 화면을 제출할 때까지의 추정 지연입니다. 모니터 자체 지연은 포함하지 않으며 외부 실측값은 아닙니다.","Estimated time from the captured frame timestamp to the app's display submission. Excludes the monitor's own delay; this is not an external latency measurement.");
         gpuUsage.SelectAdapter(s?.GpuLuid??"");
         double? gpuPercent=s is null?null:gpuUsage.Percent;
-        gpuGauge.Set((gpuPercent??0)/100,gpuPercent?.ToString("0",CultureInfo.InvariantCulture)??"—","%");
-        gpuGauge.ToolTip=T("선택한 GPU 전체의 가장 바쁜 엔진 사용률입니다. 약 1초마다 갱신하며 미측정은 —로 표시합니다.","Busiest engine on the selected GPU across all processes. Updated about once a second; — means unavailable.");
-        loadGauge.Set(s is null?0:s.Stages.Total/budget,s is null?"—":(s.Stages.Total/budget*100).ToString("0",CultureInfo.InvariantCulture),"%");
-        var parts=new List<string>();
-        if(options.Dedup)parts.Add(T("자동 중복 제거","Automatic dedup")+(s is null?"":T($" · 콘텐츠 약 {s.ContentFps:0}fps",$" · content about {s.ContentFps:0} fps")));
-        if(options.FrameGeneration!="off")parts.Add(T("프레임 생성 ","Frame generation ")+$"{(s is {Multiplier:>1}?s.Multiplier:options.Multiplier)}× · {backend}");
-        if(options.AntiAlias>0)parts.Add(T("안티앨리어싱 ","Anti-aliasing ")+(options.AntiAlias>1?T("강","high"):T("약","low")));
-        featureText.Text=Hangul.KeepWords(T("사용 중: ","Enabled: ")+(parts.Count==0?T("없음","none"):string.Join("; ",parts)));
+        gpuMetric.Set(gpuPercent?.ToString("0",CultureInfo.InvariantCulture)??"—","%",T("선택한 GPU 전체","Selected GPU, all apps"),gpuPercent is >=90?Warn:Text);
+        gpuMetric.ToolTip=T("선택한 GPU 전체에서 가장 바쁜 엔진의 사용률입니다. 다른 프로그램의 사용량도 포함합니다. 약 1초마다 갱신하며 미측정은 —입니다.","Usage of the busiest engine on the selected GPU, including other apps. Updated about once a second; — means unavailable.");
+        rateMetric.Set(s is null?"—":s.PresentedFps.ToString("0.0",CultureInfo.InvariantCulture),"fps",s is null?T("신호 대기","Waiting for input"):target>0?T($"목표 {target:0.#} fps",$"Target {target:0.#} fps"):T("목표 감지 중","Detecting target"),s is null||target<=0?Text:s.PresentedFps>=target*.97?Good:s.PresentedFps>=target*.85?Warn:Bad);
+        rateMetric.ToolTip=T("앱이 화면을 제출한 초당 프레임 수입니다. 목표에 가까울수록 처리 속도가 충분합니다. 모니터가 실제로 보여 주는 프레임 수와는 다를 수 있습니다.","Frames submitted for display per second. Near the target means processing is keeping up. The monitor's actual displayed rate may differ.");
+        graphCaption.Text=s is null?T("최근 1분 표시 속도 · 신호 대기","Last minute of display rate · waiting for input"):target>0?T($"최근 1분 표시 속도 · 점선: 목표 {target:0.#} fps",$"Last minute of display rate · dashed: target {target:0.#} fps"):T("최근 1분 표시 속도 · 목표 감지 중","Last minute of display rate · detecting target");
+        graphCaption.ToolTip=graphCaption.Text;
+        fpsHistory.Target=target;
+        string fg=s is null?T("신호 대기","Waiting for input"):s.FrameGeneration=="off"?T("프레임 생성 꺼짐","Frame generation off"):backend+(s.Multiplier>1?$" {s.Multiplier}×":"");
+        featureText.Text=Hangul.KeepWords(fg+" · "+(options.Dedup?T("중복 제거 켬","Dedup on"):T("중복 제거 끔","Dedup off"))+(options.AntiAlias>0?" · AA":""));
         contentHint.Text=s is null?"":options.Dedup?T($"감지된 콘텐츠: 약 {s.ContentFps:0.0}fps · 중복 {s.Duplicates:N0}장 제거",$"Detected content: about {s.ContentFps:0.0} fps · {s.Duplicates:N0} repeats removed")
             :T("중복 프레임 제거를 켜면 게임의 실제 속도를 감지합니다.","Enable duplicate removal to detect the game's actual rate.");
         bool vfx=LiveEngine.VfxInstalled;
@@ -848,8 +848,7 @@ public sealed class CaptureView:UserControl
             if(s.CaptureState=="waiting"&&statusMessage.Length==0)liveText.Text=T("영상 입력을 기다리는 중…","Waiting for video input…");
             liveText.Foreground=statusMessage.Length>0?Warn:Muted;
             statusDot.Fill=s.CaptureFailed?Bad:Good;
-            string motion=options.FrameGeneration=="off"?T("없음","none"):s.FrameGeneration=="vfx"?"NVIDIA VFX":s.FrameGeneration=="dlss"&&s.DlssMotion=="nvof"?"NVIDIA Optical Flow":s.FrameGeneration=="dlss"&&s.DlssMotion=="none"?"NVIDIA DLSS":$"{s.Width/2}×{s.Height/2}";
-            pathText.Text=Hangul.KeepWords(T("실시간 캡처 | 입력 ","Live capture | input ")+$"{s.Width}×{s.Height} / "+T("움직임 추정 ","motion ")+motion+" / "+T("출력 ","output ")+$"{s.Width}×{s.Height} | "+T("GPU에서 실시간 처리","processed on the GPU in real time"));
+            pathText.Text=Hangul.KeepWords((s.FrameGeneration=="off"?T("원본 표시","Original pictures"):backend+(s.Multiplier>1?$" {s.Multiplier}×":""))+$" · {s.Width}×{s.Height}"+(s.FrameGeneration=="dlss"&&s.DlssMotion=="nvof"?" · NVIDIA Optical Flow":""));
         }
     }
 }
@@ -902,24 +901,22 @@ internal sealed class PreviewHost:HwndHost
     }
 }
 
-// Live budget bars keep the measured value visible even when it exceeds the scale.
-internal sealed class BudgetBar:FrameworkElement
+// Ordinary WPF text participates in layout and accessibility; values never draw outside a fixed canvas.
+internal sealed class LiveMetric:StackPanel
 {
-    private double value;private string text="—",unit="";
-    public string Caption{get;set;}="";
-    private static readonly Brush Track=Frozen("#2B3338"),Ok=Frozen("#5BD38A"),Mid=Frozen("#F4BD83"),High=Frozen("#FF6B6B"),Label=Frozen("#F3F1EB"),Small=Frozen("#A6B1B8");
-    private static Brush Frozen(string c){var b=(SolidColorBrush)new BrushConverter().ConvertFromString(c)!;b.Freeze();return b;}
-    public void Set(double v,string t,string u){value=double.IsFinite(v)?Math.Clamp(v,0,1):0;text=t;unit=u;InvalidateVisual();}
-    protected override void OnRender(DrawingContext dc){
-        if(ActualWidth<1)return;
-        double dpi=VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var main=new FormattedText(text+" "+unit,CultureInfo.InvariantCulture,FlowDirection.LeftToRight,new Typeface("Cascadia Mono, Consolas"),11,Label,dpi);
-        var sub=new FormattedText(Caption,CultureInfo.InvariantCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI"),10,Small,dpi);
-        sub.MaxTextWidth=Math.Max(1,ActualWidth);sub.Trimming=TextTrimming.CharacterEllipsis;
-        main.MaxTextWidth=Math.Max(1,ActualWidth);main.Trimming=TextTrimming.CharacterEllipsis;
-        dc.DrawText(main,new Point(0,0));dc.DrawText(sub,new Point(0,16));
-        dc.DrawRoundedRectangle(Track,null,new Rect(0,34,ActualWidth,3),1.5,1.5);
-        if(value>0)dc.DrawRoundedRectangle(value<0.6?Ok:value<0.9?Mid:High,null,new Rect(0,34,ActualWidth*value,3),1.5,1.5);
+    private readonly TextBlock caption=new(){FontSize=12,Foreground=Brushes.LightGray,TextWrapping=TextWrapping.NoWrap};
+    private readonly TextBlock number=new(){FontSize=23,FontWeight=FontWeights.SemiBold,FontFamily=new FontFamily("Cascadia Mono, Consolas"),Text="—",TextWrapping=TextWrapping.NoWrap};
+    private readonly TextBlock unitText=new(){FontSize=11,Foreground=Brushes.LightGray,VerticalAlignment=VerticalAlignment.Bottom,Margin=new Thickness(4,0,0,4),TextWrapping=TextWrapping.NoWrap};
+    private readonly TextBlock hint=new(){FontSize=10.5,Foreground=Brushes.LightGray,TextWrapping=TextWrapping.NoWrap,TextTrimming=TextTrimming.CharacterEllipsis};
+    public string Caption{get=>caption.Text;set=>caption.Text=value;}
+    public LiveMetric(){
+        var value=new Grid();value.ColumnDefinitions.Add(new(){Width=GridLength.Auto});value.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        value.Children.Add(number);Grid.SetColumn(unitText,1);value.Children.Add(unitText);
+        Children.Add(caption);Children.Add(value);Children.Add(hint);
+    }
+    public void Set(string value,string unit,string detail,Brush? tone=null){
+        number.Text=value;number.Foreground=tone??Brushes.WhiteSmoke;unitText.Text=unit;hint.Text=detail;hint.ToolTip=detail;
+        System.Windows.Automation.AutomationProperties.SetName(this,Caption+": "+value+" "+unit+". "+detail);
     }
 }
 
@@ -927,26 +924,33 @@ internal sealed class BudgetBar:FrameworkElement
 internal sealed class Sparkline:FrameworkElement
 {
     private readonly Queue<double> points=new();
+    private double target=60;
+    public double Target{get=>target;set{target=double.IsFinite(value)?Math.Max(0,value):0;InvalidateVisual();}}
     private static readonly Pen Stroke=new(new SolidColorBrush(Color.FromRgb(0x5B,0xD3,0x8A)),1.5);
     private static readonly Brush Fill=new SolidColorBrush(Color.FromArgb(0x30,0x5B,0xD3,0x8A));
-    static Sparkline(){Stroke.Freeze();Fill.Freeze();}
-    public void Add(double v){points.Enqueue(v);while(points.Count>240)points.Dequeue();InvalidateVisual();}
+    private static readonly Pen TargetLine=new(new SolidColorBrush(Color.FromRgb(0x6F,0x7C,0x84)),1){DashStyle=DashStyles.Dash};
+    static Sparkline(){Stroke.Freeze();Fill.Freeze();TargetLine.Freeze();}
+    public Sparkline(){ClipToBounds=true;System.Windows.Automation.AutomationProperties.SetName(this,"Display frame rate over the last minute");}
+    public void Add(double v){points.Enqueue(double.IsFinite(v)?Math.Max(0,v):0);while(points.Count>240)points.Dequeue();InvalidateVisual();}
     public void Clear(){points.Clear();InvalidateVisual();}
     protected override void OnRender(DrawingContext dc){
         if(points.Count<2||ActualWidth<4)return;
-        double max=Math.Max(1,points.Max()*1.08),min=Math.Max(0,points.Min()*0.9);if(max-min<1)min=max-1;
-        var list=points.ToArray();double step=ActualWidth/(list.Length-1);
+        // A zero baseline and a fixed target prevent small changes looking like full-scale drops.
+        double max=Math.Max(1,Math.Max(target,points.Max())*1.1),min=0;
+        double targetY=ActualHeight-1-target/max*(ActualHeight-2);
+        if(target>0)dc.DrawLine(TargetLine,new Point(1,targetY),new Point(ActualWidth-1,targetY));
+        var list=points.ToArray();double step=(ActualWidth-2)/(list.Length-1);
         var g=new StreamGeometry();
         using(var ctx=g.Open()){
-            ctx.BeginFigure(new Point(0,ActualHeight),true,true);
-            for(int i=0;i<list.Length;i++)ctx.LineTo(new Point(i*step,ActualHeight-(list[i]-min)/(max-min)*(ActualHeight-2)),true,false);
-            ctx.LineTo(new Point(ActualWidth,ActualHeight),false,false);
+            ctx.BeginFigure(new Point(1,ActualHeight-1),true,true);
+            for(int i=0;i<list.Length;i++)ctx.LineTo(new Point(1+i*step,ActualHeight-1-(list[i]-min)/(max-min)*(ActualHeight-2)),true,false);
+            ctx.LineTo(new Point(ActualWidth-1,ActualHeight-1),false,false);
         }
         g.Freeze();dc.DrawGeometry(Fill,null,g);
         var line=new StreamGeometry();
         using(var ctx=line.Open()){
-            ctx.BeginFigure(new Point(0,ActualHeight-(list[0]-min)/(max-min)*(ActualHeight-2)),false,false);
-            for(int i=1;i<list.Length;i++)ctx.LineTo(new Point(i*step,ActualHeight-(list[i]-min)/(max-min)*(ActualHeight-2)),true,false);
+            ctx.BeginFigure(new Point(1,ActualHeight-1-(list[0]-min)/(max-min)*(ActualHeight-2)),false,false);
+            for(int i=1;i<list.Length;i++)ctx.LineTo(new Point(1+i*step,ActualHeight-1-(list[i]-min)/(max-min)*(ActualHeight-2)),true,false);
         }
         line.Freeze();dc.DrawGeometry(null,Stroke,line);
     }
