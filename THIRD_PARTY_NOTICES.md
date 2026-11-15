@@ -117,8 +117,3 @@ software and are not covered by FrameDoubler's MIT license. FrameDoubler loads t
 public C API only. If neither DLSS nor VFX can run, live capture displays the original pictures.
 The Remove button in the same place deletes them. The runtime needs the Microsoft Visual C++
 runtime (MSVCP140/VCRUNTIME140), which is not included.
-
-Reference: Veyra-NRVideo documents the same public VFX API and separate, unmodified
-runtime packaging in its [NVIDIA Video Frame Generation notice](https://github.com/Likely7/Veyra-NRVideo/blob/main/THIRD_PARTY_NOTICES.md#nvidia-video-frame-generation-local-integration-2026-10-03).
-This reference does not relicense NVIDIA's runtime under FrameDoubler's MIT license
-or Veyra's GPL-3.0 license. NVIDIA's original terms and third-party notices remain applicable.
