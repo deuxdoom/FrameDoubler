@@ -728,9 +728,18 @@ public sealed class CaptureView:UserControl
         switch(action){case "screenshot":TakeScreenshot();break;case "record":ToggleRecording();break;case "fullscreen":SetImmersive(!immersive);break;
             case "fg":toggles["fg"].IsChecked=toggles["fg"].IsChecked!=true;break;case "stats":toggles["stats"].IsChecked=toggles["stats"].IsChecked!=true;break;}
     }
+    private bool leavingImmersive;
     public void SetImmersive(bool value){
         if(immersive==value)return;
-        immersive=value;Adapt();ImmersiveChanged?.Invoke(value);
+        if(value){immersive=true;Adapt();ImmersiveChanged?.Invoke(true);return;}
+        // Leaving full screen: the main window shrinks first while this page keeps its
+        // full-screen layout (the preview simply fills the smaller window); MainWindow then
+        // calls back here and the panels return, laid out afterwards as usual. Restoring the
+        // panels before the resize cost about a second inside WM_SIZE with the full-screen
+        // preview child clipped to an enlarged corner (live-gui --immersive-transition).
+        if(!leavingImmersive){leavingImmersive=true;try{ImmersiveChanged?.Invoke(false);}finally{leavingImmersive=false;}}
+        if(!immersive)return;
+        immersive=false;Adapt();
     }
     private void Adapt(){
         double scale=.9*owner.UiScale;
@@ -739,11 +748,17 @@ public sealed class CaptureView:UserControl
         topBar.Visibility=sidePanel.Visibility=liveBar.Visibility=immersive?Visibility.Collapsed:Visibility.Visible;
         layout.ColumnDefinitions[1].Width=new GridLength(immersive?0:12*owner.UiScale);layout.ColumnDefinitions[2].Width=new GridLength(immersive?0:1,immersive?GridUnitType.Pixel:GridUnitType.Star);
         // Scale only WPF controls. HwndHost/previewSpace must have no transform.
-        foreach(var panel in new FrameworkElement[]{topBar,sidePanel,statsRow,liveBar,placeholder})panel.LayoutTransform=new ScaleTransform(scale,scale);
+        foreach(var panel in new FrameworkElement[]{topBar,sidePanel,statsRow,liveBar,placeholder})SetScale(panel,scale);
         if(Content is Border b)b.Padding=immersive?new Thickness(0):new Thickness(16*owner.UiScale,10*owner.UiScale,16*owner.UiScale,12*owner.UiScale);
         previewFrame.CornerRadius=new CornerRadius(0);previewFrame.BorderThickness=new Thickness(0);FitPreview();
     }
     internal void RefreshLayout()=>Adapt();
+    // A new transform invalidates the measure of the whole panel even at the same scale; the
+    // side panel, statistics and toolbar then had to be measured again when leaving full screen.
+    internal static void SetScale(FrameworkElement element,double scale){
+        if(element.LayoutTransform is ScaleTransform current&&current.ScaleX==scale&&current.ScaleY==scale)return;
+        element.LayoutTransform=new ScaleTransform(scale,scale);
+    }
     private void FitPreview(){
         previewFrame.Width=double.NaN;previewFrame.Height=double.NaN;
         if(immersive){layout.ColumnDefinitions[0].Width=new GridLength(1,GridUnitType.Star);return;}

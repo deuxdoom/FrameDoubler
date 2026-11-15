@@ -45,7 +45,7 @@ public partial class MainWindow
     private void UpdateCompactLayout(){
         if(immersive)return;
         double scale=.9*UiScale;
-        foreach(var panel in new FrameworkElement[]{TitleBar,ConvertHeader,ConvertBody,ConvertFooter})panel.LayoutTransform=new ScaleTransform(scale,scale);
+        foreach(var panel in new FrameworkElement[]{TitleBar,ConvertHeader,ConvertBody,ConvertFooter})CaptureView.SetScale(panel,scale);
         TitleRow.Height=new GridLength(48*UiScale);
         var chrome=WindowChrome.GetWindowChrome(this);
         if(chrome is not null){chrome.CaptionHeight=48*UiScale;chrome.ResizeBorderThickness=new Thickness(0);}
