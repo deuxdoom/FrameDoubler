@@ -145,7 +145,7 @@ struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0,
 
 // An output rate as a fraction signal*multiplier*p/q (q <= 6), else 1e7/period. A grid
 // slower than the outputs loses pictures, a faster one only leaves gaps, so the nearest
-// candidate may lie up to 12% above the estimate but only 5% below it (an estimate taken
+// candidate may lie up to 15% above the estimate but only 5% below it (an estimate taken
 // a second after start was 62.07 for 30 fps content at 2x in a live test).
 void snapOutputRate(uint32_t signalNum, uint32_t signalDen, int multiplier, double rate, uint32_t& num, uint32_t& den) {
     rate = std::max(rate, 1.0);
@@ -154,7 +154,7 @@ void snapOutputRate(uint32_t signalNum, uint32_t signalDen, int multiplier, doub
     double best = 1e9;
     for (uint32_t q = 1; q <= 6; ++q) for (uint32_t p = 1; p <= q; ++p) {
         const double candidate = signal * multiplier * p / q, ratio = candidate / rate;
-        if (ratio < 0.95 || ratio > 1.12 || std::abs(std::log(ratio)) >= best) continue;
+        if (ratio < 0.95 || ratio > 1.15 || std::abs(std::log(ratio)) >= best) continue;
         best = std::abs(std::log(ratio)); num = signalNum * uint32_t(multiplier) * p; den = signalDen * q;
     }
     const uint32_t g = std::gcd(num, den); num /= g; den /= g;
@@ -684,7 +684,8 @@ void Session::renderLoop() {
         Options recordingOptions; { std::lock_guard<std::mutex> lock(optionsMutex_); recordingOptions = options_; }
         // A request immediately after capture starts waits briefly for the game cadence,
         // otherwise a 30-in-60 signal would incorrectly declare a 120 fps recording at 2x.
-        if (pendingRecording && (recordingOptions.fg == 0 || !recordingOptions.dedup || contentClockStable_ || now100ns()-recordingRequested >= 10000000)) {
+        // Up to 3 s: the recording's fixed rate comes from the learned content period.
+        if (pendingRecording && (recordingOptions.fg == 0 || !recordingOptions.dedup || contentClockStable_ || now100ns()-recordingRequested >= 30000000)) {
             pendingRecording = false;
             Options o; { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
             RecorderConfig rc;
@@ -1020,7 +1021,8 @@ std::string Session::status() {
            ",\"starting\":" + std::string(recordStarting_ ? "true" : "false") + ",\"finalizing\":" + std::string(recordFinalizing_ ? "true" : "false") + ",\"fps\":" + fixed(recordFps, 6) +
            ",\"path\":" + jsonString(recording ? recorder->path() : recordingPath) +
            ",\"seconds\":" + fixed(recording ? recorder->seconds() : 0, 1) +
-           ",\"dropped\":" + std::to_string(recording ? recorder->droppedFrames() : 0) + "}";
+           ",\"dropped\":" + std::to_string(recording ? recorder->droppedFrames() : 0) +
+           ",\"repeated\":" + std::to_string(recording ? recorder->repeatedFrames() : 0) + "}";
     out += ",\"events\":[";
     auto events = log_.drain();
     for (size_t i = 0; i < events.size(); ++i) { if (i) out += ","; out += events[i]; }
@@ -1285,7 +1287,7 @@ std::string selfTest(const Settings& s) {
             struct Case { uint32_t sn, sd; int m; double rate; uint32_t num, den; };
             const Case cases[] = {{60,1,2,60.004,60,1},{60,1,2,58.7,60,1},{60000,1001,2,59.93,60000,1001},{60,1,2,80.2,80,1},
                                   {60,1,2,120.0,120,1},{60,1,3,90.3,90,1},{60,1,2,62.07,60,1},{60,1,2,56.0,60,1},
-                                  {60,1,2,51.43,10000000,194439}};
+                                  {60,1,2,53.5,60,1},{60,1,2,47.9,48,1},{60,1,2,51.43,10000000,194439}};
             bool ok=true;std::string detail;
             for(auto& c:cases){uint32_t n=0,d=0;snapOutputRate(c.sn,c.sd,c.m,c.rate,n,d);ok=ok&&n==c.num&&d==c.den;detail+=std::to_string(n)+"/"+std::to_string(d)+" ";}
             check("recording-rate-snap",ok,detail+"(30-in-60 2x records 60/1; an unrelated estimate stays as measured)");

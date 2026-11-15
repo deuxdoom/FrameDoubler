@@ -105,6 +105,10 @@ bool Recorder::start(const RecorderConfig& config, Gpu& gpu, std::string& path, 
             d.BindFlags = D3D11_BIND_RENDER_TARGET;
             if (FAILED(gpu.device()->CreateTexture2D(&d, nullptr, &textures_[i]))) { error = "this GPU cannot render NV12 pictures for the encoder"; MFShutdown(); return false; }
         }
+        if (i == 0) {
+            D3D11_TEXTURE2D_DESC h = d; h.BindFlags = D3D11_BIND_RENDER_TARGET;
+            if (FAILED(gpu.device()->CreateTexture2D(&h, nullptr, &held_))) { error = "recording picture copy"; MFShutdown(); return false; }
+        }
     }
     UINT token = 0;
     HRESULT hr = MFCreateDXGIDeviceManager(&token, &manager_);
@@ -147,7 +151,8 @@ bool Recorder::start(const RecorderConfig& config, Gpu& gpu, std::string& path, 
     hr = writer_->BeginWriting();
     if (FAILED(hr)) { error = "recording could not start (" + hresult(hr) + ")"; writer_->Release(); writer_ = nullptr; manager_->Release(); manager_ = nullptr; for (auto& t : textures_) t.Reset(); DeleteFileW(file.c_str()); MFShutdown(); return false; }
     path_ = utf8(file); path = path_;
-    origin_ = -1; lastVideo_ = -1; audioSamples_ = 0; resamplePos_ = 0; resampleTail_.clear();
+    origin_ = -1; lastVideo_ = -1; lastIndex_ = -1; audioSamples_ = 0; resamplePos_ = 0; resampleTail_.clear();
+    slotLength_ = 1e7 * double(config_.fpsDen) / double(std::max<uint32_t>(1, config_.fpsNum));
     dropped_ = 0; written_ = 0; error_.clear();
     stop_ = false; active_ = true;
     thread_ = std::thread([this] { run(); });
@@ -159,21 +164,42 @@ void Recorder::release(int slot) {
     slots_->busy[slot] = false;
 }
 
+int Recorder::takeSlot() {
+    std::lock_guard<std::mutex> lock(slots_->mutex);
+    for (int i = 0; i < kSlots; ++i) if (!slots_->busy[i]) { slots_->busy[i] = true; return i; }
+    return -1;
+}
+
+// The encoder gets a strict constant-rate sequence: picture k at k * slot length. An
+// empty slot repeats the previous picture, and a second picture in a slot is skipped.
+// Handing the hardware encoder pictures 2 and 3 slots apart (48 fps content on a 120 fps
+// grid) produced a file whose timestamps ran 4.4% short of the content time, 1.1 s shorter
+// than its sound after 24 s; a regular sequence kept them exact.
 bool Recorder::pushVideo(Gpu& gpu, ID3D11ShaderResourceView* picture, int64_t time) {
     if (!active_) return false;
-    int slot = -1;
-    {
-        std::lock_guard<std::mutex> lock(slots_->mutex);
-        for (int i = 0; i < kSlots; ++i) if (!slots_->busy[i]) { slot = i; slots_->busy[i] = true; break; }
+    int64_t origin;
+    { std::lock_guard<std::mutex> lock(mutex_); if (origin_ < 0) origin_ = time; origin = origin_; }
+    const int64_t index = std::max<int64_t>(0, std::llround(double(time - origin) / slotLength_));
+    if (lastIndex_ >= 0 && index <= lastIndex_) { ++dropped_; return false; }
+    auto queue = [&](int slot, int64_t at) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        video_.push_back({slot, std::llround(double(at) * slotLength_)});
+    };
+    // Up to two seconds of repeats; a longer capture stall keeps its gap.
+    const int64_t repeats = lastIndex_ >= 0 && index - lastIndex_ - 1 <= int64_t(2e7 / slotLength_) ? index - lastIndex_ - 1 : 0;
+    for (int64_t k = 1; k <= repeats; ++k) {
+        const int slot = takeSlot();
+        if (slot < 0) { ++dropped_; break; }
+        gpu.context()->CopyResource(textures_[slot].Get(), held_.Get());
+        queue(slot, lastIndex_ + k); ++repeated_;
     }
+    const int slot = takeSlot();
     if (slot < 0) { ++dropped_; return false; }
     if (!gpu.toNv12(picture, textures_[slot].Get())) { release(slot); ++dropped_; return false; }
+    gpu.context()->CopyResource(held_.Get(), textures_[slot].Get());
     gpu.context()->Flush();
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (origin_ < 0) origin_ = time;
-        video_.push_back({slot, time});
-    }
+    queue(slot, index);
+    lastIndex_ = index;
     wake_.notify_one();
     return true;
 }
@@ -221,7 +247,7 @@ void Recorder::pushAudio(const float* samples, int frames, int channels, int rat
 
 void Recorder::run() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const int64_t frameDuration = int64_t(10000000.0 * config_.fpsDen / std::max<uint32_t>(1, config_.fpsNum));
+    const int64_t frameDuration = std::llround(slotLength_);
     while (true) {
         std::deque<VideoItem> video; std::deque<AudioItem> audio; int64_t origin;
         {
@@ -231,11 +257,8 @@ void Recorder::run() {
             if (stop_ && video.empty() && audio.empty()) break;
         }
         for (auto& v : video) {
-            // Content time on the output frame grid, always increasing by at least one frame,
-            // so players and editors see a clean constant-rate track that stays with the sound.
-            int64_t t = int64_t(std::llround(double(v.time - origin) / double(frameDuration))) * frameDuration;
-            // Several preview pictures can land in one fixed recording tick as the
-            // content estimate changes. Skip that tick instead of stretching time.
+            // Already on the constant-rate grid (pushVideo): a clean track that stays with the sound.
+            const int64_t t = v.time;
             if (lastVideo_ >= 0 && t <= lastVideo_) { release(v.slot); ++dropped_; continue; }
             ComPtr<IMFMediaBuffer> buffer; ComPtr<IMF2DBuffer> buffer2d; ComPtr<IMFTrackedSample> tracked; ComPtr<IMFSample> sample;
             HRESULT hr = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), textures_[v.slot].Get(), 0, FALSE, &buffer);
@@ -297,6 +320,7 @@ void Recorder::stop() {
     writer_->Release(); writer_ = nullptr;
     if (manager_) { manager_->Release(); manager_ = nullptr; }
     for (auto& t : textures_) t.Reset();
+    held_.Reset();
     MFShutdown();
 }
 
