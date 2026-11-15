@@ -20,13 +20,14 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
   inside a 60 Hz signal keeps only its real frames, each placed at the time it really changed.
 - Frame generation fills the gaps: NVIDIA DLSS Frame Generation (RTX GPUs whose driver offers
   it, up to the multiplier the driver allows), NVIDIA VFX (RTX, after its runtime is downloaded
-  in Settings > Capture) or FrameDoubler's own motion interpolation. Automatic tries them in
-  that order. The default is 2×; 3× and 4× appear only when the driver reports DLSS
-  multi-frame support. These settings multiply the actual content rate: a 30 fps game
+  in Settings > Capture). Automatic tries DLSS, then VFX. If neither can run, originals
+  are displayed. Live capture does not use FrameDoubler's own interpolation.
+  The default is 2×; VFX supports 3× and 4× too. DLSS uses those multipliers only when
+  the driver reports multi-frame support; larger requests use VFX when installed or
+  are reduced to the DLSS limit. These settings multiply the actual content rate: a 30 fps game
   becomes 60, 90 or 120 fps. With duplicate
   removal off they multiply the input signal rate. Frame generation off displays the latest
-  picture directly. A recording requested during startup waits up to one second for rate detection.
-  DLSS retains the source resolution and displays originals and generated frames in
+  picture directly. DLSS and VFX retain the source resolution and display originals and generated frames in
   content-time order. Detected hard scene cuts reset the history
   and show an original picture instead of generating across the cut.
 - Anti-aliasing (low/medium/high) runs once per unique frame at the source size, before frame
@@ -42,7 +43,9 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
   remain valid while packets arrive; an audio input packet timeout leaves video running.
 - Screenshots (PNG) and recordings (MP4, H.264/HEVC + AAC) go to Pictures\FrameDoubler and
   Videos\FrameDoubler by default. H.264 uses fragmented MP4; HEVC completes the file when
-  recording stops. Change both folders
+  recording stops. Recording starts after a three-second countdown; press again to cancel.
+  Video uses a constant frame-rate grid, filling gaps with the previous picture.
+  Change both folders
   under Settings → Capture. Shortcuts (F7 screenshot, F8 record, F11 full screen, F6 frame
   generation, F10 statistics, V original) can be changed under Settings → Shortcuts and,
   optionally, made global.
