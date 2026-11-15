@@ -13,8 +13,10 @@ public sealed record EncoderChoice(EncoderCapability Encoder, string Explanation
 
 public static class EncoderDetector
 {
-    public static string WorkRoot => Environment.GetEnvironmentVariable("FRAMEDOUBLER_WORK_ROOT")
-        ?? Path.Combine(AppPaths.InstallationDirectory,"work");
+    // A development override may be written with '/' separators (F:/Temp/...); paths derived
+    // from it are compared with normalized ones, so it is returned as a full path.
+    public static string WorkRoot => Environment.GetEnvironmentVariable("FRAMEDOUBLER_WORK_ROOT") is {Length:>0} root
+        ? Path.GetFullPath(root) : Path.Combine(AppPaths.InstallationDirectory,"work");
 
     public static async Task<List<EncoderCapability>> DetectAsync(AppPaths paths, CancellationToken cancel = default)
     {
