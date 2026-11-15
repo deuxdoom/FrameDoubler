@@ -207,7 +207,7 @@ public sealed class CaptureView:UserControl
         stats.ColumnDefinitions.Add(new(){Width=new GridLength(1.4,GridUnitType.Star)});stats.ColumnDefinitions.Add(new(){Width=new GridLength(12)});stats.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         var signalRows=Rows(("input","입력","Input"),("format","형식","Format"),("content","게임 실제 속도","Game rate"),("output","처리 출력","Processed output"),("audio","오디오","Audio"),("gpu","GPU","GPU"));
         var stagesGrid=Rows(("upload","입력·변환·AA","Input·convert·AA"),("motion","움직임 추정","Motion estimation"),("fg","프레임 생성","Frame generation"),
-            ("present","표시(그리기)","Present (draw)"),("encode","녹화 인코딩","Record encode"),("total","합계","Total"));
+            ("present","표시(그리기)","Present (draw)"),("encode","녹화 전송","Record submit"),("total","합계","Total"));
         var combined=new Grid();combined.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});combined.ColumnDefinitions.Add(new(){Width=new GridLength(20)});combined.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         combined.Children.Add(signalRows);Grid.SetColumn(stagesGrid,2);combined.Children.Add(stagesGrid);
         var signal=StatCard("신호와 처리 시간","Signal and processing time",combined);
@@ -826,6 +826,7 @@ public sealed class CaptureView:UserControl
         values["gpu"].Text=s is null?"—":s.Gpu;
         values["upload"].Text=Ms(s?.Stages.Upload);values["motion"].Text=Ms(s?.Stages.Motion);values["fg"].Text=Ms(s?.Stages.Interpolate);
         values["present"].Text=Ms(s?.Stages.Present);values["encode"].Text=Ms(s?.Stages.Encode);values["total"].Text=s is null?"—":Ms(s.Stages.Total);
+        values["encode"].ToolTip=T("NV12 변환과 인코더에 넘기는 그래픽 큐의 경과 시간입니다. 대기를 포함하며 하드웨어 인코더 자체의 처리 시간은 아닙니다.","Elapsed graphics-queue time for NV12 conversion and encoder submission, including waits. This is not the hardware encoder's own processing time.");
         double target=s?.TargetFps is >0?s.TargetFps:0;
         latencyMetric.Set(s?.LatencyMs?.ToString("0",CultureInfo.InvariantCulture)??"—","ms",T("낮을수록 빠름","Lower is faster"));
         latencyMetric.ToolTip=T("캡처 프레임 시각부터 앱이 화면을 제출할 때까지의 추정 지연입니다. 모니터 자체 지연은 포함하지 않으며 외부 실측값은 아닙니다.","Estimated time from the captured frame timestamp to the app's display submission. Excludes the monitor's own delay; this is not an external latency measurement.");
