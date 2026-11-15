@@ -316,6 +316,11 @@ bool VideoCapture::open(const std::string& id, const VideoMode& wanted, std::str
         if (SUCCEEDED(handler->GetMediaTypeByIndex(index, &type)) && readMode(type.Get(), int(index), mode) && sameMode(mode, wanted)) { native = type; mode_ = mode; }
     }
     if (!native) { error = "the requested mode is not offered by this device"; return false; }
+    {
+        UINT32 range = 0, matrix = 0;
+        native->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range); native->GetUINT32(MF_MT_YUV_MATRIX, &matrix);
+        color_ = colorFromMf(range, matrix);
+    }
     hr = handler->SetCurrentMediaType(native.Get());
     if (FAILED(hr)) { error = "mode rejected by the driver (" + hresult(hr) + ")"; return false; }
     readerCallback_ = new ReaderCallback();

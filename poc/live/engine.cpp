@@ -173,6 +173,8 @@ private:
     void finishRecording();
     void publish();
     ColorSetup color() const;
+    ColorInfo device_;                                  // colour the capture device states
+    std::string colorJson();
     int64_t outputInterval(const Options& o) const {
         const int64_t period = o.dedup ? contentPeriod_.load() : interval_;
         return std::max<int64_t>(1, (period > 0 ? period : interval_) / o.multiplier);
@@ -263,10 +265,21 @@ private:
     std::atomic<int> audioDelayMs_{60};
 };
 
+// Manual choices first, then what the device states, then the usual convention (limited range,
+// BT.709 from 720 lines up).
+std::string Session::colorJson() {
+    Options o; { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
+    const bool limited = o.range == 1 || (o.range == 0 && device_.range != 2);
+    const bool bt709 = o.matrix == 1 || (o.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
+    auto source = [](int manual, int stated) { return manual ? "manual" : stated ? "device" : "default"; };
+    return std::string(",\"colorRange\":\"") + (limited ? "limited" : "full") + "\",\"colorRangeSource\":\"" + source(o.range, device_.range) +
+           "\",\"colorMatrix\":\"" + (bt709 ? "709" : "601") + "\",\"colorMatrixSource\":\"" + source(o.matrix, device_.matrix) + "\"";
+}
+
 ColorSetup Session::color() const {
     ColorSetup c;
-    c.limited = options_.range != 2;
-    c.bt709 = options_.matrix == 1 || (options_.matrix == 0 && height_ >= 720);
+    c.limited = options_.range == 1 || (options_.range == 0 && device_.range != 2);
+    c.bt709 = options_.matrix == 1 || (options_.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
     return c;
 }
 
@@ -291,6 +304,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
         if (!formatSupported(format_)) { error = "capture decoder did not deliver a supported raw format"; close(); return false; }
     }
     inputFormat_ = format_;
+    if (capture_) device_ = capture_->colorInfo();
     format_ = processingFormat(format_);
     if (!gpu_.create(error)) return false;
     if (!gpu_.configure(width_, height_, error)) return false;
@@ -826,7 +840,7 @@ std::string Session::status() {
         ",\"captureFailed\":" + (capture_ && capture_->failed() ? "true" : "false") +
         ",\"captureState\":" + jsonString(capture_ && capture_->failed() ? "failed" : totalInput_ ? "active" : "waiting") +
         ",\"width\":" + std::to_string(width_) + ",\"height\":" + std::to_string(height_) +
-        ",\"format\":" + jsonString(formatName(format_)) + ",\"modeFps\":" + fixed(double(fpsNum_) / fpsDen_, 3) +
+        ",\"format\":" + jsonString(formatName(format_)) + colorJson() + ",\"modeFps\":" + fixed(double(fpsNum_) / fpsDen_, 3) +
         ",\"targetFps\":" + fixed(o.fg == 0 ? double(fpsNum_) / fpsDen_ : 1e7 / outputInterval(o), 3) +
         ",\"gpu\":" + jsonString(gpu_.adapterName()) +
         ",\"gpuLuid\":" + jsonString(gpuLuidText) +
@@ -1293,6 +1307,14 @@ std::string selfTest(const Settings& s) {
         const bool rgb = convert(rgb24, PixelFormat::RGB24, w * 3 + 4, true, rgb32.size()) == rgb32;
         check("input-formats", planes && rgb && processingFormat(PixelFormat::I420) == PixelFormat::NV12 && processingFormat(PixelFormat::RGB24) == PixelFormat::RGB32,
               std::string("I420/YV12 -> NV12 ") + (planes ? "identical" : "DIFFERENT") + ", bottom-up RGB24 -> BGRA " + (rgb ? "identical" : "DIFFERENT"));
+    }
+    // Device colour descriptions: DirectShow DXVA flags and Media Foundation attributes.
+    {
+        const ColorInfo fullBt601 = colorFromDxvaFlags(0x80u | (1u << 12) | (2u << 15)), limitedBt709 = colorFromDxvaFlags(0x80u | (2u << 12) | (1u << 15));
+        const ColorInfo absent = colorFromDxvaFlags((2u << 12) | (1u << 15)), mf = colorFromMf(1, 1), mfUnknown = colorFromMf(0, 0);
+        const bool ok = fullBt601.range == 2 && fullBt601.matrix == 2 && limitedBt709.range == 1 && limitedBt709.matrix == 1 && absent.range == 0 && absent.matrix == 0 &&
+                        mf.range == 2 && mf.matrix == 1 && mfUnknown.range == 0 && mfUnknown.matrix == 0;
+        check("device-color", ok, "DXVA flags and MF attributes decode to range/matrix; absent descriptions stay unknown");
     }
     // D3D11 <-> D3D12 hand-over used by DLSS, without NGX: shared textures, both fences,
     // allocator reuse and GPU timestamps on a plain copy.

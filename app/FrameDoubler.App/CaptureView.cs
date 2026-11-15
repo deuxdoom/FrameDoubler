@@ -772,7 +772,9 @@ public sealed class CaptureView:UserControl
         if(s?.FrameGeneration=="dlss"&&statusMessage.StartsWith("DLSS frame generation on this GPU supports up to ",StringComparison.Ordinal))statusMessage="";
         var mode=(modeBox.SelectedItem as ModeChoice)?.Mode;
         string backend=s?.FrameGeneration switch{"dlss"=>"NVIDIA DLSS FG","vfx"=>"NVIDIA VFX","own"=>T("FrameDoubler 보간","FrameDoubler interpolation"),"loading"=>T("프레임 생성 준비 중","Frame generation loading"),"off"=>T("꺼짐","off"),_=>"—"};
-        string range=options.Range=="full"?T("전체","Full"):T("제한","Limited");
+        // The engine reports the colour actually used and where it came from (manual, device, default).
+        string Source(string? source)=>source switch{"device"=>T(" (장치)"," (device)"),"default"=>T(" (추정)"," (assumed)"),_=>""};
+        string range=(s?.ColorRange is {Length:>0} r?r=="full":options.Range=="full")?T("전체","Full"):T("제한","Limited");
         if(mode is not null){
             string p=mode.Height>=2160?"2160p":mode.Height+"p";
             signalChip.Text=$"{p}{mode.Fps:0.##} · {mode.Format} · SDR · {range}";
@@ -781,7 +783,7 @@ public sealed class CaptureView:UserControl
             outputChip.Text=T("출력 ","Output ")+$"{mode.Width}×{mode.Height} · {rate}";
         }else{signalChip.Text=T("신호 없음","No signal");outputChip.Text=T("출력 —","Output —");}
         values["input"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.InputFps:0.00}";
-        values["format"].Text=s is null?"—":$"{s.Format} · {range} · BT.{(s.Height>=720?"709":"601")}";
+        values["format"].Text=s is null?"—":$"{s.Format} · {range}{Source(s.ColorRangeSource)} · BT.{(s.ColorMatrix is {Length:>0} m?m:s.Height>=720?"709":"601")}{Source(s.ColorMatrixSource)}";
         values["content"].Text=s is null?"—":options.Dedup?$"{s.ContentFps:0.0} fps"+T(" (중복 제거)"," (deduplicated)"):T("감지 꺼짐","Detection off");
         values["output"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.OutputFps:0.0}";
         string audioState=s?.AudioOutputState switch{"recovering"=>T("출력 재연결 중","Reconnecting output"),"failed"=>T("출력 연결 안 됨","Output disconnected"),"silent"=>T("무음 · 입력 수신 중","Silent · input receiving"),_=>s?.Audio==true?T("통과 · 지연 ","pass-through · ")+s.AudioDelayMs+" ms":T("꺼짐","off")};

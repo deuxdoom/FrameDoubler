@@ -26,6 +26,25 @@ inline bool formatSupported(PixelFormat f) {
 }
 inline int bytesPerPixel(PixelFormat f) { return f == PixelFormat::RGB32 ? 4 : f == PixelFormat::RGB24 ? 3 : (f == PixelFormat::YUY2 || f == PixelFormat::UYVY) ? 2 : 1; }
 struct FrameView;
+// Colour description the device gives for its YUV pictures (0: not stated).
+struct ColorInfo { int range = 0; /* 1 limited 16-235, 2 full 0-255 */ int matrix = 0; /* 1 BT.709, 2 BT.601 */ };
+// DirectShow VIDEOINFOHEADER2::dwControlFlags with AMCONTROL_COLORINFO_PRESENT (0x80): bits 8-31
+// hold DXVA_ExtendedFormat after its 8-bit sample format (chroma 4, nominal range 3, matrix 3).
+inline ColorInfo colorFromDxvaFlags(uint32_t flags) {
+    ColorInfo c;
+    if (!(flags & 0x80)) return c;
+    const uint32_t range = (flags >> 12) & 7, matrix = (flags >> 15) & 7;
+    c.range = range == 2 ? 1 : range == 1 ? 2 : 0;          // DXVA_NominalRange_16_235 / _0_255
+    c.matrix = matrix == 1 ? 1 : matrix == 2 ? 2 : 0;        // DXVA_VideoTransferMatrix_BT709 / _BT601
+    return c;
+}
+// Media Foundation MF_MT_VIDEO_NOMINAL_RANGE / MF_MT_YUV_MATRIX values.
+inline ColorInfo colorFromMf(uint32_t nominalRange, uint32_t matrix) {
+    ColorInfo c;
+    c.range = nominalRange == 2 ? 1 : nominalRange == 1 ? 2 : 0;   // MFNominalRange_16_235 / _0_255
+    c.matrix = matrix == 1 ? 1 : matrix == 2 ? 2 : 0;              // MFVideoTransferMatrix_BT709 / _BT601
+    return c;
+}
 // Copies a delivered picture into the engine's tightly packed buffer in its processing format
 // (NV12: luma then interleaved chroma; packed formats: rows of width * bytes).
 void copyToProcessing(const FrameView& v, uint8_t* dst);
@@ -78,6 +97,9 @@ public:
     virtual bool failed() const = 0;
     // Format of the delivered pictures (always the selected native format).
     virtual PixelFormat outputFormat() const = 0;
+    virtual ColorInfo colorInfo() const { return color_; }
+protected:
+    ColorInfo color_;
 };
 std::unique_ptr<CaptureSource> createCapture(const std::string& id);
 // Opens the exact mode; when Media Foundation refuses it, the same device's DirectShow entry

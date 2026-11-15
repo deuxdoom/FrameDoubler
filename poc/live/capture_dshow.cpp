@@ -245,6 +245,8 @@ bool DirectShowCapture::open(const std::string& id, const VideoMode& wanted, std
             if (type->formattype == FORMAT_VideoInfo) reinterpret_cast<VIDEOINFOHEADER*>(type->pbFormat)->AvgTimePerFrame = interval;
             else reinterpret_cast<VIDEOINFOHEADER2*>(type->pbFormat)->AvgTimePerFrame = interval;
             hr = config->SetFormat(type);
+            if (type->formattype == FORMAT_VideoInfo2) color_ = colorFromDxvaFlags(reinterpret_cast<VIDEOINFOHEADER2*>(type->pbFormat)->dwControlFlags);
+            if (type->subtype == fourcc("HDYC") && !color_.matrix) color_.matrix = 1;   // HDYC: UYVY with BT.709 by definition
             set = SUCCEEDED(hr);
         }
         deleteType(type);
