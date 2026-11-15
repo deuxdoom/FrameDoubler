@@ -968,7 +968,7 @@ std::string Session::status() {
     char gpuLuidText[32]; snprintf(gpuLuidText, sizeof gpuLuidText, "0x%08x_0x%08x", unsigned(gpuLuid.HighPart), unsigned(gpuLuid.LowPart));
     const double sec = w.seconds > 0 ? w.seconds : 1;
     auto stage = [&](int i) { return stages[i] < 0 ? std::string("null") : fixed(stages[i]); };
-    std::string backend, runtime, dlssMotion; int vfxQuality, dlssMaximum;
+    std::string backend, runtime, dlssMotion; int vfxQuality, dlssMaximum; DlssGenerator::Counters dlssCounters;
     {
         std::lock_guard<std::mutex> lock(vfxMutex_);
         backend = o.fg == 0 ? "off" : (o.fg == 2 && vfxReady_) ? "vfx" : (o.fg == 2 && vfxLoading_) ? "loading" :
@@ -977,6 +977,7 @@ std::string Session::status() {
         runtime = o.fg == 3 ? dlssRuntime_ : vfxRuntime_; vfxQuality = vfxReady_ ? vfxActiveQuality_ : -1;
         dlssMaximum = dlssReady_ && dlss_ ? dlss_->maxGenerated() + 1 : 0;
         dlssMotion=dlssReady_ && dlss_ ? dlss_->motionSource() : "";
+        if (dlss_) dlssCounters = dlss_->counters();
     }
     std::string out = "{\"running\":" + std::string(stop_ ? "false" : "true") +
         ",\"captureFailed\":" + (capture_ && capture_->failed() ? "true" : "false") +
@@ -998,6 +999,10 @@ std::string Session::status() {
         ",\"fg\":" + jsonString(backend) + ",\"vfxRuntime\":" + jsonString(runtime) + ",\"vfxQuality\":" + std::to_string(vfxQuality) +
         ",\"dlssMaxMultiplier\":" + std::to_string(dlssMaximum) +
         ",\"dlssMotion\":" + jsonString(dlssMotion) +
+        // Session totals: shown evaluations, cached copies, and finished evaluations whose
+        // DLSSG.OutputDisableInterpolation was read back / was set.
+        ",\"dlssCounts\":{\"generated\":" + std::to_string(dlssCounters.generated) + ",\"cached\":" + std::to_string(dlssCounters.cached) +
+        ",\"checked\":" + std::to_string(dlssCounters.checked) + ",\"disabled\":" + std::to_string(dlssCounters.disabled) + "}" +
         ",\"audioDelayMs\":" + std::to_string(audioDelayMs_.load()) + ",\"audio\":" + (audio_.running() ? "true" : "false") +
         ",\"audioInputPeak\":" + fixed(audio_.inputPeak(), 6) + ",\"audioOutputPeak\":" + fixed(audio_.outputPeak(), 6) +
         ",\"audioInputFrames\":" + std::to_string(audio_.inputFrames()) + ",\"audioOutputFrames\":" + std::to_string(audio_.outputFrames()) +

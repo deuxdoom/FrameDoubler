@@ -58,6 +58,11 @@ public:
     // Average GPU time of every finished evaluation so far, and how many were measured.
     double averageGpuMs() const;
     int gpuSamples() const;
+    // Session counters: evaluations that produced a shown frame, cached copies, and of the
+    // finished evaluations read back so far, how many DLSS-G marked "do not show"
+    // (DLSSG.OutputDisableInterpolation; read without a CPU wait, after the GPU is done).
+    struct Counters { uint64_t generated = 0, cached = 0, checked = 0, disabled = 0; };
+    Counters counters() const;
     // True when the engine has to compute its block motion field for this generator.
     bool needsEngineMotion() const;
     bool hardwareMotion() const;

@@ -5,6 +5,7 @@
 #include <d3d11_4.h>
 #include <d3d12.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -129,6 +130,11 @@ struct DlssGenerator::State {
     bool timed[kRing] = {};
     double gpuSum = 0, lastGpu = -1;
     int gpuCount = 0;
+    // DLSSG.OutputDisableInterpolation: cleared before, copied per allocator slot after
+    // each shown evaluation, read once that slot's fence has passed.
+    ComPtr<ID3D12Resource> disable12, disableZero, disableReadback;
+    bool disableUsed[kRing] = {};
+    std::atomic<uint64_t> generatedCount{0}, cachedCount{0}, disableChecked{0}, disableSet{0};   // read by the status thread
 
     // Shared pictures: written by D3D11, read by DLSS-G (colour, motion) and the reverse (out).
     ComPtr<ID3D11Texture2D> colour11, motion11, out11;
@@ -157,8 +163,17 @@ struct DlssGenerator::State {
         return true;
     }
     void collect() {
-        if (!queries) return;
         const uint64_t completed = done->GetCompletedValue();
+        if (disableReadback) for (int i = 0; i < kRing; ++i) {
+            if (!disableUsed[i] || allocatorFence[i] > completed) continue;
+            disableUsed[i] = false;
+            D3D12_RANGE range{size_t(i) * 256, size_t(i) * 256 + 4}; void* mapped = nullptr;
+            if (FAILED(disableReadback->Map(0, &range, &mapped))) continue;
+            const bool set = static_cast<uint8_t*>(mapped)[range.Begin] != 0;
+            D3D12_RANGE none{0, 0}; disableReadback->Unmap(0, &none);
+            ++disableChecked; disableSet += set;
+        }
+        if (!queries) return;
         for (int i = 0; i < kRing; ++i) {
             if (!timed[i] || allocatorFence[i] > completed) continue;
             timed[i] = false;
@@ -251,6 +266,20 @@ struct DlssGenerator::State {
             FAILED(device->CreateCommittedResource(&readbackHeap, D3D12_HEAP_FLAG_NONE, &b, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&queryReadback)))) {
             queries.Reset(); queryReadback.Reset();
         } else tickMs = 1000.0 / double(frequency);
+        {
+            // Diagnostics only: without these buffers the flag is simply not requested.
+            D3D12_HEAP_PROPERTIES defaultHeap{D3D12_HEAP_TYPE_DEFAULT}, uploadHeap{D3D12_HEAP_TYPE_UPLOAD};
+            D3D12_RESOURCE_DESC f = b; f.Width = 256; f.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            D3D12_RESOURCE_DESC z = b; z.Width = 256;
+            D3D12_RESOURCE_DESC r = b; r.Width = 256 * kRing;
+            void* zero = nullptr;
+            if (FAILED(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &f, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&disable12))) ||
+                FAILED(device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &z, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&disableZero))) ||
+                FAILED(device->CreateCommittedResource(&readbackHeap, D3D12_HEAP_FLAG_NONE, &r, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&disableReadback))) ||
+                FAILED(disableZero->Map(0, nullptr, &zero))) {
+                disable12.Reset(); disableZero.Reset(); disableReadback.Reset();
+            } else { memset(zero, 0, 256); disableZero->Unmap(0, nullptr); }
+        }
         if (!share(d11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, colour11, colour12, error) ||
             !share(d11.Get(), DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, motion11, motion12, error) ||
             !share(d11.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_RENDER_TARGET, out11, out12, error))
@@ -276,11 +305,20 @@ struct DlssGenerator::State {
         const auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS, common = D3D12_RESOURCE_STATE_COMMON;
         D3D12_RESOURCE_BARRIER enter[] = {barrier(colour12.Get(), common, read), barrier(motion12.Get(), common, read), barrier(out12.Get(), common, write)};
         list->ResourceBarrier(3, enter);
+        // A priming (reset) evaluation's output is not shown, so its flag is not asked for.
+        const bool flag = disable12 && !reset;
+        if (flag) {
+            auto clear = barrier(disable12.Get(), common, D3D12_RESOURCE_STATE_COPY_DEST);
+            list->ResourceBarrier(1, &clear);
+            list->CopyBufferRegion(disable12.Get(), 0, disableZero.Get(), 0, 4);
+            auto writable = barrier(disable12.Get(), D3D12_RESOURCE_STATE_COPY_DEST, write);
+            list->ResourceBarrier(1, &writable);
+        }
         Parameters* p = parameters;
         setResource(p, "DLSSG.Backbuffer", colour12.Get()); setResource(p, "DLSSG.MVecs", motion12.Get()); setResource(p, "DLSSG.Depth", depth12.Get());
         setResource(p, "DLSSG.HUDLess", nullptr); setResource(p, "DLSSG.UI", nullptr); setResource(p, "DLSSG.UIAlpha", nullptr);
         setResource(p, "DLSSG.BidirectionalDistortionField", nullptr);
-        setResource(p, "DLSSG.OutputInterpolated", out12.Get()); setResource(p, "DLSSG.OutputReal", nullptr); setResource(p, "DLSSG.OutputDisableInterpolation", nullptr);
+        setResource(p, "DLSSG.OutputInterpolated", out12.Get()); setResource(p, "DLSSG.OutputReal", nullptr); setResource(p, "DLSSG.OutputDisableInterpolation", flag ? disable12.Get() : nullptr);
         setUint(p, "DLSSG.MultiFrameCount", unsigned(generated)); setUint(p, "DLSSG.MultiFrameIndex", unsigned(index));
         setPointer(p, "DLSSG.CameraViewToClip", viewToClip); setPointer(p, "DLSSG.ClipToCameraView", clipToView);
         setPointer(p, "DLSSG.ClipToLensClip", identity);
@@ -314,6 +352,16 @@ struct DlssGenerator::State {
         trace(verbose, "evaluate: " + hex(result));
         D3D12_RESOURCE_BARRIER leave[] = {barrier(colour12.Get(), read, common), barrier(motion12.Get(), read, common), barrier(out12.Get(), write, common)};
         list->ResourceBarrier(3, leave);
+        if (flag) {
+            D3D12_RESOURCE_BARRIER uav{}; uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; uav.UAV.pResource = disable12.Get();
+            auto source = barrier(disable12.Get(), write, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_RESOURCE_BARRIER toCopy[] = {uav, source};
+            list->ResourceBarrier(2, toCopy);
+            list->CopyBufferRegion(disableReadback.Get(), UINT64(current) * 256, disable12.Get(), 0, 4);
+            auto back = barrier(disable12.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, common);
+            list->ResourceBarrier(1, &back);
+            disableUsed[current] = true;
+        }
         if (!submit(error)) return false;
         if (result != kSuccess) { error = "DLSS frame generation evaluate " + hex(result); return false; }
         return true;
@@ -576,7 +624,9 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
         // Queued after the GPU-side wait that submit() inserted, so it reads the finished picture.
         c->CopyResource(cached.Get(), s.out11.Get());
         s.generatedThrough = next;
+        ++s.generatedCount;
     }
+    if (!generating) ++s.cachedCount;
     if (!generating) trace(s.diagnostics && s.cacheHits++ < 2, "reuse generated frame: pair=" + std::to_string(idA) + "/" + std::to_string(idB) + ", index=" + std::to_string(index));
     c->CopyResource(gpu.output(), s.generatedFrames[size_t(index - 1)].Get());
     if (generating) {
@@ -636,6 +686,11 @@ double DlssGenerator::averageGpuMs() const {
     return state_->gpuCount ? state_->gpuSum / state_->gpuCount : -1;
 }
 int DlssGenerator::gpuSamples() const { return state_ ? state_->gpuCount : 0; }
+DlssGenerator::Counters DlssGenerator::counters() const {
+    Counters c;
+    if (state_) { c.generated = state_->generatedCount; c.cached = state_->cachedCount; c.checked = state_->disableChecked; c.disabled = state_->disableSet; }
+    return c;
+}
 bool DlssGenerator::needsEngineMotion() const { return state_ && state_->source == 1; }
 bool DlssGenerator::hardwareMotion() const { return state_ && state_->source == 2; }
 std::string DlssGenerator::motionSource() const { return !state_ ? "" : state_->source == 2 ? "nvof" : state_->source == 1 ? "own" : "none"; }
