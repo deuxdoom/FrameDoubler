@@ -1,5 +1,6 @@
 #include "nvof.h"
 #include "gpu.h"
+#include "edgeaegis.h"
 #include <d3dcompiler.h>
 #include <cstring>
 #include <memory>
@@ -81,6 +82,9 @@ struct NvofFlow::State {
     NvOFHandle handle = nullptr;
     int width=0, height=0, step=4, gw=0, gh=0;
     bool bidirectional=true;
+    bool edgeAegis=false;
+    int slotA=0,slotB=0;
+    EdgeAegis refine;
     ComPtr<ID3D11Texture2D> input[2], vectors[2], staging;
     ComPtr<ID3D11UnorderedAccessView> lumaUav[2];
     ComPtr<ID3D11ShaderResourceView> flowSrv[2];
@@ -123,8 +127,9 @@ struct NvofFlow::State {
     }
 };
 
-bool NvofFlow::create(Gpu& gpu, int preset, std::string& error, bool bidirectional) {
+bool NvofFlow::create(Gpu& gpu, int preset, std::string& error, bool bidirectional, bool edgeAegis) {
     destroy(); error.clear(); auto s=std::make_unique<State>();
+    bidirectional=bidirectional||edgeAegis;s->edgeAegis=edgeAegis;
     s->module=LoadLibraryExW(L"nvofapi64.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
     if(!s->module){error="NVOF driver library unavailable";return false;}
     using Create=NV_OF_STATUS(NVOFAPI*)(uint32_t,NV_OF_D3D11_API_FUNCTION_LIST*);
@@ -178,10 +183,12 @@ bool NvofFlow::create(Gpu& gpu, int preset, std::string& error, bool bidirection
     if(FAILED(gpu.device()->CreateBuffer(&bd,nullptr,&s->constants))){error="NVOF constants";return false;}
     D3D11_SAMPLER_DESC sd{};sd.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;sd.AddressU=sd.AddressV=sd.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;sd.MaxLOD=D3D11_FLOAT32_MAX;
     if(FAILED(gpu.device()->CreateSamplerState(&sd,&s->sampler))){error="NVOF sampler";return false;}
+    if(edgeAegis&&!s->refine.create(gpu,error))return false;
     state_=s.release(); return true;
 }
 bool NvofFlow::estimate(Gpu& gpu,int slotA,int slotB,bool reset,std::string& error) {
     if(!state_){error="NVOF not ready";return false;}auto& s=*state_;
+    s.slotA=slotA;s.slotB=slotB;
     s.bind(gpu,0);
     for(int i=0;i<2;++i){auto srv=gpu.frameView(i==0?slotA:slotB);auto uav=s.lumaUav[i].Get();gpu.context()->CSSetShaderResources(0,1,&srv);gpu.context()->CSSetUnorderedAccessViews(0,1,&uav,nullptr);s.dispatch(gpu,s.luma.Get());}
     NV_OF_EXECUTE_INPUT_PARAMS in{};in.inputFrame=s.inputs[1];in.referenceFrame=s.inputs[0];in.disableTemporalHints=reset?NV_OF_TRUE:NV_OF_FALSE;
@@ -189,6 +196,7 @@ bool NvofFlow::estimate(Gpu& gpu,int slotA,int slotB,bool reset,std::string& err
     return s.status(s.api.nvOFExecute(s.handle,&in,&out),"execute",error);
 }
 void NvofFlow::motionVectors(Gpu& gpu,ID3D11UnorderedAccessView* target) {
+    if(state_&&state_->edgeAegis){auto& s=*state_;s.refine.apply(gpu,gpu.frameView(s.slotA),gpu.frameView(s.slotB),s.flowSrv[0].Get(),s.flowSrv[1].Get(),s.step,target);return;}
     if(!state_)return;auto& s=*state_;s.bind(gpu,0);auto srv=s.flowSrv[0].Get();gpu.context()->CSSetShaderResources(0,1,&srv);gpu.context()->CSSetUnorderedAccessViews(0,1,&target,nullptr);s.dispatch(gpu,s.expand.Get());
 }
 void NvofFlow::interpolate(Gpu& gpu,int a,int b,float phase) {
@@ -208,7 +216,7 @@ bool NvofFlow::readBackward(Gpu& gpu,std::vector<float>& xy,int& width,int& heig
 int NvofFlow::grid() const{return state_?state_->step:0;}
 void NvofFlow::destroy(){delete state_;state_=nullptr;}
 #else
-bool NvofFlow::create(Gpu&,int,std::string& error,bool){error="NVOF SDK headers were not present at build time";return false;}
+bool NvofFlow::create(Gpu&,int,std::string& error,bool,bool){error="NVOF SDK headers were not present at build time";return false;}
 bool NvofFlow::estimate(Gpu&,int,int,bool,std::string& error){error="NVOF not built";return false;}
 void NvofFlow::motionVectors(Gpu&,ID3D11UnorderedAccessView*){}
 void NvofFlow::interpolate(Gpu&,int,int,float){}

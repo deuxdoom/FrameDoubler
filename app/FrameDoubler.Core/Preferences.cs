@@ -41,6 +41,8 @@ public sealed record Preferences
     public string LiveSync{get;init;}="auto";
     public string LiveAspect{get;init;}="fit";
     public string LiveOutputCap{get;init;}="off";
+    public string LiveDlssMotion{get;init;}="none";
+    public bool LiveEdgeAegis{get;init;}=false;
     public bool LiveHoldOriginal{get;init;}=true;
     // Empty: Pictures\FrameDoubler and Videos\FrameDoubler.
     public string ScreenshotDirectory{get;init;}="";
@@ -61,7 +63,7 @@ public sealed record Preferences
     public string EffectiveScreenshotDirectory=>string.IsNullOrWhiteSpace(ScreenshotDirectory)?DefaultScreenshotDirectory:ScreenshotDirectory;
     public string EffectiveRecordingDirectory=>string.IsNullOrWhiteSpace(RecordingDirectory)?DefaultRecordingDirectory:RecordingDirectory;
     public LiveOptions LiveOptions=>new(LiveFrameGeneration,LiveMultiplier,LiveAntiAlias,LiveDedup,LiveRange,LiveMatrix,LiveVfxQuality,LiveVolume,LiveMute,LiveAudioOffset,
-        LiveSync,LiveAspect,"off",LiveOutputCap);
+        LiveSync,LiveAspect,"off",LiveOutputCap,LiveDlssMotion,LiveEdgeAegis);
     public static string DirectoryPath=>Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR")??AppPaths.InstallationDirectory;
     public const string FileName="settings.ini";
     public static Preferences Load(string? directory=null){
@@ -96,6 +98,7 @@ public sealed record Preferences
         if(value.LiveMatrix is not ("auto" or "709" or "601"))value=value with{LiveMatrix="auto"};
         if(value.LiveSync is not ("auto" or "vsync" or "tearing"))value=value with{LiveSync="auto"};
         if(value.LiveAspect is not ("fit" or "fill" or "stretch"))value=value with{LiveAspect="fit"};
+        if(value.LiveDlssMotion!="nvof")value=value with{LiveDlssMotion="none",LiveEdgeAegis=false};
         if(value.LiveOutputCap!="off"&&value.LiveOutputCap!="display"&&!(int.TryParse(value.LiveOutputCap,NumberStyles.Integer,CultureInfo.InvariantCulture,out int cap)&&cap is >=24 and <=480))
             value=value with{LiveOutputCap="off"};
         value=value with{LiveMultiplier=Math.Clamp(value.LiveMultiplier,2,4),LiveAntiAlias=Math.Clamp(value.LiveAntiAlias,0,3),LiveVfxQuality=Math.Clamp(value.LiveVfxQuality,0,2),
@@ -127,6 +130,7 @@ public sealed record Preferences
             CloseAction=S(nameof(CloseAction),"ask"),MinimizeAction=S(nameof(MinimizeAction),"taskbar"),
             StartPage=S(nameof(StartPage),"capture"),CaptureDevice=S(nameof(CaptureDevice),""),CaptureMode=S(nameof(CaptureMode),""),CaptureAudio=S(nameof(CaptureAudio),"auto"),
             CaptureAudioOutput=S(nameof(CaptureAudioOutput),"default"),
+            LiveDlssMotion=S(nameof(LiveDlssMotion),"none"),LiveEdgeAegis=B(nameof(LiveEdgeAegis),false),
             LiveFrameGeneration=S(nameof(LiveFrameGeneration),"off"),LiveMultiplier=I(nameof(LiveMultiplier),2),LiveAntiAlias=I(nameof(LiveAntiAlias),0),LiveDedup=B(nameof(LiveDedup),false),
             LiveRange=S(nameof(LiveRange),"auto"),LiveVfxQuality=I(nameof(LiveVfxQuality),1),LiveVolume=I(nameof(LiveVolume),100),LiveMute=B(nameof(LiveMute),false),
             LiveAudioOffset=I(nameof(LiveAudioOffset),0),LiveStats=B(nameof(LiveStats),true),LiveMatrix=S(nameof(LiveMatrix),"auto"),LiveSync=S(nameof(LiveSync),"auto"),
@@ -150,6 +154,7 @@ public sealed record Preferences
         Add(nameof(Verify),Verify);Add(nameof(HardwareEncoding),HardwareEncoding);Add(nameof(CheckUpdates),CheckUpdates);Add(nameof(CloseAction),CloseAction);Add(nameof(MinimizeAction),MinimizeAction);
         Add(nameof(StartPage),StartPage);Add(nameof(CaptureDevice),CaptureDevice);Add(nameof(CaptureMode),CaptureMode);Add(nameof(CaptureAudio),CaptureAudio);
         Add(nameof(CaptureAudioOutput),CaptureAudioOutput);
+        Add(nameof(LiveDlssMotion),LiveDlssMotion);Add(nameof(LiveEdgeAegis),LiveEdgeAegis);
         Add(nameof(LiveFrameGeneration),LiveFrameGeneration);Add(nameof(LiveMultiplier),LiveMultiplier);Add(nameof(LiveAntiAlias),LiveAntiAlias);Add(nameof(LiveDedup),LiveDedup);
         Add(nameof(LiveRange),LiveRange);Add(nameof(LiveVfxQuality),LiveVfxQuality);Add(nameof(LiveVolume),LiveVolume);Add(nameof(LiveMute),LiveMute);Add(nameof(LiveAudioOffset),LiveAudioOffset);
         Add(nameof(LiveStats),LiveStats);Add(nameof(LiveMatrix),LiveMatrix);Add(nameof(LiveSync),LiveSync);Add(nameof(LiveAspect),LiveAspect);

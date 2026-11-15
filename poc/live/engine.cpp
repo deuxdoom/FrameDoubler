@@ -8,6 +8,7 @@
 #include "dlss.h"
 #include "globalmotion.h"
 #include "nvof.h"
+#include "edgeaegis.h"
 #include "health.h"
 
 #include <avrt.h>
@@ -460,7 +461,7 @@ void Session::applyOptions(const Settings& s) {
     if (s.count("volume")) options_.volume = float(std::clamp(getDouble(s, "volume", 100) / 100.0, 0.0, 1.0));
     if (s.count("mute")) options_.mute = get(s, "mute") == "1";
     if (s.count("audioOffsetMs")) options_.audioOffsetMs = std::clamp(getInt(s, "audioOffsetMs", 0), -200, 500);
-    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "dlssMotion", "dlssLite", "ownCamera", "audioOutput"}) if (s.count(key)) config_[key] = get(s, key);
+    for (const char* key : {"screenshotDir", "recordDir", "recordCodec", "recordBitrate", "vfxDir", "dlssDir", "dlssDataDir", "dlssMotion", "dlssLite", "ownCamera", "audioOutput", "edgeAegis"}) if (s.count(key)) config_[key] = get(s, key);
 }
 
 void Session::command(const Settings& s) {
@@ -491,9 +492,12 @@ void Session::startDlss() {
     {
         std::lock_guard<std::mutex> lock(optionsMutex_);
         dir = wide(get(config_, "dlssDir")); data = wide(get(config_, "dlssDataDir"));
-        // DLSS-G 310 estimates the motion itself; vectors only cost time unless asked for.
+        // External motion and boundary refinement are opt-in and fixed at feature creation.
         options.motion = parseDlssMotion(get(config_, "dlssMotion", "none"));
+        options.edgeAegis=getInt(config_,"edgeAegis",0)!=0;
         options.lite = get(config_, "dlssLite") == "1";
+        options.optionalMotion=true;
+
     }
     dlssLoading_ = true;
     log_.add("info", "DLSS frame generation: loading");
@@ -510,7 +514,10 @@ void Session::startDlss() {
             std::lock_guard<std::mutex> lock(vfxMutex_); dlssRuntime_ = generator->version(); dlss_ = std::move(generator);
         }
         dlssReady_ = ok; dlssLoading_ = false;
-        if (ok) log_.add("info", "DLSS frame generation ready (" + dlssRuntime_ + ")");
+        if (ok) {
+            log_.add("info", "DLSS frame generation ready (" + dlssRuntime_ + ")");
+            if(!dlss_->motionWarning().empty())log_.add("warning","NVOF unavailable; DLSS uses internal motion: "+dlss_->motionWarning());
+        }
         else log_.add("warning", "DLSS frame generation unavailable; NVIDIA VFX is used when available: " + error);
         CoUninitialize();
     });
@@ -1054,7 +1061,7 @@ std::string Session::status() {
     char gpuLuidText[32]; snprintf(gpuLuidText, sizeof gpuLuidText, "0x%08x_0x%08x", unsigned(gpuLuid.HighPart), unsigned(gpuLuid.LowPart));
     const double sec = w.seconds > 0 ? w.seconds : 1;
     auto stage = [&](int i) { return stages[i] < 0 ? std::string("null") : fixed(stages[i]); };
-    std::string backend, runtime, dlssMotion; int vfxQuality, dlssMaximum, gen; DlssGenerator::Counters dlssCounters;
+    std::string backend, runtime, dlssMotion, motionWarning; bool edgeAegis=false; int vfxQuality, dlssMaximum, gen; DlssGenerator::Counters dlssCounters;
     {
         std::lock_guard<std::mutex> lock(vfxMutex_);
         o = effective(o); gen = generator(o);
@@ -1064,6 +1071,7 @@ std::string Session::status() {
         dlssMaximum = dlssReady_ && dlss_ ? dlss_->maxGenerated() + 1 : 0;
         dlssMotion=dlssReady_ && dlss_ ? dlss_->motionSource() : "";
         if (dlss_) dlssCounters = dlss_->counters();
+        if(dlssReady_&&dlss_){motionWarning=dlss_->motionWarning();edgeAegis=gen==3&&dlss_->edgeAegisActive();}
     }
     std::string out = "{\"running\":" + std::string(stop_ ? "false" : "true") +
         ",\"captureFailed\":" + (capture_ && capture_->failed() ? "true" : "false") +
@@ -1086,10 +1094,12 @@ std::string Session::status() {
         ",\"fg\":" + jsonString(backend) + ",\"vfxRuntime\":" + jsonString(runtime) + ",\"vfxQuality\":" + std::to_string(vfxQuality) +
         ",\"dlssMaxMultiplier\":" + std::to_string(dlssMaximum) +
         ",\"dlssMotion\":" + jsonString(dlssMotion) +
+        ",\"motionWarning\":" + jsonString(motionWarning) + ",\"edgeAegis\":" + (edgeAegis?"true":"false") +
         // Session totals: shown evaluations, cached copies, and finished evaluations whose
         // DLSSG.OutputDisableInterpolation was read back / was set.
         ",\"dlssCounts\":{\"generated\":" + std::to_string(dlssCounters.generated) + ",\"cached\":" + std::to_string(dlssCounters.cached) +
-        ",\"checked\":" + std::to_string(dlssCounters.checked) + ",\"disabled\":" + std::to_string(dlssCounters.disabled) + "}" +
+        ",\"checked\":" + std::to_string(dlssCounters.checked) + ",\"disabled\":" + std::to_string(dlssCounters.disabled) +
+        ",\"opticalFlow\":" + std::to_string(dlssCounters.opticalFlow) + ",\"edgeRefined\":" + std::to_string(dlssCounters.edgeRefined) + "}" +
         ",\"audioDelayMs\":" + std::to_string(audioDelayMs_.load()) + ",\"audio\":" + (audio_.running() ? "true" : "false") +
         // Capture -> scanout of the picture and capture -> output of the sound (IAudioClock),
         // both without the monitor's and speaker's own processing.
@@ -1500,6 +1510,7 @@ std::string selfTest(const Settings& s) {
         };
         fgCase("fg-pan", false);
         fgCase("fg-occlusion", true);
+        {std::string detail;const bool refined=EdgeAegis::selfTest(gpu,detail);check("edge-aegis",refined,detail);}
         if(getInt(s,"nvof",0)) {
             NvofFlow flow; std::string e;
             if(!flow.create(gpu,getInt(s,"nvofQuality",1),e))check("nvof",false,e);

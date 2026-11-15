@@ -11,7 +11,7 @@ public:
     NvofFlow(const NvofFlow&) = delete;
     NvofFlow& operator=(const NvofFlow&) = delete;
     ~NvofFlow();
-    bool create(Gpu& gpu, int preset, std::string& error, bool bidirectional = true);
+    bool create(Gpu& gpu, int preset, std::string& error, bool bidirectional = true, bool edgeAegis = false);
     void destroy();
     bool ready() const { return state_ != nullptr; }
     // Always full-size pictures; only the hardware vector grid is coarser.

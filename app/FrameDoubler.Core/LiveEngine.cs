@@ -60,6 +60,8 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
     // The multiplier actually run (1 = no generator; 0 = older engine).
     public int Multiplier {get;init;}
     public string DlssMotion {get;init;}="";
+    public bool EdgeAegis {get;init;}
+    public string MotionWarning {get;init;}="";
     // Colour actually used: "limited"/"full", "709"/"601", each with "manual", "device" or "default" as its source.
     public string ColorRange{get;init;}="";public string ColorRangeSource{get;init;}="";public string ColorMatrix{get;init;}="";public string ColorMatrixSource{get;init;}="";
     public double AudioInputPeak {get;init;}
@@ -91,17 +93,17 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
             new(N(stages,"upload"),N(stages,"motion"),N(stages,"interpolate"),N(stages,"present"),N(stages,"encode")),S(r,"fg"),S(r,"vfxRuntime"),
             (int)(N(r,"audioDelayMs")??0),B(r,"audio"),(long)(N(totals,"input")??0),(long)(N(totals,"unique")??0),(long)(N(totals,"duplicates")??0),(long)(N(totals,"dropped")??0),
             B(recording,"active"),S(recording,"path"),N(recording,"seconds")??0,(long)(N(recording,"dropped")??0),events){TargetFps=N(r,"targetFps")??0,
-                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DlssMotion=S(r,"dlssMotion"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
+                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DlssMotion=S(r,"dlssMotion"),EdgeAegis=B(r,"edgeAegis"),MotionWarning=S(r,"motionWarning"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
                 CaptureState=S(r,"captureState"),AudioInputState=S(r,"audioInputState"),AudioOutputState=S(r,"audioOutputState"),AudioOutputId=S(r,"audioOutputId"),AudioOutputName=S(r,"audioOutputName"),
                 AudioQueueMs=(int)(N(r,"audioQueueMs")??0),AudioBufferMs=(int)(N(r,"audioBufferMs")??0),AudioOutputAttempts=(long)(N(r,"audioOutputAttempts")??0),AudioUnderruns=(long)(N(r,"audioUnderruns")??0),
                 RecordingFinalizing=B(recording,"finalizing"),RecordingStarting=B(recording,"starting"),RecordingFps=N(recording,"fps")??0};
     }
 }
 
-// Options the preview applies immediately (no restart of the capture).
+// Motion options are selected at DLSS creation; CaptureView restarts the preview to apply them.
 public sealed record LiveOptions(string FrameGeneration="off",int Multiplier=2,int AntiAlias=0,bool Dedup=false,string Range="auto",
     string Matrix="auto",int VfxQuality=1,int Volume=100,bool Mute=false,int AudioOffsetMs=0,
-    string Sync="auto",string Aspect="fit",string Compare="off",string OutputCap="off")
+    string Sync="auto",string Aspect="fit",string Compare="off",string OutputCap="off",string DlssMotion="none",bool EdgeAegis=false)
 {
     // Live capture generates frames with NVIDIA DLSS or NVIDIA VFX only; FrameDoubler's own
     // interpolation is for file conversion (user decision 2026-11-15). "auto" (and an "own"
@@ -113,7 +115,8 @@ public sealed record LiveOptions(string FrameGeneration="off",int Multiplier=2,i
     public string Commands(bool vfxInstalled,bool dlssInstalled=false)=>string.Join('\n',
         "fg="+EngineFrameGeneration(vfxInstalled,dlssInstalled),"multiplier="+Multiplier,"aa="+AntiAlias,"dedup="+(Dedup?"1":"0"),"range="+Range,"matrix="+Matrix,
         "vfxQuality="+VfxQuality,"volume="+Volume,"mute="+(Mute?"1":"0"),"audioOffsetMs="+AudioOffsetMs,
-        "sync="+Sync,"aspect="+Aspect,"compare="+Compare,"outputCap="+OutputCap);
+        "sync="+Sync,"aspect="+Aspect,"compare="+Compare,"outputCap="+OutputCap,
+        "dlssMotion="+(DlssMotion=="nvof"?"nvof":"none"),"edgeAegis="+(DlssMotion=="nvof"&&EdgeAegis?"1":"0"));
 }
 
 public static class LiveEngine

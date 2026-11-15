@@ -63,6 +63,7 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "dlssDir=" + arg(argc, argv, L"--dlss") + "\n";
     s += "dlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n";
     s += "dlssMotion=" + arg(argc, argv, L"--dlss-motion", "none") + "\n";
+    s += "edgeAegis=" + arg(argc, argv, L"--edge-aegis", "0") + "\n";
     s += "ownCamera=" + arg(argc, argv, L"--own-camera", "1") + "\n";
     if (flag(argc, argv, L"--dlss-lite")) s += "dlssLite=1\n";
     s += "recordDir=" + arg(argc, argv, L"--record") + "\n";
@@ -143,8 +144,9 @@ int compareMode(int argc, wchar_t** argv) {
             // cam / camT (global camera motion from the block field as row / column-vector matrices).
             const float scale = extra == "neg" ? -1.f : extra == "x2" ? 2.f : extra == "half" ? .5f : 1.f;
             const int camera = extra == "cam" ? 1 : extra == "camT" ? 2 : 0;
-            if ((motion != "none" && motion != "own" && motion != "auto" && motion != "nvof") || (!extra.empty() && extra != "lite" && scale == 1.f && !camera)) { failure("dlss: unknown variant " + name); continue; }
+            if ((motion != "none" && motion != "own" && motion != "auto" && motion != "nvof") || (!extra.empty() && extra != "lite" && extra != "edge" && scale == 1.f && !camera)) { failure("dlss: unknown variant " + name); continue; }
             DlssOptions options; options.diagnostics = flag(argc, argv, L"--echo"); options.motion = parseDlssMotion(motion); options.lite = extra == "lite"; options.vectorScale = scale;
+            options.edgeAegis=extra=="edge";
             DlssVariant variant; variant.name = name; variant.camera = camera; variant.generator = std::make_unique<DlssGenerator>();
             const std::wstring data = wide(arg(argc, argv, L"--dlss-data")) + L"\\" + wide(name);
             if (!variant.generator->create(gpu, wide(dlssDir), data, error, options)) failure("dlss " + name + ": " + error);

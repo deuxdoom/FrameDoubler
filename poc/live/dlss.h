@@ -2,10 +2,10 @@
 // The driver's NGX core is loaded dynamically and called through its exported C entry
 // points; the feature library (nvngx_dlssg.dll) comes from a folder next to the engine.
 // DLSS-G is built for game engines, so a captured picture is given a flat depth buffer and a
-// fixed camera. DLSS-G 310 estimates the picture motion itself: two different vector inputs
-// (own block motion, hardware optical flow) gave byte-for-byte equal quality on sample 2, so
-// by default no vectors are computed for it. When the driver, the GPU or any call refuses,
-// the engine keeps its own interpolation.
+// fixed camera. External NVOF vectors and optional boundary refinement change generated live
+// capture pictures; their quality benefit depends on the scene. Both are off by default.
+// When the driver, the GPU or any call refuses,
+// the engine uses downloaded VFX or original pictures.
 #pragma once
 #include "common.h"
 
@@ -21,6 +21,8 @@ struct DlssOptions {
     bool diagnostics = false;          // NGX log callback and per-step trace on stderr
     DlssMotion motion = DlssMotion::None;
     bool lite = false;                 // DLSSG.LiteCandidateBlendingEnabled (read at create by 310.9.16)
+    bool edgeAegis = false;            // refine NVOF boundaries; experimental, opt-in
+    bool optionalMotion = false;      // product: unavailable external motion keeps ordinary DLSS
     float vectorScale = 1.f;           // diagnostics only: multiplies the vectors' normalisation (sign/scale checks)
 };
 
@@ -61,12 +63,14 @@ public:
     // Session counters: evaluations that produced a shown frame, cached copies, and of the
     // finished evaluations read back so far, how many DLSS-G marked "do not show"
     // (DLSSG.OutputDisableInterpolation; read without a CPU wait, after the GPU is done).
-    struct Counters { uint64_t generated = 0, cached = 0, checked = 0, disabled = 0; };
+    struct Counters { uint64_t generated = 0, cached = 0, checked = 0, disabled = 0, opticalFlow = 0, edgeRefined = 0; };
     Counters counters() const;
     // True when the engine has to compute its block motion field for this generator.
     bool needsEngineMotion() const;
     bool hardwareMotion() const;
     std::string motionSource() const;  // "none", "own" or "nvof"
+    const std::string& motionWarning() const{return motionWarning_;}
+    bool edgeAegisActive() const;
 
     // Without NGX: the D3D11 -> D3D12 -> D3D11 hand-over (shared textures, both fences,
     // command allocator reuse and GPU timestamps) on a plain copy. detail reports the result.
@@ -77,6 +81,7 @@ private:
     bool ready_ = false;
     int maxGenerated_ = 1;
     std::string version_;
+    std::string motionWarning_;
     double lastMs_ = 0;
 };
 

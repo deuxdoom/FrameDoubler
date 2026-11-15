@@ -30,6 +30,11 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
   picture directly. DLSS and VFX retain the source resolution and display originals and generated frames in
   content-time order. Detected hard scene cuts reset the history
   and show an original picture instead of generating across the cut.
+- The Frame generation tab has optional experimental DLSS motion controls: hardware optical
+  flow (NVOF) and Edge Aegis boundary refinement. Both default off and do not apply to VFX.
+  They use extra GPU time; improvement of jelly artifacts depends on the scene. Changes briefly
+  restart the preview and are locked during recording countdown, recording and saving. If NVOF
+  is unavailable, DLSS keeps its internal motion estimation and the panel reports the fallback.
 - Anti-aliasing (low/medium/high) runs once per unique frame at the source size, before frame
   generation. Colour range and matrix can be set.
 - Display: automatic sync (newest frame without tearing), VSync or tearing allowed; fit, fill

@@ -49,7 +49,7 @@ public sealed class CaptureView:UserControl
 
     // Controls kept for updates.
     private readonly ComboBox deviceBox=new(){Width=300,Margin=new Thickness(0)},modeBox=new(){Width=220,Margin=new Thickness(10,0,0,0)},audioBox=new(){Margin=new Thickness(0,8,0,0)};
-    private readonly TextBlock signalChip=new(),outputChip=new(),recordText=new(),liveText=new(),placeholderTitle=new(),placeholderHint=new(),pathText=new(),contentHint=new(),vfxState=new();
+    private readonly TextBlock signalChip=new(),outputChip=new(),recordText=new(),liveText=new(),placeholderTitle=new(),placeholderHint=new(),pathText=new(),contentHint=new(),vfxState=new(),motionState=new();
     private readonly Button startButton=new(),screenshotButton=new(),recordButton=new(),fullscreenButton=new();
     private readonly Ellipse recordDot=new(){Width=10,Height=10,Fill=Bad,Margin=new Thickness(0,0,8,0)};
     private readonly Ellipse statusDot=new(){Width=9,Height=9,Margin=new Thickness(0,4,9,0),VerticalAlignment=VerticalAlignment.Top};
@@ -338,12 +338,22 @@ public sealed class CaptureView:UserControl
                 ("0","성능","Performance"),("1","균형","Balance"),("2","품질","Quality")),stacked:true);
         qualityRow=quality;
         fgCardRef=Card("","프레임 생성","Frame generation","중복 제거 뒤 빈 자리를 채웁니다","Fills the gaps after deduplication",fgToggle,methodStack,multiplier,quality);
+        var nvof=Toggle("nvof",options.DlssMotion=="nvof",on=>_=ChangeMotionAsync(on,options.EdgeAegis&&on));
+        var edge=Toggle("edgeAegis",options.EdgeAegis,on=>_=ChangeMotionAsync(options.DlssMotion=="nvof",on));
+        motionState.FontSize=12;motionState.Foreground=Muted;motionState.TextWrapping=TextWrapping.Wrap;motionState.Margin=new Thickness(0,12,0,0);
+        var motionCard=Card("","DLSS 움직임 보정 · 시험","DLSS motion · experimental","기본 꺼짐 · DLSS에만 적용","Off by default · DLSS only",null,
+            OptionRow("광학 흐름 (NVOF)","Optical flow (NVOF)","하드웨어가 추정한 움직임을 DLSS에 전달합니다. 추가 GPU 시간이 필요하며 화면에 따라 효과가 작을 수 있습니다.",
+                "Supplies hardware motion estimates to DLSS. Uses extra GPU time; the effect depends on the content.",nvof),
+            OptionRow("엣지 이지스","Edge Aegis","NVOF 경계의 움직임을 정제합니다. 젤리 현상 개선은 장면마다 다르며 보장하지 않습니다.",
+                "Refines NVOF motion at boundaries. Reduction of jelly artifacts varies by scene and is not guaranteed.",edge),
+            OptionRow("옵션 적용","Applying options","변경하면 프리뷰를 잠깐 다시 시작합니다. 녹화 준비·녹화·저장 중에는 바꿀 수 없습니다. VFX에는 적용되지 않습니다.",
+                "Changing these options briefly restarts the preview. Locked during recording countdown, recording and saving. Does not apply to VFX.",null),motionState);
         var dedupToggle=Toggle("dedup",options.Dedup,on=>SetOptions(options with{Dedup=on},q=>q with{LiveDedup=on}));
         contentHint.FontSize=12;contentHint.Foreground=Good;contentHint.Margin=new Thickness(0,10,0,0);
         dedupCardRef=Card("","중복 프레임 제거","Remove duplicate frames","실제로 바뀐 프레임만 남깁니다","Keeps only frames that really changed",dedupToggle,
             OptionRow("자동 감지","Automatic","60Hz 신호에 담긴 30·40fps 게임의 반복 프레임을 화면 전체 비교로 걸러 내고, 실제 화면이 바뀐 시각을 기준으로 보간 위치를 정합니다. 정지 화면에서는 새 프레임을 만들지 않습니다.",
                 "Repeats of a 30/40 fps game in a 60 Hz signal are found by comparing whole pictures; interpolation follows the time each picture really changed. Still scenes get no invented frames.",null),contentHint);
-        var fgPage=new StackPanel();fgPage.Children.Add(fgCardRef);fgPage.Children.Add(dedupCardRef);tabPages["fg"]=fgPage;
+        var fgPage=new StackPanel();fgPage.Children.Add(fgCardRef);fgPage.Children.Add(dedupCardRef);fgPage.Children.Add(motionCard);tabPages["fg"]=fgPage;
 
         // ---- Quality
         var aaToggle=Toggle("aa",options.AntiAlias>0,on=>{int v=on?Math.Max(1,lastAa):0;SetOptions(options with{AntiAlias=v},q=>q with{LiveAntiAlias=v});});
@@ -466,11 +476,24 @@ public sealed class CaptureView:UserControl
     private void SetOptions(LiveOptions value,Func<Preferences,Preferences> save){
         options=value;session?.Apply(options);owner.ChangeSettings(save);ShowStatus(last);
     }
+    private async Task ChangeMotionAsync(bool nvof,bool edge){
+        if(starting||Recording||Saving||StartingRecording||countdownLeft>0||options.FrameGeneration=="vfx"){
+            SyncControls();return;
+        }
+        string motion=nvof?"nvof":"none";edge&=nvof;
+        if(options.DlssMotion==motion&&options.EdgeAegis==edge)return;
+        SetOptions(options with{DlssMotion=motion,EdgeAegis=edge},q=>q with{LiveDlssMotion=motion,LiveEdgeAegis=edge});
+        SyncControls();
+        // A DLSS instance keeps its vector resources for its lifetime, even while FG is off.
+        await RestartAsync();
+    }
     private void ResetPage(){
         var d=new LiveOptions();
+        bool motionChanged=tab=="fg"&&(options.DlssMotion!=d.DlssMotion||options.EdgeAegis!=d.EdgeAegis);
+        if(motionChanged&&(starting||Recording||Saving||StartingRecording||countdownLeft>0))return;
         updating=true;
         options=tab switch{
-            "fg"=>options with{FrameGeneration=d.FrameGeneration,Multiplier=d.Multiplier,VfxQuality=d.VfxQuality,Dedup=d.Dedup},
+            "fg"=>options with{FrameGeneration=d.FrameGeneration,Multiplier=d.Multiplier,VfxQuality=d.VfxQuality,Dedup=d.Dedup,DlssMotion=d.DlssMotion,EdgeAegis=d.EdgeAegis},
             "quality"=>options with{AntiAlias=d.AntiAlias},
             "color"=>options with{Range=d.Range,Matrix=d.Matrix},
             "audio"=>options with{Volume=d.Volume,Mute=d.Mute,AudioOffsetMs=d.AudioOffsetMs},
@@ -478,14 +501,17 @@ public sealed class CaptureView:UserControl
             _=>options};
         if(tab=="display")owner.ChangeSettings(q=>q with{LiveStats=true,LiveHoldOriginal=true});
         owner.ChangeSettings(q=>q with{LiveFrameGeneration=options.FrameGeneration,LiveMultiplier=options.Multiplier,LiveVfxQuality=options.VfxQuality,LiveDedup=options.Dedup,
+            LiveDlssMotion=options.DlssMotion,LiveEdgeAegis=options.EdgeAegis,
             LiveAntiAlias=options.AntiAlias,LiveRange=options.Range,LiveMatrix=options.Matrix,LiveVolume=options.Volume,LiveMute=options.Mute,LiveAudioOffset=options.AudioOffsetMs,
             LiveSync=options.Sync,LiveAspect=options.Aspect,LiveOutputCap=options.OutputCap});
         SyncControls();updating=false;session?.Apply(options);Adapt();
+        if(motionChanged)_=RestartAsync();
     }
     private void SyncControls(){
         bool old=updating;updating=true;
         toggles["fg"].IsChecked=options.FrameGeneration!="off";toggles["dedup"].IsChecked=options.Dedup;toggles["aa"].IsChecked=options.AntiAlias>0;
         toggles["mute"].IsChecked=options.Mute;toggles["stats"].IsChecked=owner.Settings.LiveStats;
+        toggles["nvof"].IsChecked=options.DlssMotion=="nvof";toggles["edgeAegis"].IsChecked=options.EdgeAegis;
         void Seg(string key,string value){foreach(var rb in segments[key])rb.IsChecked=(string)rb.Tag==value;}
         Seg("multiplier",options.Multiplier.ToString(CultureInfo.InvariantCulture));Seg("vfxQuality",options.VfxQuality.ToString(CultureInfo.InvariantCulture));
         Seg("aa",Math.Max(1,options.AntiAlias).ToString(CultureInfo.InvariantCulture));Seg("range",options.Range);Seg("matrix",options.Matrix);
@@ -662,7 +688,7 @@ public sealed class CaptureView:UserControl
         if(session is null){CancelCountdown();return;}
         if(--countdownLeft>0){ShowCountdown();return;}
         CancelCountdown();statusMessage="";
-        session.StartRecording();ShowStatus(last);
+        session.StartRecording();Poll();
     }
     private void CancelCountdown(){countdown?.Stop();countdownLeft=0;UpdateRecordButton();}
     private void ShowCountdown(){
@@ -827,6 +853,16 @@ public sealed class CaptureView:UserControl
             vfxState.Text=Hangul.KeepWords(T("이 GPU나 드라이버에서는 DLSS 프레임 생성을 쓸 수 없고 NVIDIA VFX도 준비되지 않아 원본을 그대로 표시합니다. VFX는 설정 › 캡처에서 받을 수 있습니다.","DLSS Frame Generation cannot run on this GPU or driver and NVIDIA VFX is not available, so the original pictures are shown. VFX can be downloaded in Settings › Capture."));
         // The quality choice belongs to NVIDIA VFX only.
         if(qualityRow is not null)qualityRow.Visibility=options.FrameGeneration=="vfx"||s?.FrameGeneration=="vfx"?Visibility.Visible:Visibility.Collapsed;
+        bool motionLocked=starting||countdownLeft>0||s is {Recording:true} or {RecordingStarting:true} or {RecordingFinalizing:true};
+        toggles["nvof"].IsEnabled=!motionLocked&&options.FrameGeneration!="vfx";
+        toggles["edgeAegis"].IsEnabled=toggles["nvof"].IsEnabled&&options.DlssMotion=="nvof";
+        string motionStatus=options.FrameGeneration=="vfx"||s?.FrameGeneration=="vfx"?T("VFX 사용 중에는 적용되지 않습니다.","Not applied while VFX is active.")
+            :s is null||s.FrameGeneration is "off" or "loading"?options.DlssMotion=="nvof"?T("DLSS 프레임 생성이 시작되면 적용합니다.","Applies when DLSS frame generation starts."):T("DLSS 기본 움직임 추정 사용 · 추가 보정 꺼짐","DLSS internal motion · extra refinement off")
+            :s.MotionWarning.Length>0?T("NVOF를 사용할 수 없어 DLSS 기본 움직임 추정을 씁니다.","NVOF is unavailable; using DLSS internal motion.")
+            :s.FrameGeneration=="dlss"&&s.DlssMotion=="nvof"?s.EdgeAegis?T("사용 중: NVOF + 엣지 이지스","Active: NVOF + Edge Aegis"):T("사용 중: NVOF · 엣지 이지스 꺼짐","Active: NVOF · Edge Aegis off")
+            :s.FrameGeneration=="dlss"&&s.DlssMotion=="none"?T("DLSS 기본 움직임 추정 사용 · 추가 보정 꺼짐","DLSS internal motion · extra refinement off")
+            :T("DLSS 보정 적용 상태 미확인","DLSS refinement status unavailable");
+        motionState.Text=Hangul.KeepWords(motionStatus);motionState.ToolTip=s?.MotionWarning is {Length:>0} mw?mw:motionStatus;
         string[] aaNames={T("낮음","low"),T("보통","medium"),T("높음","high")};
         aaSubtitle.Text=options.AntiAlias>0?T("경계 추적 AA · ","Edge-tracing AA · ")+aaNames[Math.Clamp(options.AntiAlias,1,3)-1]:T("꺼짐","Off");
         aaTime.Text=Ms(s?.Stages.Upload);

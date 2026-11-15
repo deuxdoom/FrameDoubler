@@ -151,6 +151,8 @@ struct DlssGenerator::State {
     std::vector<ComPtr<ID3D11Texture2D>> generatedFrames;
     unsigned cacheHits = 0;
     int source = 0;                      // 0 no vectors (zeros), 1 engine block motion, 2 hardware optical flow
+    bool edgeAegis=false;
+    std::atomic<uint64_t> opticalFlowCount{0},edgeRefinedCount{0};
     float vectorScale = 1.f;
     bool camera = false;
     float toPrevious[4][4]{}, fromPrevious[4][4]{};
@@ -442,6 +444,7 @@ int DlssGenerator::probeMaxMultiplier(const LUID& adapter, const std::wstring& f
 
 bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, const DlssOptions& options) {
     destroy();
+    motionWarning_.clear();
     const bool diagnostics = options.diagnostics;
     if (!runtimePresent(featureDirectory)) { error = "DLSS frame generation runtime or NVIDIA driver component not found"; return false; }
     if (dataDirectory.empty()) { error = "DLSS needs a writable data directory (CLI: --dlss-data DIR)"; return false; }
@@ -558,12 +561,14 @@ bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const
     s->source = options.motion == DlssMotion::Own ? 1 : 0;
     if (options.motion == DlssMotion::Hardware || options.motion == DlssMotion::HardwareRequired) {
         std::string flowError;
-        if (s->flow.create(gpu, 1, flowError, false)) s->source = 2;
+        if (s->flow.create(gpu, 1, flowError, options.edgeAegis, options.edgeAegis)) { s->source = 2;s->edgeAegis=options.edgeAegis; }
+        else if(options.optionalMotion){s->source=0;motionWarning_=flowError;}
         else if (options.motion == DlssMotion::HardwareRequired) return fail(flowError);
         else { s->source = 1; trace(diagnostics, flowError + "; using own block motion"); }
     }
     version_ = "DLSS-G, up to " + std::to_string(maxGenerated_ + 1) + "x";
     if (s->source == 2) version_ += ", hardware optical flow";
+    if (s->edgeAegis) version_ += ", edge aegis";
     else if (s->source == 1) version_ += ", block motion vectors";
     if (options.lite) version_ += ", lite";
     s->vectorScale = options.vectorScale;
@@ -601,8 +606,11 @@ bool DlssGenerator::interpolate(Gpu& gpu, int slotA, int slotB, uint64_t idA, ui
         }
         c->CopyResource(s.colour11.Get(), gpu.frame(slotB));
         if (s.source == 2) {
+            gpu.timer.mark(c,StageMotion,true);
             if (!s.flow.estimate(gpu, slotA, slotB, !continuous, error)) { ready_ = false; return false; }
             s.flow.motionVectors(gpu, s.motionUav.Get());
+            gpu.timer.mark(c,StageMotion,false);
+            ++s.opticalFlowCount;if(s.edgeAegis)++s.edgeRefinedCount;
         } else if (s.source == 1) gpu.motionVectors(slotB, s.motionUav.Get());
         // source 0: the vector texture was cleared at creation and is never written.
         ++s.frameId;
@@ -688,11 +696,12 @@ double DlssGenerator::averageGpuMs() const {
 int DlssGenerator::gpuSamples() const { return state_ ? state_->gpuCount : 0; }
 DlssGenerator::Counters DlssGenerator::counters() const {
     Counters c;
-    if (state_) { c.generated = state_->generatedCount; c.cached = state_->cachedCount; c.checked = state_->disableChecked; c.disabled = state_->disableSet; }
+    if (state_) { c.generated = state_->generatedCount; c.cached = state_->cachedCount; c.checked = state_->disableChecked; c.disabled = state_->disableSet;c.opticalFlow=state_->opticalFlowCount;c.edgeRefined=state_->edgeRefinedCount; }
     return c;
 }
 bool DlssGenerator::needsEngineMotion() const { return state_ && state_->source == 1; }
 bool DlssGenerator::hardwareMotion() const { return state_ && state_->source == 2; }
+bool DlssGenerator::edgeAegisActive() const { return state_ && state_->source == 2 && state_->edgeAegis; }
 std::string DlssGenerator::motionSource() const { return !state_ ? "" : state_->source == 2 ? "nvof" : state_->source == 1 ? "own" : "none"; }
 
 void DlssGenerator::destroy() {

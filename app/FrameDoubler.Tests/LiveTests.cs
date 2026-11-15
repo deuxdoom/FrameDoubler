@@ -12,7 +12,7 @@ internal static class LiveTests
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",root);
             var saved=new Preferences{StartPage="convert",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
                 LiveFrameGeneration="vfx",LiveMultiplier=2,LiveAntiAlias=3,LiveDedup=false,LiveRange="full",LiveMatrix="601",LiveVfxQuality=2,LiveVolume=35,LiveMute=true,
-                LiveAudioOffset=-40,LiveStats=false,LiveSync="tearing",LiveAspect="fill",LiveOutputCap="144",LiveHoldOriginal=false,
+                LiveAudioOffset=-40,LiveStats=false,LiveSync="tearing",LiveAspect="fill",LiveOutputCap="144",LiveHoldOriginal=false,LiveDlssMotion="nvof",LiveEdgeAegis=true,
                 ScreenshotDirectory="F:\\캡처 사진; #1",RecordingDirectory="F:\\녹화 = 영상",RecordingCodec="hevc",RecordingBitrate=80,
                 ShortcutScreenshot="Ctrl+Shift+S",ShortcutRecord="F9",ShortcutFullscreen="",ShortcutFrameGeneration="Alt+G",ShortcutStats="F12",ShortcutOriginal="B",GlobalShortcuts=true};
             // Optional NVIDIA VFX download: only listed libraries and license files leave the archive, and every hash is checked.
@@ -79,6 +79,13 @@ internal static class LiveTests
             File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\n");
             assert(Preferences.Load().LiveFrameGeneration=="off"&&!Preferences.Load().LiveDedup&&new LiveOptions().FrameGeneration=="off"&&!new LiveOptions().Dedup,
                 "Fresh and missing capture settings disable frame generation and deduplication");
+            assert(Preferences.Load().LiveDlssMotion=="none"&&!Preferences.Load().LiveEdgeAegis&&new LiveOptions().DlssMotion=="none"&&!new LiveOptions().EdgeAegis,
+                "NVOF and Edge Aegis are opt-in for new and existing settings");
+            foreach(string motion in new[]{"none","own","auto","unknown"}){
+                new Preferences{LiveDlssMotion=motion,LiveEdgeAegis=true}.Save();
+                var normal=Preferences.Load();
+                assert(normal.LiveDlssMotion=="none"&&!normal.LiveEdgeAegis,"Edge Aegis needs an explicit NVOF choice: "+motion);
+            }
             assert(new Preferences().EffectiveScreenshotDirectory.EndsWith("FrameDoubler",StringComparison.Ordinal)&&new Preferences().EffectiveRecordingDirectory!=new Preferences().EffectiveScreenshotDirectory,
                 "Default screenshot and recording folders are separate FrameDoubler folders");
         }finally{
@@ -97,6 +104,12 @@ internal static class LiveTests
             "Live capture never asks the engine for FrameDoubler interpolation (an old \"own\" choice runs as Automatic)");
         foreach(string expected in new[]{"multiplier=2","aa=3","dedup=0","sync=vsync","aspect=stretch","compare=split","outputCap=display"})
             assert(commands.Split('\n').Contains(expected),"Engine command carries "+expected);
+        assert(new LiveOptions(DlssMotion:"nvof",EdgeAegis:true).Commands(true,true).Split('\n').Contains("edgeAegis=1")&&
+            new LiveOptions(DlssMotion:"nvof").Commands(true,true).Split('\n').Contains("dlssMotion=nvof")&&commands.Split('\n').Contains("dlssMotion=none")&&commands.Split('\n').Contains("edgeAegis=0"),
+            "DLSS motion options reach the engine; the default costs no external motion work");
+        assert(new LiveOptions(DlssMotion:"nvof\nfg=own",EdgeAegis:true).Commands(true,true).Split('\n').Contains("dlssMotion=none")&&
+            new LiveOptions(DlssMotion:"none",EdgeAegis:true).Commands(true,true).Split('\n').Contains("edgeAegis=0"),
+            "Unknown motion choices cannot inject commands or enable refinement without NVOF");
 
         var status=LiveStatus.Parse("{\"running\":true,\"captureFailed\":false,\"width\":3840,\"height\":2160,\"format\":\"NV12\",\"modeFps\":60.000,\"gpu\":\"GPU \\\"X\\\"\","+
             "\"inputFps\":59.95,\"contentFps\":29.5,\"outputFps\":59.9,\"interpolatedFps\":30.4,\"presentedFps\":59.9,\"displayHz\":144,\"tearing\":true,\"skipped\":0,\"dedupMs\":0.35,\"latencyMs\":51.6,"+
@@ -118,6 +131,9 @@ internal static class LiveTests
             "DLSS reports the driver multiplier limit alongside the backend and multiplier actually run; absent values are unknown");
         assert(LiveStatus.Parse("{\"fg\":\"dlss\",\"dlssMotion\":\"nvof\",\"stages\":{},\"totals\":{},\"recording\":{}}").DlssMotion=="nvof"&&starting.DlssMotion=="",
             "The reported DLSS motion source is explicit; an older engine does not imply hardware optical flow");
+        var motionStatus=LiveStatus.Parse("{\"edgeAegis\":true,\"motionWarning\":\"driver unavailable\",\"stages\":{},\"totals\":{},\"recording\":{}}");
+        assert(motionStatus.EdgeAegis&&motionStatus.MotionWarning=="driver unavailable"&&!starting.EdgeAegis&&starting.MotionWarning=="",
+            "Refinement and external-motion fallback are explicit; older engines report neither as active");
 
         var modes=new List<CaptureMode>{new(3840,2160,30,1,"NV12",true),new(3840,2160,60,1,"YUY2",true),new(3840,2160,60,1,"NV12",true),new(1920,1080,240,1,"NV12",true),
             new(3840,2160,60,1,"P010",false),new(3840,2160,60000,1001,"NV12",true)};
