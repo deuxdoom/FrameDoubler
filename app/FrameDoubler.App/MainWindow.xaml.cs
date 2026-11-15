@@ -76,7 +76,10 @@ public partial class MainWindow:Window
         CommandBindings.Add(new CommandBinding(ApplicationCommands.Open,(_,_)=>AddClicked(this,new RoutedEventArgs()),(_,e)=>e.CanExecute=!busy));
         updating=true;SetLanguage(preferences.Language,false);LanguageThumb.SizeChanged+=(_,_)=>MoveLanguageThumb(false);
         Fill(ModelBox,[new("v4.25","RIFE 4.25"),new("v4.26","RIFE 4.26")],preferences.Model);
+        // Empty means "beside each source"; say so in the box instead of only in its tooltip.
+        OutputBox.TextChanged+=(_,_)=>OutputHint.Visibility=OutputBox.Text.Length==0?Visibility.Visible:Visibility.Collapsed;
         OutputBox.Text=preferences.OutputDirectory;
+        OutputHint.Visibility=OutputBox.Text.Length==0?Visibility.Visible:Visibility.Collapsed;
         HardwareCheck.IsChecked=preferences.HardwareEncoding;VerifyCheck.IsChecked=preferences.Verify;
         Translate();Select(PresetBox,preferences.Preset);Select(FpsBox,preferences.Fps);updating=false;
         StateChanged+=(_,_)=>{if(WindowState==WindowState.Maximized&&!immersive){WindowState=WindowState.Normal;FitFixedWindow(false);return;}WindowBorder.CornerRadius=new(12);
@@ -166,6 +169,7 @@ public partial class MainWindow:Window
         foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton,SettingsButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
         System.Windows.Automation.AutomationProperties.SetName(EmptyPanel,T("영상 파일 선택","Choose video files"));
         OutputBox.ToolTip=T("비워 두면 원본 영상과 같은 폴더에 저장합니다.","Leave empty to save beside the source video.");
+        OutputHint.Text=T("원본 영상과 같은 폴더","Same folder as the source");
         foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(PresetBox,PresetLabel.Text),(DeviceBox,DeviceLabel.Text),
             (EncoderBox,EncoderLabel.Text),(ModelBox,ModelLabel.Text),(HudBox,HudLabel.Text)})
             System.Windows.Automation.AutomationProperties.SetName(control,name);

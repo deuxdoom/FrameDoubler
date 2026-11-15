@@ -64,7 +64,10 @@ public sealed class SettingsWindow:Window
         var close=new Button{Content="",FontFamily=new FontFamily("Segoe Fluent Icons"),Style=(Style)FindResource("CloseCaptionButton"),HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,0,6,0),ToolTip=T("닫기","Close")};
         WindowChrome.SetIsHitTestVisibleInChrome(close,true);close.Click+=(_,_)=>Close();caption.Children.Add(close);frame.Children.Add(caption);
         Grid.SetRow(body,1);frame.Children.Add(body);
-        var footer=new Grid{Margin=new Thickness(24,0,24,20)};
+        // A hairline separates the scrolling page from the footer, so content scrolled under it
+        // reads as clipped by the page edge rather than hidden behind the Close button.
+        var footerLine=new Border{Height=1,Background=Brush("#262D32"),VerticalAlignment=VerticalAlignment.Top};Grid.SetRow(footerLine,2);frame.Children.Add(footerLine);
+        var footer=new Grid{Margin=new Thickness(24,14,24,18)};
         footer.Children.Add(new TextBlock{Text=Hangul.KeepWords(T("변경 사항은 바로 적용되고 저장됩니다.","Changes apply and save immediately.")),Foreground=(Brush)FindResource("MutedBrush"),FontSize=12,VerticalAlignment=VerticalAlignment.Center});
         var done=new Button{Content=T("닫기","Close"),Style=(Style)FindResource("SecondaryButton"),MinWidth=96,HorizontalAlignment=HorizontalAlignment.Right};done.Click+=(_,_)=>Close();
         System.Windows.Automation.AutomationProperties.SetAutomationId(done,"SettingsClose");footer.Children.Add(done);

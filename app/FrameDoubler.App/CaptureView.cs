@@ -30,6 +30,10 @@ public sealed class CaptureView:UserControl
     private static SolidColorBrush Brush(string value){var b=(SolidColorBrush)new BrushConverter().ConvertFromString(value)!;b.Freeze();return b;}
     private static readonly Brush Muted=Brush("#A6B1B8"),Faint=Brush("#6F7C84"),Text=Brush("#F3F1EB"),Surface=Brush("#1A2024"),Line=Brush("#2B3338"),
         Accent=Brush("#FF8C60"),Good=Brush("#5BD38A"),Warn=Brush("#F4BD83"),Bad=Brush("#FF6B6B");
+    // Reused by the 4 Hz status refresh: a new brush instance would invalidate and redraw the
+    // element on every tick even when the colour stays the same.
+    private static readonly Brush RecordIdle=Brush("#B85050"),RecordBorder=Brush("#44535D"),ChipFill=Brush("#20282D"),
+        GoodFill=Brush("#1D2A22"),GoodLine=Brush("#2F5A40"),WarnFill=Brush("#2A2420"),WarnLine=Brush("#5A4636");
     private static readonly FontFamily Mono=UiFonts.Text,Icons=new("Segoe Fluent Icons");
 
     private CaptureInventory? inventory;
@@ -51,7 +55,7 @@ public sealed class CaptureView:UserControl
     // Controls kept for updates.
     private readonly ComboBox deviceBox=new(){Width=300,Margin=new Thickness(0)},modeBox=new(){Width=220,Margin=new Thickness(10,0,0,0)},audioBox=new(){Margin=new Thickness(0,8,0,0)};
     private readonly TextBlock signalChip=new(),outputChip=new(),recordText=new(),liveText=new(),placeholderTitle=new(),placeholderHint=new(),pathText=new(),contentHint=new(),vfxState=new(),motionState=new();
-    private readonly Button startButton=new(),screenshotButton=new(),recordButton=new(),fullscreenButton=new();
+    private readonly Button startButton=new(),recordButton=new(),fullscreenButton=new();
     private readonly Ellipse recordDot=new(){Width=10,Height=10,Fill=Bad,Margin=new Thickness(0,0,8,0)};
     private readonly Ellipse statusDot=new(){Width=9,Height=9,Margin=new Thickness(0,4,9,0),VerticalAlignment=VerticalAlignment.Top};
     private readonly PreviewHost host=new();
@@ -137,7 +141,6 @@ public sealed class CaptureView:UserControl
         bar.Children.Add(left);
         var actions=new StackPanel{Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
         startButton.Style=(Style)owner.FindResource("PrimaryButton");startButton.MinHeight=36;startButton.Width=148;startButton.Padding=new Thickness(16,6,16,6);startButton.Click+=async(_,_)=>await ToggleRunningAsync();
-        screenshotButton.Content=null;
         var shot=IconButton("","스크린샷","Screenshot",TakeScreenshot);
         var recordContent=new Grid();recordContent.ColumnDefinitions.Add(new(){Width=GridLength.Auto});recordContent.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         recordDot.VerticalAlignment=VerticalAlignment.Center;recordText.VerticalAlignment=VerticalAlignment.Center;recordText.TextWrapping=TextWrapping.NoWrap;recordText.TextTrimming=TextTrimming.CharacterEllipsis;
@@ -155,7 +158,6 @@ public sealed class CaptureView:UserControl
         actions.Children.Add(startButton);actions.Children.Add(shot);actions.Children.Add(recordButton);actions.Children.Add(fullscreenButton);
         Grid.SetColumn(actions,1);bar.Children.Add(actions);
         topBar.Child=bar;topBar.Margin=new Thickness(0,0,0,14);
-        screenshotButton.Visibility=Visibility.Collapsed;_=shot;
 
         // Preview with a placeholder while nothing runs (the native window cannot be overlaid).
         var placeholderStack=new StackPanel{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
@@ -495,26 +497,6 @@ public sealed class CaptureView:UserControl
         // A DLSS instance keeps its vector resources for its lifetime, even while FG is off.
         await RestartAsync();
     }
-    private void ResetPage(){
-        var d=new LiveOptions();
-        bool motionChanged=tab=="fg"&&(options.DlssMotion!=d.DlssMotion||options.EdgeAegis!=d.EdgeAegis);
-        if(motionChanged&&(starting||Recording||Saving||StartingRecording||countdownLeft>0))return;
-        updating=true;
-        options=tab switch{
-            "fg"=>options with{FrameGeneration=d.FrameGeneration,Multiplier=d.Multiplier,VfxQuality=d.VfxQuality,Dedup=d.Dedup,DlssMotion=d.DlssMotion,EdgeAegis=d.EdgeAegis},
-            "quality"=>options with{AntiAlias=d.AntiAlias},
-            "color"=>options with{Range=d.Range,Matrix=d.Matrix},
-            "audio"=>options with{Volume=d.Volume,Mute=d.Mute,AudioOffsetMs=d.AudioOffsetMs},
-            "display"=>options with{Sync=d.Sync,Aspect=d.Aspect,Compare=d.Compare,OutputCap=d.OutputCap},
-            _=>options};
-        if(tab=="display")owner.ChangeSettings(q=>q with{LiveStats=true,LiveHoldOriginal=true});
-        owner.ChangeSettings(q=>q with{LiveFrameGeneration=options.FrameGeneration,LiveMultiplier=options.Multiplier,LiveVfxQuality=options.VfxQuality,LiveDedup=options.Dedup,
-            LiveDlssMotion=options.DlssMotion,LiveEdgeAegis=options.EdgeAegis,
-            LiveAntiAlias=options.AntiAlias,LiveRange=options.Range,LiveMatrix=options.Matrix,LiveVolume=options.Volume,LiveMute=options.Mute,LiveAudioOffset=options.AudioOffsetMs,
-            LiveSync=options.Sync,LiveAspect=options.Aspect,LiveOutputCap=options.OutputCap});
-        SyncControls();updating=false;session?.Apply(options);Adapt();
-        if(motionChanged)_=RestartAsync();
-    }
     private void SyncControls(){
         bool old=updating;updating=true;
         toggles["fg"].IsChecked=options.FrameGeneration!="off";toggles["dedup"].IsChecked=options.Dedup;toggles["aa"].IsChecked=options.AntiAlias>0;
@@ -784,8 +766,8 @@ public sealed class CaptureView:UserControl
         var elapsed=TimeSpan.FromSeconds(Math.Max(0,Math.Floor(last?.RecordingSeconds??0)));
         string time=elapsed.TotalHours>=1?((long)elapsed.TotalHours).ToString(CultureInfo.InvariantCulture)+elapsed.ToString(@"\:mm\:ss",CultureInfo.InvariantCulture):elapsed.ToString(@"mm\:ss",CultureInfo.InvariantCulture);
         recordText.Text=Saving?T("저장 중…","Saving…"):countdownLeft>0?T($"{countdownLeft} · 취소",$"{countdownLeft} · Cancel"):StartingRecording?T("시작 취소","Cancel start"):rec?T("중지 ","Stop ")+time:T("녹화","Record");
-        recordDot.Fill=rec?Bad:Brush("#B85050");
-        recordButton.BorderBrush=rec?Bad:Brush("#44535D");
+        recordDot.Fill=rec?Bad:RecordIdle;
+        recordButton.BorderBrush=rec?Bad:RecordBorder;
         recordButton.IsEnabled=session is not null&&!Saving;
     }
     private void Poll(){
@@ -839,10 +821,10 @@ public sealed class CaptureView:UserControl
             string rate=outRate>0?$"{outRate:0.#}fps":options.FrameGeneration=="off"?$"{mode.Fps:0.#}fps":T("감지 중","detecting");
             outputChip.Text=T("출력 ","Output ")+$"{mode.Width}×{mode.Height} · {rate}";
         }else{signalChip.Text=T("신호 없음","No signal");outputChip.Text=T("출력 —","Output —");}
-        values["input"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.InputFps:0.00}";
+        values["input"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.InputFps:0.00} fps";
         values["format"].Text=s is null?"—":$"{s.Format} · {range}{Source(s.ColorRangeSource)} · BT.{(s.ColorMatrix is {Length:>0} m?m:s.Height>=720?"709":"601")}{Source(s.ColorMatrixSource)}";
         values["content"].Text=s is null?"—":options.Dedup?$"{s.ContentFps:0.0} fps"+T(" (중복 제거)"," (deduplicated)"):T("감지 꺼짐","Detection off");
-        values["output"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.OutputFps:0.0}";
+        values["output"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.OutputFps:0.0} fps";
         string audioState=s?.AudioOutputState switch{"recovering"=>T("출력 재연결 중","Reconnecting output"),"failed"=>T("출력 연결 안 됨","Output disconnected"),"silent"=>T("무음 · 입력 수신 중","Silent · input receiving"),_=>s?.Audio==true?T("통과 · 지연 ","pass-through · ")+s.AudioDelayMs+" ms":T("꺼짐","off")};
         if(s?.AudioInputState is "stalled" or "failed")audioState=T("오디오 입력 중단","Audio input stopped");
         values["audio"].Text=s is null?"—":audioState;
@@ -873,13 +855,13 @@ public sealed class CaptureView:UserControl
             "Pictures per second that actually changed on screen. With duplicate removal repeats are not counted; with frame generation originals and generated pictures are both counted. The monitor's actual displayed rate may differ.");
         graphCaption.Text=s is null?T("최근 1분 표시 속도 · 신호 대기","Last minute of display rate · waiting for input"):T("최근 1분 표시 속도","Last minute of display rate");
         graphCaption.ToolTip=graphCaption.Text;
-        fpsHistory.Target=0;
         string fg=s is null?T("신호 대기","Waiting for input"):s.FrameGeneration=="off"?T("프레임 생성 꺼짐","Frame generation off"):backend+(s.Multiplier>1?$" {s.Multiplier}×":"");
         featureText.Text=Hangul.KeepWords(fg+" · "+(options.Dedup?T("중복 제거 켬","Dedup on"):T("중복 제거 끔","Dedup off"))+(options.AntiAlias>0?" · AA":""));
         contentHint.Text=s is null?"":options.Dedup?T($"감지된 콘텐츠: 약 {s.ContentFps:0.0}fps · 중복 {s.Duplicates:N0}장 제거",$"Detected content: about {s.ContentFps:0.0} fps · {s.Duplicates:N0} repeats removed")
             :T("중복 프레임 제거를 켜면 게임의 실제 속도를 감지합니다.","Enable duplicate removal to detect the game's actual rate.");
         bool vfx=LiveEngine.VfxInstalled;
-        vfxState.Text=Hangul.KeepWords(LiveEngine.DlssBlocked?T("지난번 DLSS 프레임 생성 중 프로그램이 비정상 종료되어 자동 선택에서 뺐습니다. 생성 방식에서 NVIDIA DLSS FG를 직접 고르면 다시 시도합니다.","The program ended abnormally while DLSS Frame Generation was in use, so Automatic no longer picks it. Select NVIDIA DLSS FG as the method to try again."):s?.FrameGeneration=="dlss"?T("NVIDIA DLSS 프레임 생성 사용 중 · 품질 설정 없음","NVIDIA DLSS Frame Generation active · no quality setting")+(s.VfxRuntime is {Length:>0} d?" · "+d:""):vfx?T("NVIDIA VFX 런타임 설치됨","NVIDIA VFX runtime installed")+(s?.VfxRuntime is {Length:>0} v?" · "+v:"")+(s?.FrameGeneration=="vfx"?T(" · 사용 중"," · active"):"")
+        vfxState.Text=Hangul.KeepWords(LiveEngine.DlssBlocked?T("지난번 DLSS 프레임 생성 중 프로그램이 비정상 종료되어 자동 선택에서 뺐습니다. 생성 방식에서 NVIDIA DLSS FG를 직접 고르면 다시 시도합니다.","The program ended abnormally while DLSS Frame Generation was in use, so Automatic no longer picks it. Select NVIDIA DLSS FG as the method to try again."):s?.FrameGeneration=="dlss"?(s.DlssMaxMultiplier>1?T($"NVIDIA DLSS 프레임 생성 사용 중 · 최대 {s.DlssMaxMultiplier}× · 품질 설정 없음",$"NVIDIA DLSS Frame Generation active · up to {s.DlssMaxMultiplier}x · no quality setting")
+                :T("NVIDIA DLSS 프레임 생성 사용 중 · 품질 설정 없음","NVIDIA DLSS Frame Generation active · no quality setting")):vfx?T("NVIDIA VFX 런타임 설치됨","NVIDIA VFX runtime installed")+(s?.VfxRuntime is {Length:>0} v?" · "+v:"")+(s?.FrameGeneration=="vfx"?T(" · 사용 중"," · active"):"")
             :T("NVIDIA VFX 런타임은 설정 › 캡처에서 받을 수 있습니다.","The NVIDIA VFX runtime can be downloaded in Settings › Capture."));
         if(s is {DlssMaxMultiplier:>0,FrameGeneration:"vfx"}&&(options.FrameGeneration is "auto" or "dlss")&&options.Multiplier>s.DlssMaxMultiplier)
             vfxState.Text=Hangul.KeepWords(T($"이 드라이버의 DLSS는 최대 {s.DlssMaxMultiplier}×입니다. 선택한 {options.Multiplier}×는 NVIDIA VFX로 처리합니다.",$"This driver supports DLSS up to {s.DlssMaxMultiplier}x. The selected {options.Multiplier}x uses NVIDIA VFX."));
@@ -910,8 +892,8 @@ public sealed class CaptureView:UserControl
         outputSubtitle.Text=(hz>0?T($"모니터 {hz}Hz",$"Display {hz} Hz"):T("모니터 정보는 미리보기 중 표시","Display shown while previewing"))+(s is null?"":" · "+(tear?T("티어링 허용 출력 지원","tearing output supported"):T("티어링 허용 출력 미지원","no tearing output")));
         vrrBadgeText.Text=s is null?T("미확인","unknown"):tear?T("사용 가능","available"):T("사용할 수 없음","unavailable");
         vrrBadgeText.Foreground=s is null?Muted:tear?Good:Warn;
-        vrrBadge.Background=s is null?Brush("#20282D"):tear?Brush("#1D2A22"):Brush("#2A2420");
-        vrrBadge.BorderBrush=s is null?Line:tear?Brush("#2F5A40"):Brush("#5A4636");
+        vrrBadge.Background=s is null?ChipFill:tear?GoodFill:WarnFill;
+        vrrBadge.BorderBrush=s is null?Line:tear?GoodLine:WarnLine;
         if(segments.TryGetValue("sync",out var syncButtons))foreach(var rb in syncButtons)if((string)rb.Tag=="tearing")rb.IsEnabled=s is null||tear;
         if(s is null){
             liveText.Text=statusMessage.Length>0?statusMessage:T("대기 중","Idle");liveText.Foreground=statusMessage.Length>0?Warn:Muted;
@@ -994,25 +976,21 @@ internal sealed class LiveMetric:StackPanel
     }
 }
 
-// Output frame rate over the last minute: steadiness at a glance.
+// Shown frame rate over the last minute: steadiness at a glance. There is no target line: the
+// shown rate itself is the measure (user decision 2026-11-16).
 internal sealed class Sparkline:FrameworkElement
 {
     private readonly Queue<double> points=new();
-    private double target=60;
-    public double Target{get=>target;set{target=double.IsFinite(value)?Math.Max(0,value):0;InvalidateVisual();}}
     private static readonly Pen Stroke=new(new SolidColorBrush(Color.FromRgb(0x5B,0xD3,0x8A)),1.5);
     private static readonly Brush Fill=new SolidColorBrush(Color.FromArgb(0x30,0x5B,0xD3,0x8A));
-    private static readonly Pen TargetLine=new(new SolidColorBrush(Color.FromRgb(0x6F,0x7C,0x84)),1){DashStyle=DashStyles.Dash};
-    static Sparkline(){Stroke.Freeze();Fill.Freeze();TargetLine.Freeze();}
+    static Sparkline(){Stroke.Freeze();Fill.Freeze();}
     public Sparkline(){ClipToBounds=true;System.Windows.Automation.AutomationProperties.SetName(this,"Display frame rate over the last minute");}
     public void Add(double v){points.Enqueue(double.IsFinite(v)?Math.Max(0,v):0);while(points.Count>240)points.Dequeue();InvalidateVisual();}
     public void Clear(){points.Clear();InvalidateVisual();}
     protected override void OnRender(DrawingContext dc){
         if(points.Count<2||ActualWidth<4)return;
-        // A zero baseline and a fixed target prevent small changes looking like full-scale drops.
-        double max=Math.Max(1,Math.Max(target,points.Max())*1.1),min=0;
-        double targetY=ActualHeight-1-target/max*(ActualHeight-2);
-        if(target>0)dc.DrawLine(TargetLine,new Point(1,targetY),new Point(ActualWidth-1,targetY));
+        // A zero baseline prevents small changes looking like full-scale drops.
+        double max=Math.Max(1,points.Max()*1.1),min=0;
         var list=points.ToArray();double step=(ActualWidth-2)/(list.Length-1);
         var g=new StreamGeometry();
         using(var ctx=g.Open()){
