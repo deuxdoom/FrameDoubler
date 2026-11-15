@@ -64,6 +64,9 @@ PixelFormat fromSubtype(const GUID& g) {
     if (g == MFVideoFormat_UYVY) return PixelFormat::UYVY;
     if (g == MFVideoFormat_P010) return PixelFormat::P010;
     if (g == MFVideoFormat_RGB32 || g == MFVideoFormat_ARGB32) return PixelFormat::RGB32;
+    if (g == MFVideoFormat_I420 || g == MFVideoFormat_IYUV) return PixelFormat::I420;
+    if (g == MFVideoFormat_YV12) return PixelFormat::YV12;
+    if (g == MFVideoFormat_RGB24) return PixelFormat::RGB24;
     return PixelFormat::Unknown;
 }
 
@@ -139,6 +142,40 @@ struct MfSession {
 std::string lower(std::string s) { for (auto& c : s) c = char(std::tolower(static_cast<unsigned char>(c))); return s; }
 } // namespace
 
+void copyToProcessing(const FrameView& v, uint8_t* dst) {
+    const size_t w = size_t(v.width), h = size_t(v.height);
+    if (planar420(v.format)) {
+        for (size_t y = 0; y < h; ++y) memcpy(dst + y * w, v.data + ptrdiff_t(y) * v.pitch, w);
+        uint8_t* uv = dst + w * h;
+        if (v.format == PixelFormat::NV12) {
+            const uint8_t* chroma = v.chroma ? v.chroma : v.data + ptrdiff_t(h) * v.pitch;
+            for (size_t y = 0; y < h / 2; ++y) memcpy(uv + y * w, chroma + ptrdiff_t(y) * v.pitch, w);
+            return;
+        }
+        // Three planes: Y, then U and V (I420) or V and U (YV12), each at half the luma pitch.
+        const ptrdiff_t cp = v.pitch / 2;
+        const uint8_t* first = v.chroma ? v.chroma : v.data + ptrdiff_t(h) * v.pitch;
+        const uint8_t* second = first + cp * ptrdiff_t(h / 2);
+        const uint8_t* u = v.format == PixelFormat::I420 ? first : second;
+        const uint8_t* vv = v.format == PixelFormat::I420 ? second : first;
+        for (size_t y = 0; y < h / 2; ++y) {
+            uint8_t* row = uv + y * w;
+            const uint8_t* ur = u + ptrdiff_t(y) * cp; const uint8_t* vr = vv + ptrdiff_t(y) * cp;
+            for (size_t x = 0; x < w / 2; ++x) { row[2 * x] = ur[x]; row[2 * x + 1] = vr[x]; }
+        }
+        return;
+    }
+    if (v.format == PixelFormat::RGB24) {
+        for (size_t y = 0; y < h; ++y) {
+            const uint8_t* s = v.data + ptrdiff_t(y) * v.pitch; uint8_t* d = dst + y * w * 4;
+            for (size_t x = 0; x < w; ++x) { d[4 * x] = s[3 * x]; d[4 * x + 1] = s[3 * x + 1]; d[4 * x + 2] = s[3 * x + 2]; d[4 * x + 3] = 255; }
+        }
+        return;
+    }
+    const size_t rowBytes = w * size_t(bytesPerPixel(v.format));
+    for (size_t y = 0; y < h; ++y) memcpy(dst + y * rowBytes, v.data + ptrdiff_t(y) * v.pitch, rowBytes);
+}
+
 const char* formatName(PixelFormat f) {
     switch (f) {
     case PixelFormat::NV12: return "NV12";
@@ -146,6 +183,9 @@ const char* formatName(PixelFormat f) {
     case PixelFormat::UYVY: return "UYVY";
     case PixelFormat::P010: return "P010";
     case PixelFormat::RGB32: return "RGB32";
+    case PixelFormat::I420: return "I420";
+    case PixelFormat::YV12: return "YV12";
+    case PixelFormat::RGB24: return "RGB24";
     default: return "other";
     }
 }
@@ -364,8 +404,8 @@ void VideoCapture::run() {
             if (pitch < 0) data += ptrdiff_t(mode_.height - 1) * -ptrdiff_t(pitch);
         }
         DWORD total = 0; buffer->GetCurrentLength(&total);
-        const size_t minimum = output_ == PixelFormat::NV12 ? size_t(std::abs(pitch)) * mode_.height * 3 / 2 : size_t(std::abs(pitch)) * (mode_.height - 1) + size_t(mode_.width) * packedBytes;
-        const bool valid = std::abs(pitch) >= mode_.width * packedBytes && total >= minimum && (output_ != PixelFormat::NV12 || pitch > 0);
+        const size_t minimum = planar420(output_) ? size_t(std::abs(pitch)) * mode_.height * 3 / 2 : size_t(std::abs(pitch)) * (mode_.height - 1) + size_t(mode_.width) * packedBytes;
+        const bool valid = std::abs(pitch) >= mode_.width * packedBytes && total >= minimum && (!planar420(output_) || pitch > 0);
         if (valid) {
             FrameView view;
             view.data = data; view.pitch = int(pitch); view.width = mode_.width; view.height = mode_.height;
@@ -377,7 +417,7 @@ void VideoCapture::run() {
                 const DWORD rows = total / DWORD(pitch);
                 const int lumaRows = (rows % 3 == 0 && int(rows / 3 * 2) >= mode_.height) ? int(rows / 3 * 2) : mode_.height;
                 view.chroma = data + size_t(lumaRows) * size_t(pitch);
-            }
+            } else if (planar420(output_)) view.chroma = data + size_t(mode_.height) * size_t(pitch);   // U/V planes, half pitch
             view.sampleTime = time; view.arrival = arrival; view.sequence = ++sequence;
             lastPicture = arrival;
             callback_(view);

@@ -26,10 +26,21 @@ public sealed record CaptureInventory(IReadOnlyList<CaptureDevice> Video,IReadOn
 {
     public IReadOnlyList<AudioInput> AudioOutputs {get;init;}=[];
     // Capture cards expose "<name>-Video" and an audio endpoint containing "<name>".
+    // The card's own audio input: its name contains the card name (AVerMedia "...-Video" /
+    // "HDMI/Line In(...-Audio)", Elgato "Digital Audio Interface (<card>)", Magewell), otherwise
+    // the input sharing the most distinctive words with it. Generic words alone never match, so
+    // a webcam does not pick a microphone or another card's input by "USB" or "HDMI".
+    private static readonly HashSet<string> GenericWords=new(StringComparer.OrdinalIgnoreCase){"video","audio","capture","usb","usb2","usb3","hdmi","digital","interface","device","line","in","input","microphone","mic","the","and","with","stream","streaming","camera","webcam","game","4k","1080p","hd","pro"};
+    private static string[] Words(string text)=>System.Text.RegularExpressions.Regex.Split(text,@"[^\p{L}\p{N}+.]+").Where(x=>x.Length>=2&&!GenericWords.Contains(x)).ToArray();
     public AudioInput? MatchingAudio(CaptureDevice device){
         string name=device.Name;
-        foreach(string suffix in new[]{"-Video"," Video"})if(name.EndsWith(suffix,StringComparison.OrdinalIgnoreCase))name=name[..^suffix.Length];
-        return Audio.FirstOrDefault(a=>a.Name.Contains(name,StringComparison.OrdinalIgnoreCase));
+        foreach(string suffix in new[]{"-Video"," Video"," (Video)"})if(name.EndsWith(suffix,StringComparison.OrdinalIgnoreCase))name=name[..^suffix.Length];
+        var words=Words(name);
+        if(words.Length==0)return null;   // "USB Video" alone says nothing about which input belongs to it
+        if(Audio.FirstOrDefault(a=>a.Name.Contains(name,StringComparison.OrdinalIgnoreCase)) is {} direct)return direct;
+        var best=Audio.Select(a=>(a,score:Words(a.Name).Count(w=>words.Contains(w,StringComparer.OrdinalIgnoreCase)))).Where(x=>x.score>0)
+            .OrderByDescending(x=>x.score).ToList();
+        return best.Count>0&&(best.Count==1||best[0].score>best[1].score)?best[0].a:null;
     }
 }
 

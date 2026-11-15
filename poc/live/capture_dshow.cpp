@@ -41,6 +41,7 @@ GUID fourcc(const char* code) {
 }
 const GUID kRgb32 = {0xe436eb7e, 0x524f, 0x11ce, {0x9f, 0x53, 0x00, 0x20, 0xaf, 0x0b, 0xa7, 0x70}};
 const GUID kArgb32 = {0x773c9ac0, 0x3274, 0x11d0, {0xb7, 0x24, 0x00, 0xaa, 0x00, 0x6c, 0x1a, 0x01}};
+const GUID kRgb24 = {0xe436eb7d, 0x524f, 0x11ce, {0x9f, 0x53, 0x00, 0x20, 0xaf, 0x0b, 0xa7, 0x70}};
 
 PixelFormat fromSubtype(const GUID& g) {
     if (g == fourcc("NV12")) return PixelFormat::NV12;
@@ -48,6 +49,9 @@ PixelFormat fromSubtype(const GUID& g) {
     if (g == fourcc("UYVY") || g == fourcc("HDYC")) return PixelFormat::UYVY;
     if (g == fourcc("P010")) return PixelFormat::P010;
     if (g == kRgb32 || g == kArgb32) return PixelFormat::RGB32;
+    if (g == fourcc("I420") || g == fourcc("IYUV")) return PixelFormat::I420;
+    if (g == fourcc("YV12")) return PixelFormat::YV12;
+    if (g == kRgb24) return PixelFormat::RGB24;
     return PixelFormat::Unknown;
 }
 GUID toSubtype(PixelFormat f) {
@@ -55,6 +59,9 @@ GUID toSubtype(PixelFormat f) {
     case PixelFormat::NV12: return fourcc("NV12");
     case PixelFormat::UYVY: return fourcc("UYVY");
     case PixelFormat::RGB32: return kRgb32;
+    case PixelFormat::I420: return fourcc("I420");
+    case PixelFormat::YV12: return fourcc("YV12");
+    case PixelFormat::RGB24: return kRgb24;
     default: return fourcc("YUY2");
     }
 }
@@ -260,8 +267,8 @@ bool DirectShowCapture::open(const std::string& id, const VideoMode& wanted, std
     AM_MEDIA_TYPE connected{};
     if (SUCCEEDED(grabber_->GetConnectedMediaType(&connected))) {
         if (const BITMAPINFOHEADER* h = header(&connected, nullptr)) {
-            bottomUp_ = output_ == PixelFormat::RGB32 && h->biHeight > 0;
-            stride_ = output_ == PixelFormat::NV12 ? std::max(int(h->biWidth), wanted.width) : ((h->biWidth * h->biBitCount / 8 + 3) & ~3);
+            bottomUp_ = (output_ == PixelFormat::RGB32 || output_ == PixelFormat::RGB24) && h->biHeight > 0;
+            stride_ = planar420(output_) ? std::max(int(h->biWidth), wanted.width) : ((h->biWidth * h->biBitCount / 8 + 3) & ~3);
         }
         freeType(&connected);
     }
@@ -284,9 +291,9 @@ void DirectShowCapture::start(Callback callback, EventLog* log) {
         if (sample->GetMediaType(&type) == S_OK && type) {
             REFERENCE_TIME interval = 0;
             const auto* h = header(type, &interval);
-            const int stride = h ? (output_ == PixelFormat::NV12 ? h->biWidth : ((h->biWidth * h->biBitCount / 8 + 3) & ~3)) : 0;
+            const int stride = h ? (planar420(output_) ? h->biWidth : ((h->biWidth * h->biBitCount / 8 + 3) & ~3)) : 0;
             const bool compatible = h && h->biWidth == mode_.width && std::abs(h->biHeight) == mode_.height &&
-                fromSubtype(type->subtype) == output_ && stride == stride_ && (output_ != PixelFormat::RGB32 || (h->biHeight > 0) == bottomUp_) &&
+                fromSubtype(type->subtype) == output_ && stride == stride_ && ((output_ != PixelFormat::RGB32 && output_ != PixelFormat::RGB24) || (h->biHeight > 0) == bottomUp_) &&
                 (!interval || std::llabs(interval - REFERENCE_TIME(10000000.0 * mode_.fpsDen / mode_.fpsNum)) <= 2);
             freeType(type); CoTaskMemFree(type);
             if (!compatible) { fail("capture format changed; select the new mode and restart"); return; }
@@ -297,7 +304,7 @@ void DirectShowCapture::start(Callback callback, EventLog* log) {
         v.width = mode_.width; v.height = mode_.height; v.format = output_;
         v.pitch = stride_; v.data = buffer;
         if (bottomUp_) { v.data = buffer + size_t(mode_.height - 1) * size_t(stride_); v.pitch = -stride_; }
-        const size_t need = output_ == PixelFormat::NV12 ? size_t(stride_) * mode_.height * 3 / 2 : size_t(stride_) * mode_.height;
+        const size_t need = planar420(output_) ? size_t(stride_) * mode_.height * 3 / 2 : size_t(stride_) * mode_.height;
         if (size_t(length) < need) { fail("capture returned a truncated frame"); return; }
         v.arrival = now100ns(); v.sampleTime = 0; v.sequence = ++sequence_;
         lastPicture_ = v.arrival;

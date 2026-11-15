@@ -37,6 +37,9 @@ PixelFormat parseFormat(const std::string& s) {
     if (s == "YUY2") return PixelFormat::YUY2;
     if (s == "UYVY") return PixelFormat::UYVY;
     if (s == "RGB32") return PixelFormat::RGB32;
+    if (s == "I420") return PixelFormat::I420;
+    if (s == "YV12") return PixelFormat::YV12;
+    if (s == "RGB24") return PixelFormat::RGB24;
     return PixelFormat::Unknown;
 }
 
@@ -150,12 +153,14 @@ public:
     }
     void feedPacked(const uint8_t* data, int pitch, int64_t time) {
         FrameView v; v.data = data; v.pitch = pitch; v.width = width_; v.height = height_; v.format = format_;
-        v.chroma = format_ == PixelFormat::NV12 ? data + size_t(pitch) * height_ : nullptr;
+        v.format = inputFormat_;
+        v.chroma = planar420(inputFormat_) ? data + size_t(pitch) * height_ : nullptr;
         v.sampleTime = time; v.arrival = time; v.sequence = ++replaySequence_;
         feed(v);
     }
 private:
     uint64_t replaySequence_ = 0;
+    PixelFormat inputFormat_ = PixelFormat::Unknown;   // as delivered; format_ is what the GPU path processes
     void onFrame(const FrameView& v);
     void renderLoop();
     void processFresh(const Packet& p);
@@ -273,7 +278,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
     fpsNum_ = uint32_t(getInt(s, "fpsNum", 60)); fpsDen_ = uint32_t(std::max(1, getInt(s, "fpsDen", 1)));
     format_ = parseFormat(get(s, "format", "NV12"));
     if (width_ <= 0 || height_ <= 0 || width_ % 2 || height_ % 2 || !fpsNum_) { error = "invalid picture size or rate"; return false; }
-    if (!formatSupported(format_)) { error = "pixel format not supported (NV12, YUY2, UYVY or RGB32)"; return false; }
+    if (!formatSupported(format_)) { error = "pixel format not supported (NV12, YUY2, UYVY, RGB32, I420, YV12 or RGB24)"; return false; }
     interval_ = int64_t(10000000.0 * fpsDen_ / fpsNum_);
     applyOptions(s);
     if (!replay) {
@@ -285,6 +290,8 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
         format_ = capture_->outputFormat();
         if (!formatSupported(format_)) { error = "capture decoder did not deliver a supported raw format"; close(); return false; }
     }
+    inputFormat_ = format_;
+    format_ = processingFormat(format_);
     if (!gpu_.create(error)) return false;
     if (!gpu_.configure(width_, height_, error)) return false;
     if (hwnd && !gpu_.attach(hwnd, error)) return false;
@@ -438,7 +445,7 @@ void Session::onFrame(const FrameView& v) {
     const int64_t start = now100ns();
     bool analyseScene;
     { std::lock_guard<std::mutex> lock(optionsMutex_); detector_.enabled = options_.dedup; analyseScene = options_.fg != 0; }
-    const uint8_t* luma = v.data + (v.format == PixelFormat::UYVY || v.format == PixelFormat::RGB32 ? 1 : 0);
+    const uint8_t* luma = v.data + (v.format == PixelFormat::UYVY || v.format == PixelFormat::RGB32 || v.format == PixelFormat::RGB24 ? 1 : 0);
     const int step = bytesPerPixel(v.format);
     auto signature = makeSignature(luma, v.pitch, step, v.width, v.height);
     // The detector takes ownership, so extract the tiny scene descriptor first.
@@ -466,17 +473,9 @@ void Session::onFrame(const FrameView& v) {
             if (index >= 0) bufferBusy_[index] = true;
         }
         if (index >= 0) {
-            uint8_t* dst = buffers_[index].data();
-            if (v.format == PixelFormat::NV12) {
-                // Chroma follows the luma rows; some drivers pad the luma plane to 16 rows.
-                const int lumaRows = v.chroma ? 0 : v.height;
-                for (int y = 0; y < v.height; ++y) memcpy(dst + size_t(y) * v.width, v.data + ptrdiff_t(y) * v.pitch, size_t(v.width));
-                const uint8_t* chroma = v.chroma ? v.chroma : v.data + ptrdiff_t(lumaRows) * v.pitch;
-                for (int y = 0; y < v.height / 2; ++y) memcpy(dst + size_t(v.width) * v.height + size_t(y) * v.width, chroma + ptrdiff_t(y) * v.pitch, size_t(v.width));
-            } else {
-                const size_t rowBytes = size_t(v.width) * bytesPerPixel(v.format);
-                for (int y = 0; y < v.height; ++y) memcpy(dst + size_t(y) * rowBytes, v.data + ptrdiff_t(y) * v.pitch, rowBytes);
-            }
+            // NV12 chroma follows the luma rows (some drivers pad the luma plane to 16 rows);
+            // I420/YV12 are repacked to NV12 and RGB24 expanded to RGB32 here.
+            copyToProcessing(v, buffers_[index].data());
             p.fresh = true; p.buffer = index;
             ++totalUnique_;
         } else ++totalDropped_;
@@ -1264,6 +1263,36 @@ std::string selfTest(const Settings& s) {
                                                    (fit.h[3] * x + fit.h[4] * y + fit.h[5]) / wf - (truth[3] * x + truth[4] * y + truth[5]) / wt));
             }
         check("global-motion", fit.valid && worst < 0.5, "inliers " + fixed(fit.inlierShare * 100, 1) + "%, worst error over the picture " + fixed(worst, 3) + " px, " + std::to_string(pairs.size()) + " pairs in " + fixed(fitMs) + " ms");
+    }
+    // Webcam / USB-stick formats: I420 and YV12 must repack to the same NV12 bytes, RGB24 must
+    // expand to the same BGRA bytes as an RGB32 capture (odd pitches, bottom-up RGB rows).
+    {
+        const int w = 64, h = 36, pitch = 80;
+        std::vector<uint8_t> nv12(size_t(pitch) * h * 3 / 2), i420(size_t(pitch) * h * 3 / 2), yv12(i420.size()), rgb24(size_t(w * 3 + 4) * h), rgb32(size_t(w) * 4 * h);
+        uint32_t seed = 7; auto next = [&seed]() { seed = seed * 1103515245u + 12345u; return uint8_t(seed >> 16); };
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) { uint8_t v = next(); nv12[size_t(y) * pitch + x] = i420[size_t(y) * pitch + x] = yv12[size_t(y) * pitch + x] = v; }
+        for (int y = 0; y < h / 2; ++y) for (int x = 0; x < w / 2; ++x) {
+            const uint8_t u = next(), v = next();
+            nv12[size_t(pitch) * h + size_t(y) * pitch + 2 * x] = u; nv12[size_t(pitch) * h + size_t(y) * pitch + 2 * x + 1] = v;
+            i420[size_t(pitch) * h + size_t(y) * (pitch / 2) + x] = u; i420[size_t(pitch) * h + size_t(pitch / 2) * (h / 2) + size_t(y) * (pitch / 2) + x] = v;
+            yv12[size_t(pitch) * h + size_t(y) * (pitch / 2) + x] = v; yv12[size_t(pitch) * h + size_t(pitch / 2) * (h / 2) + size_t(y) * (pitch / 2) + x] = u;
+        }
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+            const uint8_t b = next(), g = next(), r = next();
+            uint8_t* t = &rgb32[(size_t(y) * w + x) * 4]; t[0] = b; t[1] = g; t[2] = r; t[3] = 255;
+            uint8_t* f = &rgb24[size_t(h - 1 - y) * (w * 3 + 4) + size_t(x) * 3]; f[0] = b; f[1] = g; f[2] = r;
+        }
+        auto convert = [&](const std::vector<uint8_t>& source, PixelFormat format, int rowPitch, bool bottomUp, size_t bytes) {
+            FrameView v; v.width = w; v.height = h; v.format = format; v.pitch = rowPitch; v.data = source.data();
+            if (bottomUp) { v.data = source.data() + size_t(h - 1) * size_t(rowPitch); v.pitch = -rowPitch; }
+            std::vector<uint8_t> out(bytes); copyToProcessing(v, out.data()); return out;
+        };
+        const size_t nv12Bytes = size_t(w) * h * 3 / 2;
+        const auto reference = convert(nv12, PixelFormat::NV12, pitch, false, nv12Bytes);
+        const bool planes = convert(i420, PixelFormat::I420, pitch, false, nv12Bytes) == reference && convert(yv12, PixelFormat::YV12, pitch, false, nv12Bytes) == reference;
+        const bool rgb = convert(rgb24, PixelFormat::RGB24, w * 3 + 4, true, rgb32.size()) == rgb32;
+        check("input-formats", planes && rgb && processingFormat(PixelFormat::I420) == PixelFormat::NV12 && processingFormat(PixelFormat::RGB24) == PixelFormat::RGB32,
+              std::string("I420/YV12 -> NV12 ") + (planes ? "identical" : "DIFFERENT") + ", bottom-up RGB24 -> BGRA " + (rgb ? "identical" : "DIFFERENT"));
     }
     // D3D11 <-> D3D12 hand-over used by DLSS, without NGX: shared textures, both fences,
     // allocator reuse and GPU timestamps on a plain copy.

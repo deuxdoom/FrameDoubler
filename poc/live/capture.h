@@ -14,12 +14,21 @@ class ReaderCallback;
 
 // UYVY: packed U Y0 V Y1 (professional cards). RGB32: B G R X. Compressed (MJPG) modes are not
 // offered and P010 is listed but not selectable, so the engine processes NV12, YUY2, UYVY or RGB32.
-enum class PixelFormat { Unknown, NV12, YUY2, UYVY, P010, RGB32 };
+enum class PixelFormat { Unknown, NV12, YUY2, UYVY, P010, RGB32, I420, YV12, RGB24 };
+// I420/YV12 (three planes, common on webcams and USB sticks) are repacked to NV12 and RGB24 is
+// expanded to RGB32 while the picture is copied, so the GPU path stays the same.
+inline bool planar420(PixelFormat f) { return f == PixelFormat::NV12 || f == PixelFormat::I420 || f == PixelFormat::YV12; }
+inline PixelFormat processingFormat(PixelFormat f) { return f == PixelFormat::I420 || f == PixelFormat::YV12 ? PixelFormat::NV12 : f == PixelFormat::RGB24 ? PixelFormat::RGB32 : f; }
 const char* formatName(PixelFormat f);
 inline bool formatSupported(PixelFormat f) {
-    return f == PixelFormat::NV12 || f == PixelFormat::YUY2 || f == PixelFormat::UYVY || f == PixelFormat::RGB32;
+    return f == PixelFormat::NV12 || f == PixelFormat::YUY2 || f == PixelFormat::UYVY || f == PixelFormat::RGB32 ||
+           f == PixelFormat::I420 || f == PixelFormat::YV12 || f == PixelFormat::RGB24;
 }
-inline int bytesPerPixel(PixelFormat f) { return f == PixelFormat::RGB32 ? 4 : (f == PixelFormat::YUY2 || f == PixelFormat::UYVY) ? 2 : 1; }
+inline int bytesPerPixel(PixelFormat f) { return f == PixelFormat::RGB32 ? 4 : f == PixelFormat::RGB24 ? 3 : (f == PixelFormat::YUY2 || f == PixelFormat::UYVY) ? 2 : 1; }
+struct FrameView;
+// Copies a delivered picture into the engine's tightly packed buffer in its processing format
+// (NV12: luma then interleaved chroma; packed formats: rows of width * bytes).
+void copyToProcessing(const FrameView& v, uint8_t* dst);
 
 struct VideoMode {
     int width = 0, height = 0;

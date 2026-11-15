@@ -308,8 +308,9 @@ int wmain(int argc, wchar_t** argv) {
         if (!session) { fprintf(stderr, "open failed: %s\n", error ? error : "?"); return 2; }
         const Settings s = parseSettings(settings.c_str());
         const int w = getInt(s, "width", 0), h = getInt(s, "height", 0);
-        const bool nv12 = get(s, "format") == "NV12";
-        const int packedBytes = get(s, "format") == "RGB32" ? 4 : 2;
+        const std::string format = get(s, "format");
+        const bool nv12 = format == "NV12" || format == "I420" || format == "YV12";
+        const int packedBytes = format == "RGB32" ? 4 : format == "RGB24" ? 3 : 2;
         const size_t frameBytes = nv12 ? size_t(w) * h * 3 / 2 : size_t(w) * h * packedBytes;
         const int64_t interval = int64_t(10000000.0 * getInt(s, "fpsDen", 1) / getInt(s, "fpsNum", 60));
         const int limit = std::stoi(arg(argc, argv, L"--limit", "0"));

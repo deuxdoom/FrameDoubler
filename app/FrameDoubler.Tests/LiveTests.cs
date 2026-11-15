@@ -122,6 +122,15 @@ internal static class LiveTests
         assert(device.PreferredMode==modes[2],"Default mode: largest picture at 60 fps, NV12 before YUY2, never an unsupported format");
         var inventory=new CaptureInventory([device],[new("mic","USB Microphone",true),new("card","HDMI/Line In(Live Gamer Ultra 2.1-Audio)",false)]);
         assert(inventory.MatchingAudio(device)?.Id=="card","The capture card's own audio input is matched by name, not the default microphone");
+        {
+            var mic=new AudioInput("mic","Microphone (USB Audio Device)",true);
+            CaptureDevice Card(string name)=>new(name,"id-"+name,"",[]);
+            var others=new CaptureInventory([],[mic,new AudioInput("elgato","Digital Audio Interface (Game Capture HD60 S+)",false),
+                new AudioInput("magewell","USB Capture HDMI 4K+ (Magewell Audio)",false),new AudioInput("stick","Digital Audio Interface (USB Digital Audio)",false)]);
+            assert(others.MatchingAudio(Card("Game Capture HD60 S+"))?.Id=="elgato"&&others.MatchingAudio(Card("Elgato HD60 S+ Video"))?.Id=="elgato"
+                &&others.MatchingAudio(Card("Magewell USB Capture HDMI 4K+"))?.Id=="magewell"&&others.MatchingAudio(Card("USB Video"))is null&&others.MatchingAudio(Card("HD Pro Webcam C920"))is null,
+                "Other cards' audio inputs are paired by their distinctive name words; generic words (USB, HDMI, Video) never pick a microphone or another card");
+        }
 
         // The native engine checks itself (dedup, timelines, frame generation, AA, NV12) when built.
         string engine=Environment.GetEnvironmentVariable("FRAMEDOUBLER_LIVE_DIR") is {Length:>0} dir?dir:Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","..","..","..","..","build","live"));
