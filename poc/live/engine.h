@@ -24,6 +24,8 @@ FDL_API void fdl_free(void* text);
 
 // Headless replay (fd-live.exe and tests): frames are fed by the caller.
 FDL_API void* fdl_open_replay(const char* settings, char** error);
+// Timed file-input diagnostics with a native preview; realtime=1 feeds asynchronously.
+FDL_API void* fdl_open_replay_window(const char* settings, HWND window, char** error);
 FDL_API int fdl_feed(void* session, const unsigned char* data, int pitch, long long time100ns);
 FDL_API int fdl_feed_audio(void* session, const float* samples, int frames, int channels, int rate, long long time100ns);
 FDL_API char* fdl_summary(void* session);

@@ -257,7 +257,9 @@ struct DlssGenerator::State {
             return false;
         if (FAILED(d11->CreateUnorderedAccessView(motion11.Get(), nullptr, &motionUav))) { error = "motion vector view"; return false; }
         const float zero[4] = {0, 0, 0, 0};
-        context11->ClearUnorderedAccessViewFloat(motionUav.Get(), zero);
+        // The only immediate-context call while creating: the caller does not hold the
+        // GPU lock, so the renderer keeps presenting during NGX initialisation.
+        { std::lock_guard<std::mutex> lock(gpu.lock()); context11->ClearUnorderedAccessViewFloat(motionUav.Get(), zero); }
         return true;
     }
     void beginTimer() { if (queries) list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, UINT(current * 2)); }

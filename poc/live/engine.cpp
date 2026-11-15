@@ -16,6 +16,7 @@
 #include <wincodec.h>
 
 #include <algorithm>
+#include <numeric>
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
@@ -142,6 +143,23 @@ struct Options {
 
 struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0; double latency = 0, dedupMs = 0, vfxMs = 0; int latencyCount = 0, vfxCount = 0; };
 
+// An output rate as a fraction signal*multiplier*p/q (q <= 6), else 1e7/period. A grid
+// slower than the outputs loses pictures, a faster one only leaves gaps, so the nearest
+// candidate may lie up to 12% above the estimate but only 5% below it (an estimate taken
+// a second after start was 62.07 for 30 fps content at 2x in a live test).
+void snapOutputRate(uint32_t signalNum, uint32_t signalDen, int multiplier, double rate, uint32_t& num, uint32_t& den) {
+    rate = std::max(rate, 1.0);
+    num = 10000000; den = uint32_t(std::max<long long>(1, std::llround(1e7 / rate)));
+    const double signal = double(signalNum) / std::max<uint32_t>(1, signalDen);
+    double best = 1e9;
+    for (uint32_t q = 1; q <= 6; ++q) for (uint32_t p = 1; p <= q; ++p) {
+        const double candidate = signal * multiplier * p / q, ratio = candidate / rate;
+        if (ratio < 0.95 || ratio > 1.12 || std::abs(std::log(ratio)) >= best) continue;
+        best = std::abs(std::log(ratio)); num = signalNum * uint32_t(multiplier) * p; den = signalDen * q;
+    }
+    const uint32_t g = std::gcd(num, den); num /= g; den /= g;
+}
+
 } // namespace
 
 class Session {
@@ -160,7 +178,7 @@ public:
         FrameView v; v.data = data; v.pitch = pitch; v.width = width_; v.height = height_; v.format = format_;
         v.format = inputFormat_;
         v.chroma = planar420(inputFormat_) ? data + size_t(pitch) * height_ : nullptr;
-        v.sampleTime = time; v.arrival = time; v.sequence = ++replaySequence_;
+        v.sampleTime = time; v.arrival = realtimeReplay_ ? now100ns() : time; v.sequence = ++replaySequence_;
         feed(v);
     }
 private:
@@ -172,6 +190,10 @@ private:
     void ensurePyramid(int slot);
     void ensureOwnMotion(int slotA,int slotB);
     void renderOutputs(const Packet& tick, bool moreWaiting);
+    void drain() {
+        std::unique_lock<std::mutex> lock(queueMutex_);
+        idleWake_.wait(lock, [this] { return (queue_.empty() && !rendering_) || stop_; });
+    }
     void applyOptions(const Settings& s);
     void startVfx();
     std::shared_ptr<Recorder> getRecorder() { std::lock_guard<std::mutex> lock(recorderMutex_); return recorder_; }
@@ -186,6 +208,19 @@ private:
     int64_t outputInterval(const Options& o) const {
         const int64_t period = o.dedup ? (useUniformDlss(o) ? dlssContentPeriod_.load() : contentPeriod_.load()) : interval_;
         return std::max<int64_t>(1, (period > 0 ? period : interval_) / o.multiplier);
+    }
+    // Declared rate of a recording (its constant frame grid). The FG output rate is
+    // snapped to signal*N*p/q (q <= 6) within 3%: 30 fps content in 60 Hz at 2x records
+    // at exactly 60/1 (59.94 Hz: 60000/1001). Before the content clock is stable its
+    // period is only a first gap (38.9 ms right after start in a live test: a 51.4 fps
+    // file that lost 9 pictures a second on the grid), so the unique share of all input
+    // samples since start estimates the content rate instead.
+    void recordingRate(const Options& o, uint32_t& num, uint32_t& den) const {
+        if (o.fg == 0) { num = fpsNum_; den = fpsDen_; return; }
+        double rate = 1e7 / double(outputInterval(o));
+        const uint64_t inputs = totalInput_.load(), unique = totalUnique_.load();
+        if (o.dedup && !contentClockStable_ && inputs >= 30 && unique > 0) rate = double(fpsNum_) / fpsDen_ * double(unique) / double(inputs) * o.multiplier;
+        snapOutputRate(fpsNum_, fpsDen_, o.multiplier, rate, num, den);
     }
 
     Settings config_;
@@ -215,6 +250,7 @@ private:
     std::atomic<bool> dlssReady_{false}, dlssLoading_{false}, dlssTried_{false}, dlssLimitLogged_{false};
     std::string dlssRuntime_;
     uint64_t slotId_[Gpu::kSlots] = {};
+    int64_t slotArrival_[Gpu::kSlots] = {};   // capture callback of the picture (pacing trace)
     uint64_t pyramidId_[Gpu::kSlots] = {}, motionA_[Gpu::kSlots] = {}, motionB_[Gpu::kSlots] = {};
     // Global camera motion of each pair (fitted to its block field) for the own interpolation.
     Homography camera_[Gpu::kSlots];
@@ -260,6 +296,16 @@ private:
     int64_t lastPresent_ = 0;
     int64_t nextT_ = 0, lastOutputT_ = INT64_MIN;
     bool haveNextOutput_ = false;
+    PresentationClock presentationClock_;
+    bool realtimeReplay_ = false;
+    FILE* pacingTrace_ = nullptr;
+    FILE* dedupTrace_ = nullptr;   // diagnostics: one row per input sample (capture thread)
+    ComPtr<ID3D11Query> readyQuery_;
+    uint64_t waitInterrupts_ = 0, backlogBreaks_ = 0, clockResyncs_ = 0;
+    bool preparedValid_ = false, preparedInterpolated_ = false;
+    OutputPlan preparedPlan_;
+    int preparedMultiplier_ = 0, preparedSourceSlot_ = -1;
+    int64_t preparedBegin_ = 0, preparedEnd_ = 0;
     std::atomic<int> displayHz_{0};
 
     // Statistics.
@@ -294,6 +340,7 @@ ColorSetup Session::color() const {
 
 bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error) {
     config_ = s; replay_ = replay; hwnd_ = hwnd;
+    realtimeReplay_ = replay && getInt(s,"realtime",0) != 0;
     replayAudio_ = replay && getInt(s, "replayAudio", 0) != 0;
     log_.echo = get(s, "echo") == "1";
     width_ = getInt(s, "width", 0); height_ = getInt(s, "height", 0);
@@ -318,6 +365,21 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
     if (!gpu_.create(error)) return false;
     if (!gpu_.configure(width_, height_, error)) return false;
     if (hwnd && !gpu_.attach(hwnd, error)) return false;
+    if (!get(s,"pacingTrace").empty()) {
+        pacingTrace_ = _wfopen(wide(get(s,"pacingTrace")).c_str(),L"wb");
+        if (!pacingTrace_) { error="pacing trace could not be opened"; return false; }
+        setvbuf(pacingTrace_,nullptr,_IOFBF,65536);
+        fputs("content,kind,idA,idB,phase,arrival,sample,deadline,prepareBegin,prepareEnd,readyBefore,presentBegin,presentEnd,readyAfter,presented,interrupts,backlog,resyncs,"
+              "srcArrival,clockOffset,statsValid,lastPresent,shownPresent,shownRefresh,shownTime\n",pacingTrace_);
+        D3D11_QUERY_DESC query{D3D11_QUERY_EVENT,0};
+        gpu_.device()->CreateQuery(&query,&readyQuery_);
+    }
+    if (!get(s,"dedupTrace").empty()) {
+        dedupTrace_ = _wfopen(wide(get(s,"dedupTrace")).c_str(),L"wb");
+        if (!dedupTrace_) { error="dedup trace could not be opened"; return false; }
+        setvbuf(dedupTrace_,nullptr,_IOFBF,65536);
+        fputs("arrival,sample,repeat,threshold,maxTileMean,changedTiles,maxSample,samplesOver8,samplesOver2,samplesOver3,samplesOver4,band,samplesOverBand\n",dedupTrace_);
+    }
     const size_t bytes = format_ == PixelFormat::NV12 ? size_t(width_) * height_ * 3 / 2 : size_t(width_) * height_ * bytesPerPixel(format_);
     for (auto& b : buffers_) b.resize(bytes);
     timeline_.configure(interval_);
@@ -364,6 +426,7 @@ void Session::applyOptions(const Settings& s) {
 }
 
 void Session::command(const Settings& s) {
+    if (get(s,"action")=="drain" && replay_) { drain(); return; }
     Options before, after;
     std::string directoryBefore;
     { std::lock_guard<std::mutex> lock(optionsMutex_); before = options_; directoryBefore = get(config_, "vfxDir"); }
@@ -400,10 +463,13 @@ void Session::startDlss() {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         std::string error; bool ok;
         auto generator = std::make_unique<DlssGenerator>();
-        {
+        // NGX initialisation and feature creation (about a second) run on DLSS's own
+        // D3D12 device. Holding the GPU lock for them froze the preview and dropped
+        // about 30 captured pictures at every start; only the hand-over is locked.
+        ok = generator->create(gpu_, dir, data, error, options);
+        if (ok) {
             std::lock_guard<std::mutex> gpuLock(gpu_.lock());
-            ok = generator->create(gpu_, dir, data, error, options);
-            if (ok) { std::lock_guard<std::mutex> lock(vfxMutex_); dlssRuntime_ = generator->version(); dlss_ = std::move(generator); }
+            std::lock_guard<std::mutex> lock(vfxMutex_); dlssRuntime_ = generator->version(); dlss_ = std::move(generator);
         }
         dlssReady_ = ok; dlssLoading_ = false;
         if (ok) log_.add("info", "DLSS frame generation ready (" + dlssRuntime_ + ")");
@@ -459,8 +525,7 @@ void Session::startVfx() {
 
 void Session::feed(const FrameView& v) {
     onFrame(v);
-    std::unique_lock<std::mutex> lock(queueMutex_);
-    idleWake_.wait(lock, [this] { return (queue_.empty() && !rendering_) || stop_; });
+    if (!realtimeReplay_) drain();
 }
 
 void Session::onFrame(const FrameView& v) {
@@ -473,8 +538,14 @@ void Session::onFrame(const FrameView& v) {
     auto signature = makeSignature(luma, v.pitch, step, v.width, v.height);
     // The detector takes ownership, so extract the tiny scene descriptor first.
     const auto scene = analyseScene ? sceneSignature(signature) : SceneSignature{};
-    bool repeat = detector_.observe(std::move(signature));
+    const double threshold = detector_.currentThreshold();
+    const int band = detector_.sampleBand();
+    SignatureDifference difference;
+    bool repeat = detector_.observe(std::move(signature), &difference);
     const double dedupMs = double(now100ns() - start) / 1e4;
+    if (dedupTrace_) fprintf(dedupTrace_, "%lld,%lld,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n", v.arrival, v.sampleTime, int(repeat), threshold,
+                             difference.maxTileMean, difference.changedTiles, difference.maxSample, difference.samplesOver8,
+                             difference.samplesOver[0], difference.samplesOver[1], difference.samplesOver[2], band, difference.samplesOverBand);
     Packet p;
     p.scene = scene;
     // Driver times that are missing, running backwards or far from arrival fall back to
@@ -575,7 +646,7 @@ void Session::processFresh(const Packet& p) {
     }
     sceneCut_[slot] = cut;
     if (sceneCut_[slot]) ++sceneEpoch_;
-    slotScene_[slot] = p.scene; slotSceneEpoch_[slot] = sceneEpoch_;
+    slotScene_[slot] = p.scene; slotSceneEpoch_[slot] = sceneEpoch_; slotArrival_[slot] = p.arrival;
     timeline_.addUnique({p.content, slot, ++uniqueId_});
     slotId_[slot] = uniqueId_;
     lastSlot_ = slot;
@@ -620,8 +691,7 @@ void Session::renderLoop() {
             rc.directory = wide(get(config_, "recordDir"));
             if (rc.directory.empty()) { wchar_t* videos = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos))) { rc.directory = std::wstring(videos) + L"\\FrameDoubler"; CoTaskMemFree(videos); } }
             rc.width = width_; rc.height = height_;
-            if (o.fg != 0) { rc.fpsNum = 10000000; rc.fpsDen = uint32_t(outputInterval(o)); }
-            else { rc.fpsNum = fpsNum_; rc.fpsDen = fpsDen_; }
+            recordingRate(o, rc.fpsNum, rc.fpsDen);
             rc.hevc = get(config_, "recordCodec") == "hevc";
             rc.bitrateMbps = getInt(config_, "recordBitrate", 0);
             rc.audio = audio_.running() || replayAudio_;
@@ -686,10 +756,13 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
     const bool useVfx = o.fg == 2 && vfxReady_;
     const bool timeline = o.fg != 0;
     const bool uniform = useUniformDlss(o);
+    if (!uniform) preparedValid_ = false;
     const int64_t outInterval = outputInterval(o);
+    presentationClock_.observe(tick.sample, tick.arrival);
     if (timeline) timeline_.advance(o.dedup);
     const int64_t limit = tick.sample - timeline_.delay(), horizon = limit + interval_;
     if (timeline && (!haveNextOutput_ || nextT_ < limit - 4 * outInterval)) {
+        if (haveNextOutput_) ++clockResyncs_;
         nextT_ = std::max(limit, lastOutputT_ == INT64_MIN ? limit : lastOutputT_ + outInterval);
         haveNextOutput_ = true;
     }
@@ -698,7 +771,10 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         OutputPlan plan;
         if (uniform) {
             plan = timeline_.nextUniform(lastOutputT_, o.multiplier);
-            if (plan.kind == OutputPlan::Hold || plan.contentTime >= horizon) {
+            // A known pair may be prepared one input tick before its display
+            // window. Waiting is interruptible; the completed picture is retained.
+            const int64_t prepareHorizon = horizon + ((!replay_ || realtimeReplay_) ? interval_ : 0);
+            if (plan.kind == OutputPlan::Hold || plan.contentTime >= prepareHorizon) {
                 // A paused source still refreshes/records the last picture. Do
                 // not fabricate interpolation events before the next pair exists.
                 if (limit - timeline_.newestTime() <= 4 * interval_ + interval_ / 2) break;
@@ -709,30 +785,44 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             nextT_ = plan.contentTime;
         } else if (timeline) plan = timeline_.planAt(nextT_);
         else { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
-        if (timeline && !replay_) {
-            if (sub > 0 && moreWaiting) break;
-            const int64_t due = tick.arrival + (nextT_ - limit);
-            const int64_t wait = due - now100ns();
+        const int64_t deadline = !timeline ? tick.arrival : uniform ? presentationClock_.deadline(nextT_,timeline_.delay()) : tick.arrival + (nextT_ - limit);
+        auto waitForOutput = [&]() {
+        if (timeline && (!replay_ || realtimeReplay_)) {
+            if (sub > 0 && moreWaiting) { ++backlogBreaks_; return false; }
+            const int64_t wait = deadline - now100ns();
             if (wait > 0 && timer_) {
                 LARGE_INTEGER when; when.QuadPart = -wait;
                 SetWaitableTimer(timer_, &when, 0, nullptr, nullptr, FALSE);
                 HANDLE waits[] = {timer_, inputEvent_};
                 const DWORD ready = WaitForMultipleObjects(inputEvent_ ? 2 : 1, waits, FALSE, DWORD(wait / 10000 + 5));
-                if (ready == WAIT_OBJECT_0 + 1) break;
+                if (ready == WAIT_OBJECT_0 + 1) { ++waitInterrupts_; return false; }
             }
             std::lock_guard<std::mutex> lock(queueMutex_);
-            if (sub > 0 && !queue_.empty()) break; // always render one output even under load
+            if (sub > 0 && !queue_.empty()) { ++backlogBreaks_; return false; } // always render one output even under load
         }
+        return true;
+        };
+        if (!uniform && !waitForOutput()) break;
         if (plan.kind == OutputPlan::Hold) { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
-        std::lock_guard<std::mutex> lock(gpu_.lock());
+        std::unique_lock<std::mutex> lock(gpu_.lock());
         ID3D11DeviceContext* c = gpu_.context();
         ID3D11ShaderResourceView* source = gpu_.frameView(plan.slotA);
         ID3D11Texture2D* sourceTexture = gpu_.frame(plan.slotA);
+        const bool reusePrepared = uniform && preparedValid_ && preparedMultiplier_ == o.multiplier &&
+            preparedPlan_.kind == plan.kind && preparedPlan_.contentTime == plan.contentTime &&
+            preparedPlan_.idA == plan.idA && preparedPlan_.idB == plan.idB && preparedPlan_.phase == plan.phase;
+        const int64_t prepareBegin = reusePrepared ? preparedBegin_ : now100ns();
+        int sourceSlot = plan.slotA;
         bool interpolated = false;
-        if (plan.kind == OutputPlan::Interpolate && slotSceneEpoch_[plan.slotA] != slotSceneEpoch_[plan.slotB]) {
+        if (reusePrepared) {
+            interpolated = preparedInterpolated_; sourceSlot = preparedSourceSlot_;
+            source = sourceSlot < 0 ? gpu_.outputView() : gpu_.frameView(sourceSlot);
+            sourceTexture = sourceSlot < 0 ? gpu_.output() : gpu_.frame(sourceSlot);
+        } else if (plan.kind == OutputPlan::Interpolate && slotSceneEpoch_[plan.slotA] != slotSceneEpoch_[plan.slotB]) {
             // No blended/generated picture across a detected cut. The new scene becomes
             // a fresh DLSS sequence even when a later pair is rendered from history.
             const int original = plan.phase < .5 ? plan.slotA : plan.slotB;
+            sourceSlot = original;
             source = gpu_.frameView(original); sourceTexture = gpu_.frame(original);
             if (dlss_) dlss_->resetHistory();
         } else if (plan.kind == OutputPlan::Interpolate) {
@@ -770,7 +860,23 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
                 interpolated = true;
             }
             source = gpu_.outputView(); sourceTexture = gpu_.output();
+            sourceSlot = -1;
         }
+        if (!reusePrepared && readyQuery_) c->End(readyQuery_.Get());
+        // Submit before sleeping: otherwise D3D11's deferred copies/NGX handoff
+        // can remain buffered until Present, after this frame's intended time.
+        if (!reusePrepared && (uniform || readyQuery_)) c->Flush();
+        const int64_t prepareEnd = reusePrepared ? preparedEnd_ : now100ns();
+        if (uniform && !reusePrepared) {
+            preparedPlan_ = plan; preparedMultiplier_ = o.multiplier; preparedSourceSlot_ = sourceSlot;
+            preparedInterpolated_ = interpolated; preparedBegin_ = prepareBegin; preparedEnd_ = prepareEnd;
+            preparedValid_ = dlssReady_;
+        }
+        lock.unlock();
+        if (uniform && !waitForOutput()) break;
+        lock.lock();
+        const int64_t readyBefore = readyQuery_ && c->GetData(readyQuery_.Get(),nullptr,0,D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK ? now100ns() : 0;
+        int64_t presentBegin = 0, presentEnd = 0;
         // Display only: comparison views and the output cap never change what is recorded.
         const int capFps = o.outputCap > 0 ? o.outputCap : o.outputCap < 0 ? displayHz_.load() : 0;
         const int64_t now = now100ns();
@@ -778,11 +884,24 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         if (hwnd_ && due) {
             ID3D11ShaderResourceView* original = o.compare ? gpu_.originalView(plan.slotA) : nullptr;
             gpu_.timer.mark(c, StagePresent, true);
+            presentBegin = now100ns();
             if (!gpu_.present(o.compare == 2 ? original : source, o.compare == 1 ? original : nullptr, o.sync, o.aspect)) { log_.add("warning", "preview window unavailable"); hwnd_ = nullptr; }
+            presentEnd = now100ns();
             lastPresent_ = now;
             std::lock_guard<std::mutex> s(statsMutex_);
             ++window_.presented;
         } else if (replay_) c->Flush();
+        const int64_t readyAfter = readyQuery_ && c->GetData(readyQuery_.Get(),nullptr,0,D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK ? now100ns() : 0;
+        if (pacingTrace_) {
+            const Gpu::DisplayStats shown = presentBegin ? gpu_.displayStats() : Gpu::DisplayStats{};
+            // The picture this output needed last: A for an original, B for a generated frame.
+            const int needed = plan.kind == OutputPlan::Interpolate && plan.slotB >= 0 ? plan.slotB : plan.slotA;
+            fprintf(pacingTrace_,"%lld,%d,%llu,%llu,%.6f,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%llu,%llu,%llu,%lld,%lld,%d,%u,%u,%u,%lld\n",
+                plan.contentTime,int(plan.kind),(unsigned long long)(plan.idA?plan.idA:slotId_[plan.slotA]),(unsigned long long)plan.idB,plan.phase,tick.arrival,tick.sample,deadline,
+                prepareBegin,prepareEnd,readyBefore,presentBegin,presentEnd,readyAfter,presentBegin!=0,
+                (unsigned long long)waitInterrupts_,(unsigned long long)backlogBreaks_,(unsigned long long)clockResyncs_,
+                needed >= 0 ? slotArrival_[needed] : 0LL,presentationClock_.offset(),int(shown.valid),shown.lastPresent,shown.shownPresent,shown.shownRefresh,shown.shownTime);
+        }
         if (auto recorder = getRecorder(); recorder && recorder->active()) {
             gpu_.timer.mark(c, StageEncode, true);
             recorder->pushVideo(gpu_, source, plan.contentTime);
@@ -811,6 +930,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         if (interpolated) { ++window_.interpolated; ++totalInterpolated_; }
         if (!replay_ && latency > 0 && latency < 2000) { window_.latency += latency; ++window_.latencyCount; }
         lastOutputT_ = plan.contentTime;
+        preparedValid_ = false;
         if (timeline) nextT_ += outInterval;
     }
 }
@@ -942,6 +1062,8 @@ void Session::close() {
     gpu_.detach();
     if (timer_) { CloseHandle(timer_); timer_ = nullptr; }
     if (inputEvent_) { CloseHandle(inputEvent_); inputEvent_ = nullptr; }
+    if (pacingTrace_) { fclose(pacingTrace_); pacingTrace_ = nullptr; }
+    if (dedupTrace_) { fclose(dedupTrace_); dedupTrace_ = nullptr; }
 }
 
 // ---------------------------------------------------------------- self-test
@@ -1038,6 +1160,35 @@ std::string selfTest(const Settings& s) {
         bool noise = d.observe(makeSignature(noisy.data(), w, 1, w, h));
         bool change = d.observe(makeSignature(moved.data(), w, 1, w, h));
         check("dedup", !first && same && noise && !change, "first unique, exact repeat, +-1 noise repeat, 30x24 change unique");
+        {
+            // A live card's repeats differ by +-1; a small slow motion changes a few dozen
+            // samples by 3-9 levels and keeps every 8x8 tile mean below the threshold.
+            DuplicateDetector live; uint32_t rng = 7;
+            auto noisyCopy = [&](const std::vector<uint8_t>& base) {
+                std::vector<uint8_t> out(base.size());
+                for (size_t i = 0; i < base.size(); ++i) { rng = rng * 1664525u + 1013904223u; out[i] = uint8_t(std::clamp(int(base[i]) + int((rng >> 16) % 3) - 1, 0, 255)); }
+                return out;
+            };
+            std::vector<uint8_t> subtle = a;
+            for (int k = 0; k < 40; ++k) { const size_t at = size_t(300 + (k % 8) * 4) * w + 40 + (k / 8) * 120; subtle[at] = uint8_t(std::clamp(int(subtle[at]) + 6, 0, 255)); }
+            bool repeats = true;
+            live.observe(makeSignature(a.data(), w, 1, w, h));
+            for (int i = 0; i < 24; ++i) { auto n = noisyCopy(a); repeats = live.observe(makeSignature(n.data(), w, 1, w, h)) && repeats; }
+            auto subtleNoisy = noisyCopy(subtle);
+            SignatureDifference detail;
+            const bool subtleRepeat = live.observe(makeSignature(subtleNoisy.data(), w, 1, w, h), &detail);
+            auto again = noisyCopy(subtle);
+            const bool againRepeat = live.observe(makeSignature(again.data(), w, 1, w, h));
+            // Three samples in one noisy tile: below the spike count, but the tile rises
+            // above 1.5x the noise floor.
+            auto tinyBase = subtle;
+            for (int k = 0; k < 3; ++k) { const size_t at = size_t(100 + k) * w + 100 + k; tinyBase[at] = uint8_t(std::clamp(int(tinyBase[at]) + 12, 0, 255)); }
+            auto tiny = noisyCopy(tinyBase);
+            const bool tinyRepeat = live.observe(makeSignature(tiny.data(), w, 1, w, h));
+            check("dedup-subtle-change", repeats && !subtleRepeat && againRepeat && detail.changedTiles == 0 && !tinyRepeat,
+                  "+-1 repeats stay repeats; 40 samples +6 (tile mean " + fixed(detail.maxTileMean, 2) + ", band " + std::to_string(live.sampleBand()) +
+                  ") is new; its repeat is a repeat; 3 samples +12 in one noisy tile are new");
+        }
         std::vector<uint8_t> bottomUp(a.size());
         for (int y=0;y<h;++y) memcpy(bottomUp.data()+size_t(h-1-y)*w,a.data()+size_t(y)*w,w);
         check("negative-pitch",makeSignature(a.data(),w,1,w,h).samples==makeSignature(bottomUp.data()+size_t(h-1)*w,-w,1,w,h).samples,
@@ -1087,6 +1238,57 @@ std::string selfTest(const Settings& s) {
             prevSample = sample;
         }
         check("content-clock-40in60", counted > 20 && worst < 0.6, "max spacing error " + fixed(worst, 3) + " ms over " + std::to_string(counted));
+    }
+    {
+        PresentationClock clock;
+        bool stable=true;
+        for(int i=0;i<120;++i){
+            const int64_t sample=10000000+int64_t(i)*166667;
+            const int64_t arrival=sample+70000+(i%5)*12000;
+            clock.observe(sample,arrival);
+            stable=stable&&clock.deadline(sample-333334,333334)==sample+70000;
+        }
+        check("dlss-presentation-clock-jitter",stable,"PTS-to-host offset follows the arrival floor, not callback jitter");
+        clock.reset();
+        clock.observe(10000000,10200000);
+        check("dlss-presentation-clock-reset",clock.deadline(10000000,333334)==10533334,
+              "new session acquires a new host anchor");
+    }
+    {
+        // Ten minutes at 60 Hz with the capture clock 800 ppm fast or slow, 0-2 ms
+        // callback jitter and a late first sample. The offset must stay within a
+        // millisecond of the jitter-free line and move a deadline by at most kSlew
+        // per tick; a one-time anchor would be 480 ms off at the end.
+        double worst=0,worstStep=0;
+        for(int sign:{-1,1}){
+            PresentationClock clock;uint32_t rng=12345;int64_t previous=0;
+            for(int i=0;i<36000;++i){
+                const int64_t host=10000000+int64_t(i)*166667;
+                const int64_t sample=10000000+int64_t(double(i)*166667*(1+sign*800e-6));
+                rng=rng*1664525u+1013904223u;
+                const int64_t jitter=i==0?50000:int64_t((rng>>8)%20000);
+                clock.observe(sample,host+30000+jitter);
+                const int64_t line=host+30000-sample;
+                if(i>=120)worst=std::max(worst,std::abs(double(clock.offset()-line))/1e4);
+                if(i>0)worstStep=std::max(worstStep,std::abs(double(clock.offset()-previous))/1e4);
+                previous=clock.offset();
+            }
+        }
+        check("dlss-presentation-clock-drift",worst<1.0&&worstStep<=0.05+1e-9,
+              "800 ppm both ways: max error "+fixed(worst,3)+" ms, max step "+fixed(worstStep,3)+" ms");
+        {
+            struct Case { uint32_t sn, sd; int m; double rate; uint32_t num, den; };
+            const Case cases[] = {{60,1,2,60.004,60,1},{60,1,2,58.7,60,1},{60000,1001,2,59.93,60000,1001},{60,1,2,80.2,80,1},
+                                  {60,1,2,120.0,120,1},{60,1,3,90.3,90,1},{60,1,2,62.07,60,1},{60,1,2,56.0,60,1},
+                                  {60,1,2,51.43,10000000,194439}};
+            bool ok=true;std::string detail;
+            for(auto& c:cases){uint32_t n=0,d=0;snapOutputRate(c.sn,c.sd,c.m,c.rate,n,d);ok=ok&&n==c.num&&d==c.den;detail+=std::to_string(n)+"/"+std::to_string(d)+" ";}
+            check("recording-rate-snap",ok,detail+"(30-in-60 2x records 60/1; an unrelated estimate stays as measured)");
+        }
+        PresentationClock jump;
+        for(int i=0;i<60;++i)jump.observe(int64_t(i)*166667,int64_t(i)*166667+30000);
+        for(int i=60;i<70;++i)jump.observe(int64_t(i)*166667,int64_t(i)*166667+30000+10000000);
+        check("dlss-presentation-clock-jump",jump.offset()==10030000&&jump.snaps()==1,"a 1 s PTS jump is taken after eight ticks");
     }
     // Fixed-phase DLSS output must retain each original and each k/N result even
     // when the presentation horizon is offset from the content frame grid.
@@ -1470,6 +1672,7 @@ static void* openSession(const char* settings, HWND window, bool replay, char** 
 
 FDL_API void* fdl_open(const char* settings, HWND window, char** error) { return openSession(settings, window, false, error); }
 FDL_API void* fdl_open_replay(const char* settings, char** error) { return openSession(settings, nullptr, true, error); }
+FDL_API void* fdl_open_replay_window(const char* settings, HWND window, char** error) { return openSession(settings, window, true, error); }
 
 FDL_API int fdl_command(void* session, const char* command) {
     if (!session) return 0;

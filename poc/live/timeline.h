@@ -73,10 +73,14 @@ struct SignatureDifference {
     double maxTileMean = 0;  // largest mean absolute difference of an 8x8 tile
     int changedTiles = 0;    // tiles above the current noise threshold
     int tiles = 0;
+    int maxSample = 0;       // diagnostics: largest single-sample difference
+    int samplesOver8 = 0;    // diagnostics: samples that changed by more than 8 levels
+    std::array<int, 3> samplesOver{};   // diagnostics: samples above 2, 3 and 4 levels
+    int samplesOverBand = 0; // samples beyond the learned noise band of repeats
 };
 
 inline SignatureDifference compareSignatures(const LumaSignature& a, const LumaSignature& b,
-                                             double threshold) {
+                                             double threshold, int sampleBand = 256) {
     SignatureDifference d;
     if (a.width != b.width || a.height != b.height || a.samples.empty()) {
         d.maxTileMean = 255; d.changedTiles = 1; d.tiles = 1; return d;
@@ -89,7 +93,13 @@ inline SignatureDifference compareSignatures(const LumaSignature& a, const LumaS
         for (int y = ty * 8; y < y1; ++y) {
             const uint8_t* pa = a.samples.data() + size_t(y) * a.width;
             const uint8_t* pb = b.samples.data() + size_t(y) * b.width;
-            for (int x = tx * 8; x < x1; ++x) { sum += std::abs(int(pa[x]) - int(pb[x])); ++count; }
+            for (int x = tx * 8; x < x1; ++x) {
+                const int diff = std::abs(int(pa[x]) - int(pb[x]));
+                sum += diff; ++count;
+                d.maxSample = std::max(d.maxSample, diff); d.samplesOver8 += diff > 8;
+                d.samplesOver[0] += diff > 2; d.samplesOver[1] += diff > 3; d.samplesOver[2] += diff > 4;
+                d.samplesOverBand += diff > sampleBand;
+            }
         }
         const double mean = count ? double(sum) / count : 0;
         d.maxTileMean = std::max(d.maxTileMean, mean);
@@ -105,25 +115,58 @@ public:
     bool observe(LumaSignature signature, SignatureDifference* detail = nullptr) {
         if (!hasReference_ || !enabled) { accept(std::move(signature)); if (detail) *detail = {}; return false; }
         const double threshold = currentThreshold();
-        SignatureDifference d = compareSignatures(reference_, signature, threshold);
+        SignatureDifference d = compareSignatures(reference_, signature, threshold, sampleBand());
         if (detail) *detail = d;
-        if (d.changedTiles == 0) {
+        // A repeat also keeps every sample but a few inside the noise band of earlier
+        // repeats. Tile means alone missed small real changes on a live 4K card: noise
+        // tiles average 0.53 (single samples at most 1 level), a slow small motion
+        // averaged 1.0-1.5 with 12-400 samples changed by 3-9 levels, and each such miss
+        // left a 67 ms gap (9 in 40 s).
+        // A single sample beyond the band counts when a tile also rises well above the
+        // noise floor (repeats there peaked at 1.12x the median tile, the last small
+        // changes measured 1.4-2.4x with 1-3 samples beyond the band).
+        // Exact (lossless) repeats have a zero floor, so there any sample beyond counts.
+        const bool lifted = d.samplesOverBand > 0 && noise_.size() >= 4 && d.maxTileMean > 1.5 * noiseMedian();
+        if (d.changedTiles == 0 && d.samplesOverBand < kSpikes && !lifted) {
             noise_.push_back(d.maxTileMean);
             if (noise_.size() > 32) noise_.pop_front();
+            sampleNoise_.push_back(d.maxSample);
+            if (sampleNoise_.size() > 64) sampleNoise_.pop_front();
             ++duplicates_;
             return true;
         }
         accept(std::move(signature));
         return false;
     }
-    void reset() { hasReference_ = false; noise_.clear(); }
+    void reset() { hasReference_ = false; noise_.clear(); sampleNoise_.clear(); }
+    // One level above the 90th percentile of the largest sample difference of recent
+    // repeats, so a few missed small changes among them cannot widen it (at the 95th
+    // they did: band 3 instead of 2 on the live card). Only a clean source gets one:
+    // uncompressed HDMI capture repeats within 1 level, while an H.264 file (sample 2)
+    // repeats with codec noise of 4-35 levels in places, which the sample rule took
+    // for motion (unique 245 -> 386 of 479). Those keep the noise-adapted tile rule.
+    // 256 = no band (before 16 repeats, or a noisy source).
+    int sampleBand() const {
+        if (sampleNoise_.size() < 16) return 256;
+        std::vector<int> sorted(sampleNoise_.begin(), sampleNoise_.end());
+        const size_t k = sorted.size() * 90 / 100;
+        std::nth_element(sorted.begin(), sorted.begin() + k, sorted.end());
+        const int band = std::max(sorted[k] + 1, 2);
+        return band <= kCleanBand ? band : 256;
+    }
+    static constexpr int kSpikes = 4, kCleanBand = 4;
     double currentThreshold() const {
         // Lossless capture repeats are exact (noise 0); encoded or scaled sources carry a
         // small noise floor. Follow 2.5x the median noise of confirmed repeats, bounded.
         if (noise_.size() < 4) return kBase;
+        return std::clamp(2.5 * noiseMedian(), kBase, kMax);
+    }
+    // Median largest tile mean of recent repeats (0 = not learned).
+    double noiseMedian() const {
+        if (noise_.size() < 4) return 0;
         std::vector<double> sorted(noise_.begin(), noise_.end());
         std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
-        return std::clamp(2.5 * sorted[sorted.size() / 2], kBase, kMax);
+        return sorted[sorted.size() / 2];
     }
     uint64_t duplicates() const { return duplicates_; }
     static constexpr double kBase = 1.5, kMax = 6.0;
@@ -132,6 +175,7 @@ private:
     LumaSignature reference_;
     bool hasReference_ = false;
     std::deque<double> noise_;
+    std::deque<int> sampleNoise_;
     uint64_t duplicates_ = 0;
 };
 
@@ -147,6 +191,49 @@ struct OutputPlan {
     uint64_t idA = 0, idB = 0;
     double phase = 0;
     int64_t contentTime = 0;
+};
+
+// Maps capture PTS to host time for presentation: content T is shown at
+// T + offset + delay. Callback jitter only delays an arrival, so the offset
+// follows the lower envelope of (arrival - PTS) over about a second and ignores
+// it. A capture clock running off the host clock (61 ppm on this card in Veyra's
+// log, 800 ppm reported for another) moves that envelope slowly; the offset
+// follows at most kSlew per input tick, so a scheduled frame never jumps. A
+// one-time offset from the first sample would put every deadline tens of ms
+// early or late after a few minutes. Jumps beyond kSnap (restart, PTS fallback)
+// are taken at once.
+class PresentationClock {
+public:
+    static constexpr size_t kWindow = 60;
+    static constexpr int64_t kSlew = 500;       // 0.05 ms per tick
+    static constexpr int64_t kSnap = 500000;    // 50 ms
+    // Once per input tick.
+    void observe(int64_t sample, int64_t arrival) {
+        const int64_t measured = arrival - sample;
+        if (!have_) { offset_ = measured; have_ = true; count_ = head_ = 0; above_ = 0; }
+        window_[head_] = measured; head_ = (head_ + 1) % kWindow; count_ = std::min(count_ + 1, kWindow);
+        int64_t target = window_[0];
+        for (size_t i = 1; i < count_; ++i) target = std::min(target, window_[i]);
+        // Above the line only for a few ticks is jitter; eight in a row is a jump.
+        above_ = measured - offset_ > kSnap ? above_ + 1 : 0;
+        if (target - offset_ < -kSnap || above_ >= 8) {
+            offset_ = measured; window_[0] = measured; head_ = 1; count_ = 1; above_ = 0; ++snaps_;
+            return;
+        }
+        offset_ += std::clamp<int64_t>(target - offset_, -kSlew, kSlew);
+    }
+    int64_t deadline(int64_t content, int64_t delay) const { return content + offset_ + delay; }
+    int64_t offset() const { return offset_; }
+    uint64_t snaps() const { return snaps_; }
+    bool ready() const { return have_; }
+    void reset() { have_ = false; }
+private:
+    bool have_ = false;
+    int64_t offset_ = 0;
+    std::array<int64_t, kWindow> window_{};
+    size_t count_ = 0, head_ = 0;
+    int above_ = 0;
+    uint64_t snaps_ = 0;
 };
 
 class OutputTimeline {

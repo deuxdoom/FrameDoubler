@@ -68,6 +68,10 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "recordDir=" + arg(argc, argv, L"--record") + "\n";
     s += "screenshotDir=" + arg(argc, argv, L"--screenshot") + "\n";
     s += "recordCodec=" + arg(argc, argv, L"--codec", "h264") + "\n";
+    s += "sync=" + arg(argc,argv,L"--sync","auto") + "\n";
+    s += "pacingTrace=" + arg(argc,argv,L"--pacing-trace") + "\n";
+    s += "dedupTrace=" + arg(argc,argv,L"--dedup-trace") + "\n";
+    if(flag(argc,argv,L"--realtime"))s+="realtime=1\n";
     if (flag(argc, argv, L"--echo")) s += "echo=1\n";
     return s;
 }
@@ -282,6 +286,22 @@ LRESULT CALLBACK windowProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
     return DefWindowProcW(h, m, w, l);
 }
+HWND replayWindow() {
+    WNDCLASSW wc{};wc.lpfnWndProc=windowProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"FrameDoublerPacedReplay";
+    wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hbrBackground=static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));RegisterClassW(&wc);
+    return CreateWindowExW(0,wc.lpszClassName,L"FrameDoubler sample 2 pacing check",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_VISIBLE,
+                           CW_USEDEFAULT,CW_USEDEFAULT,960,580,nullptr,nullptr,wc.hInstance,nullptr);
+}
+bool pumpUntil(int64_t due,HANDLE timer) {
+    for(;;){
+        MSG msg;
+        while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){if(msg.message==WM_QUIT)return false;TranslateMessage(&msg);DispatchMessageW(&msg);}
+        const auto wait=due-now100ns();if(wait<=0)return true;
+        if(!timer){Sleep(1);continue;}
+        LARGE_INTEGER when;when.QuadPart=-wait;SetWaitableTimer(timer,&when,0,nullptr,nullptr,FALSE);
+        MsgWaitForMultipleObjects(1,&timer,FALSE,DWORD(wait/10000+5),QS_ALLINPUT);
+    }
+}
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -303,8 +323,11 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (flag(argc, argv, L"--replay")) {
         const std::string settings = commonSettings(argc, argv);
+        const bool realtime=flag(argc,argv,L"--realtime");
+        HWND window=flag(argc,argv,L"--window")?replayWindow():nullptr;
+        HANDLE inputTimer=realtime?CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS):nullptr;
         char* error = nullptr;
-        void* session = fdl_open_replay(settings.c_str(), &error);
+        void* session = fdl_open_replay_window(settings.c_str(),window,&error);
         if (!session) { fprintf(stderr, "open failed: %s\n", error ? error : "?"); return 2; }
         const Settings s = parseSettings(settings.c_str());
         const int w = getInt(s, "width", 0), h = getInt(s, "height", 0);
@@ -320,20 +343,28 @@ int wmain(int argc, wchar_t** argv) {
         const bool loads = get(s, "fg") == "vfx" || get(s, "fg") == "dlss";
         if (loads) Sleep(100);
         long long index = 0;
+        int64_t inputBase=0;
         const int64_t start = now100ns();
         while (fread(frame.data(), 1, frameBytes, stdin) == frameBytes) {
-            if (index == 1 && loads) {
+            if (((index == 1 && !realtime) || (index == 0 && realtime)) && loads) {
                 // Wait for the optional runtime to load before timing the replay.
                 for (int i = 0; i < 600; ++i) { char* st = fdl_status(session); std::string t = st ? st : ""; fdl_free(st); if (t.find("\"fg\":\"loading\"") == std::string::npos) break; Sleep(100); }
             }
-            fdl_feed(session, frame.data(), nv12 ? w : w * packedBytes, 10000000 + index * interval);
+            if(realtime){
+                if(!inputBase)inputBase=now100ns()+1000000;
+                if(!pumpUntil(inputBase+index*interval,inputTimer))break;
+            }
+            fdl_feed(session, frame.data(), nv12 ? w : w * packedBytes, (realtime?inputBase:10000000) + index * interval);
             ++index;
             if (limit > 0 && index >= limit) break;
         }
+        fdl_command(session,"action=drain");
         const double seconds = double(now100ns() - start) / 1e7;
         char* summary = fdl_summary(session);
         char* status = fdl_status(session);
         fdl_close(session);           // finishes a recording
+        if(inputTimer)CloseHandle(inputTimer);
+        if(window)DestroyWindow(window);
         fprintf(stderr, "replayed %lld frames in %.2f s (%.1f fps)\n", index, seconds, index / std::max(seconds, 1e-6));
         print(summary); print(status);
         return 0;

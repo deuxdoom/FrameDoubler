@@ -424,6 +424,18 @@ bool Gpu::present(ID3D11ShaderResourceView* source, ID3D11ShaderResourceView* or
     return SUCCEEDED(hr) || hr == DXGI_STATUS_OCCLUDED;
 }
 
+Gpu::DisplayStats Gpu::displayStats() {
+    DisplayStats d;
+    if (!swapchain_) return d;
+    UINT last = 0;
+    DXGI_FRAME_STATISTICS s{};
+    if (FAILED(swapchain_->GetLastPresentCount(&last)) || FAILED(swapchain_->GetFrameStatistics(&s))) return d;
+    static const int64_t frequency = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }();
+    d.valid = true; d.lastPresent = last; d.shownPresent = s.PresentCount; d.shownRefresh = s.PresentRefreshCount;
+    d.shownTime = int64_t((__int128)s.SyncQPCTime.QuadPart * 10000000 / frequency);
+    return d;
+}
+
 bool Gpu::toNv12(ID3D11ShaderResourceView* source, ID3D11Texture2D* nv12) {
     // Plane views are created once per encoder texture (the recorder reuses a fixed pool).
     Nv12Targets* targets = nullptr;

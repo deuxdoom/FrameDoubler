@@ -70,6 +70,10 @@ public:
     bool attach(HWND hwnd, std::string& error);
     void detach();
     bool present(ID3D11ShaderResourceView* source, ID3D11ShaderResourceView* original = nullptr, int sync = 0, int aspect = 0);
+    // DXGI frame statistics after a Present (diagnostics): the last Present call's
+    // count and the most recently shown one with its vblank. Not a photon measurement.
+    struct DisplayStats { bool valid = false; uint32_t lastPresent = 0, shownPresent = 0, shownRefresh = 0; int64_t shownTime = 0; };
+    DisplayStats displayStats();
     bool tearingSupported() const { return tearing_; }
     // Keep each slot's picture from before anti-aliasing (for the original/processed comparison).
     void keepOriginals(bool keep, std::string& error);
