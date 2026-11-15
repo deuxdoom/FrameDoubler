@@ -21,15 +21,16 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
 - Frame generation fills the gaps: NVIDIA DLSS Frame Generation (RTX GPUs whose driver offers
   it, up to the multiplier the driver allows), NVIDIA VFX (RTX, after its runtime is downloaded
   in Settings > Capture) or FrameDoubler's own motion interpolation. Automatic tries them in
-  that order. The default 2×, 3× and 4× settings
-  multiply the actual content rate: a 30 fps game becomes 60, 90 or 120 fps. With duplicate
+  that order. The default is 2×; 3× and 4× appear only when the driver reports DLSS
+  multi-frame support. These settings multiply the actual content rate: a 30 fps game
+  becomes 60, 90 or 120 fps. With duplicate
   removal off they multiply the input signal rate. Frame generation off displays the latest
   picture directly. A recording requested during startup waits up to one second for rate detection.
-  DLSS uses hardware optical flow where the driver offers it, retaining the source resolution;
-  otherwise it uses FrameDoubler's block motion. Detected hard scene cuts reset the history
+  DLSS retains the source resolution and displays originals and generated frames in
+  content-time order. Detected hard scene cuts reset the history
   and show an original picture instead of generating across the cut.
 - Anti-aliasing (low/medium/high) runs once per unique frame at the source size, before frame
-  generation. Colour range and matrix can be set; the processing-order strip shows active steps.
+  generation. Colour range and matrix can be set.
 - Display: automatic sync (newest frame without tearing), VSync or tearing allowed; fit, fill
   or stretch; split or original-only comparison; hold V to see the original; output cap.
 - Sound from the card's audio input is played with a delay matched to the picture.

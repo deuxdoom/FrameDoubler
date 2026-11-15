@@ -207,6 +207,33 @@ public:
         }
         return p;
     }
+    // A fixed-phase generator cannot answer arbitrary timeline phases. Enumerate
+    // each source picture and its k/N subframes once, in their actual content order.
+    // The caller commits contentTime only after submission; an interrupted wait
+    // therefore retries the same event without losing it or advancing NGX history.
+    OutputPlan nextUniform(int64_t after, int multiplier) const {
+        multiplier = std::clamp(multiplier, 2, 4);
+        for (size_t i = 0; i < frames_.size(); ++i) {
+            const auto& a = frames_[i];
+            if (a.time > after) {
+                OutputPlan p; p.kind = OutputPlan::Original; p.contentTime = a.time;
+                p.slotA = a.slot; p.idA = a.id; return p;
+            }
+            if (i + 1 == frames_.size()) break;
+            const auto& b = frames_[i + 1];
+            const int64_t gap = b.time - a.time;
+            if (gap <= 0 || gap > 4 * interval_ + interval_ / 2) continue;
+            for (int k = 1; k < multiplier; ++k) {
+                const int64_t time = a.time + gap * k / multiplier;
+                if (time <= after || time >= b.time) continue;
+                OutputPlan p; p.kind = OutputPlan::Interpolate; p.contentTime = time;
+                p.slotA = a.slot; p.idA = a.id; p.slotB = b.slot; p.idB = b.id;
+                p.phase = double(k) / multiplier; return p;
+            }
+        }
+        return {};
+    }
+    int64_t newestTime() const { return frames_.empty() ? INT64_MIN : frames_.back().time; }
     size_t size() const { return frames_.size(); }
     static constexpr size_t kKeep = 4;
 private:

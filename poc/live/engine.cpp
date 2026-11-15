@@ -62,6 +62,9 @@ public:
             lastContent_ = sample; lastSample_ = sample; return sample;
         }
         kept_.push_back(sample);
+        // A brief loss of the fit must not change DLSS from 30->60 to signal
+        // 60->120. Before acquisition the first observed unique gap is enough.
+        if (!outputPeriod_) outputPeriod_ = sample - lastSample_;
         if (kept_.size() > 32) kept_.pop_front();
         if (kept_.size() >= 8) {
             const double n = double(kept_.size()), meanX = (n - 1) / 2;
@@ -70,6 +73,7 @@ public:
             double sxx = 0, sxt = 0; int i = 0;
             for (auto t : kept_) { double x = i++ - meanX; sxx += x * x; sxt += x * (double(t - kept_.front()) - meanT); }
             period_ = std::max<int64_t>(int64_t(std::llround(sxt / sxx)), transport - transport / 8);
+            outputPeriod_ = period_;
         }
         int64_t content = sample;
         if (period_ > 0) {
@@ -82,14 +86,15 @@ public:
         lastContent_ = content; lastSample_ = sample;
         return content;
     }
-    void reset() { have_ = false; }
+    void reset() { have_ = false; outputPeriod_ = 0; }
     int64_t period() const { return period_; }
+    int64_t outputPeriod() const { return outputPeriod_; }
     bool stable() const { return period_ > 0 && kept_.size() >= 24; }
     uint64_t regular = 0, irregular = 0;
 private:
     bool have_ = false;
     std::deque<int64_t> kept_;
-    int64_t period_ = 0, lastContent_ = 0, lastSample_ = 0;
+    int64_t period_ = 0, outputPeriod_ = 0, lastContent_ = 0, lastSample_ = 0;
     int misses_ = 0;
 };
 
@@ -175,8 +180,11 @@ private:
     ColorSetup color() const;
     ColorInfo device_;                                  // colour the capture device states
     std::string colorJson();
+    bool useUniformDlss(const Options& o) const {
+        return o.fg == 3 && dlssReady_ && dlss_ && o.multiplier - 1 <= dlss_->maxGenerated();
+    }
     int64_t outputInterval(const Options& o) const {
-        const int64_t period = o.dedup ? contentPeriod_.load() : interval_;
+        const int64_t period = o.dedup ? (useUniformDlss(o) ? dlssContentPeriod_.load() : contentPeriod_.load()) : interval_;
         return std::max<int64_t>(1, (period > 0 ? period : interval_) / o.multiplier);
     }
 
@@ -228,6 +236,7 @@ private:
     DuplicateDetector detector_;
     ContentClock clock_;
     std::atomic<int64_t> contentPeriod_{0};
+    std::atomic<int64_t> dlssContentPeriod_{0};
     std::atomic<bool> contentClockStable_{false};
     int64_t previousSample_ = 0;
     static constexpr int kBuffers = 4;
@@ -496,6 +505,7 @@ void Session::onFrame(const FrameView& v) {
     }
     previousSample_ = p.sample;
     contentPeriod_ = clock_.period();
+    dlssContentPeriod_ = clock_.outputPeriod();
     contentClockStable_ = clock_.stable();
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -675,6 +685,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
     if (lastSlot_ < 0) return;
     const bool useVfx = o.fg == 2 && vfxReady_;
     const bool timeline = o.fg != 0;
+    const bool uniform = useUniformDlss(o);
     const int64_t outInterval = outputInterval(o);
     if (timeline) timeline_.advance(o.dedup);
     const int64_t limit = tick.sample - timeline_.delay(), horizon = limit + interval_;
@@ -683,7 +694,21 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         haveNextOutput_ = true;
     }
     if (!timeline) haveNextOutput_ = false;
-    for (int sub = 0; !timeline ? sub == 0 : nextT_ < horizon; ++sub) {
+    for (int sub = 0; !timeline ? sub == 0 : uniform || nextT_ < horizon; ++sub) {
+        OutputPlan plan;
+        if (uniform) {
+            plan = timeline_.nextUniform(lastOutputT_, o.multiplier);
+            if (plan.kind == OutputPlan::Hold || plan.contentTime >= horizon) {
+                // A paused source still refreshes/records the last picture. Do
+                // not fabricate interpolation events before the next pair exists.
+                if (limit - timeline_.newestTime() <= 4 * interval_ + interval_ / 2) break;
+                nextT_ = std::max(nextT_, lastOutputT_ + outInterval);
+                if (nextT_ >= horizon) break;
+                plan = timeline_.planAt(nextT_, false);
+            }
+            nextT_ = plan.contentTime;
+        } else if (timeline) plan = timeline_.planAt(nextT_);
+        else { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
         if (timeline && !replay_) {
             if (sub > 0 && moreWaiting) break;
             const int64_t due = tick.arrival + (nextT_ - limit);
@@ -698,9 +723,6 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             std::lock_guard<std::mutex> lock(queueMutex_);
             if (sub > 0 && !queue_.empty()) break; // always render one output even under load
         }
-        OutputPlan plan;
-        if (timeline) plan = timeline_.planAt(nextT_);
-        else { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
         if (plan.kind == OutputPlan::Hold) { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
         std::lock_guard<std::mutex> lock(gpu_.lock());
         ID3D11DeviceContext* c = gpu_.context();
@@ -1065,6 +1087,43 @@ std::string selfTest(const Settings& s) {
             prevSample = sample;
         }
         check("content-clock-40in60", counted > 20 && worst < 0.6, "max spacing error " + fixed(worst, 3) + " ms over " + std::to_string(counted));
+    }
+    // Fixed-phase DLSS output must retain each original and each k/N result even
+    // when the presentation horizon is offset from the content frame grid.
+    for (int multiplier : {2,3,4}) for (int offset : {0,20000,83333}) {
+        OutputTimeline t; t.configure(166667);
+        int64_t last=INT64_MIN; int outputs=0,originals=0,mids=0; bool ok=true;
+        t.addUnique({10000000,0,1});
+        for(int i=0;i<60;++i){
+            const int64_t a=10000000+int64_t(i)*333334;
+            t.addUnique({a+333334,(i+1)%5,uint64_t(i+2)});
+            const int64_t horizon=a+333334+offset;
+            for(;;){
+                auto p=t.nextUniform(last,multiplier);
+                if(p.kind==OutputPlan::Hold||p.contentTime>=horizon)break;
+                const auto retry=t.nextUniform(last,multiplier); // interrupted before submission
+                ok=ok&&retry.contentTime==p.contentTime&&retry.idA==p.idA&&retry.idB==p.idB&&p.contentTime>last;
+                if(p.kind==OutputPlan::Original)++originals;
+                else {++mids;ok=ok&&std::abs(p.phase*multiplier-std::round(p.phase*multiplier))<1e-9;}
+                ++outputs;last=p.contentTime;
+            }
+        }
+        const int extra=offset>0?1:0;
+        ok=ok&&originals==60+extra&&mids==60*(multiplier-1)&&outputs==60*multiplier+extra;
+        check("dlss-timeline-"+std::to_string(multiplier)+"x-offset-"+std::to_string(offset),ok,
+              std::to_string(originals)+" originals / "+std::to_string(mids)+" distinct fixed-phase events");
+    }
+    {
+        OutputTimeline t;t.configure(166667);t.addUnique({10000000,0,1});t.addUnique({12000000,1,2});
+        auto a=t.nextUniform(INT64_MIN,2),b=t.nextUniform(a.contentTime,2),end=t.nextUniform(b.contentTime,2);
+        check("dlss-timeline-static-gap",a.kind==OutputPlan::Original&&a.idA==1&&b.kind==OutputPlan::Original&&b.idA==2&&end.kind==OutputPlan::Hold,
+              "long still gap has no fabricated midpoint");
+        ContentClock clock;int64_t sample=10000000;
+        for(int i=0;i<32;++i){clock.observe(sample,sample-166667,166667);sample+=333334;}
+        bool lostFit=false;
+        for(int i=0;i<4;++i){sample+=5*166667;clock.observe(sample,sample-166667,166667);if(!clock.period())lostFit=true;}
+        check("dlss-clock-reacquire",lostFit&&clock.outputPeriod()>166667,
+              "lost content fit retains a content period instead of reverting to signal 2x");
     }
     // Content-based rates, including a non-integral content/signal cadence. Count only
     // after clock acquisition; every planned timestamp must increase and stay bracketed.
