@@ -58,7 +58,8 @@
 - 실시간 캡처는 자체 보간을 쓰지 않습니다. DLSS·VFX 모두 원본 해상도에서 원본과 생성 프레임을 콘텐츠 시각 순서로 표시합니다.
 - 프레임 생성 탭의 **DLSS 움직임 보정 · 시험**에서 광학 흐름(NVOF)과 엣지 이지스를 켤 수 있습니다. 기본은 꺼짐이며 VFX에는 적용되지 않습니다. 추가 GPU 시간이 필요하고 경계 흔들림 개선은 장면에 따라 다릅니다. 변경 시 프리뷰가 다시 시작되며 녹화 준비·녹화·저장 중에는 변경할 수 없습니다.
 - PNG 스크린샷과 H.264/HEVC·AAC MP4 녹화를 지원합니다. 녹화는 3초 카운트다운 뒤 시작하고 다시 누르면 취소합니다. 영상은 고정 프레임레이트로 저장하며 빈 칸은 직전 그림으로 채웁니다.
-- 하단에는 화면 지연(ms), GPU 사용률(%), 목표와 현재 표시 속도(fps)를 보여 줍니다. 최근 1분의 표시 속도 그래프와 각 수치의 설명도 확인할 수 있습니다.
+- 하단에는 화면 지연(ms), GPU 사용률(%), 실제로 바뀐 프레임의 표시 속도(fps)를 보여 줍니다. 최근 1분의 표시 속도 그래프와 각 수치의 설명도 확인할 수 있습니다.
+- 같은 이름의 카드는 장치 경로로 구분해 선택을 기억합니다. Media Foundation에서 열 수 없는 모드는 같은 장치의 DirectShow로 시도하며, 연결이 모호하면 다른 카드로 대체하지 않습니다. NV12·YUY2·UYVY·RGB32·RGB24·I420·YV12 입력을 지원합니다.
 - 메인 창은 화면 작업 영역과 Windows 배율에 맞춘 작은 고정 크기입니다. 미리보기를 더블클릭하면 전체 화면으로 전환합니다. HDR 캡처 입력은 아직 지원하지 않습니다.
 
 ### 녹화 파일 변환
@@ -89,8 +90,10 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 - Windows 11 64비트 (x64)
 - Vulkan을 지원하는 GPU와 최신 드라이버 권장 (NVIDIA, AMD, Intel). 제조사나 모델명이 아니라 실제로 동작하는 기능을 확인하여 사용합니다.
-- Vulkan을 쓸 수 없으면 CPU로 추론하고, 하드웨어 인코더가 없으면 소프트웨어 인코더를 사용합니다. 이 경우 크게 느려지며 화면에 표시합니다.
-- SDR과 HDR(HLG·PQ) 영상. HDR 영상은 SDR(BT.709)로 변환하여 출력합니다.
+- 실시간 프레임 생성은 GPU·드라이버가 지원하는 DLSS 또는 VFX를 사용합니다. 캡처 녹화에는 동작하는 하드웨어 H.264·HEVC 인코더가 필요하며 소프트웨어 녹화로 대체하지 않습니다.
+- 파일 변환은 Vulkan을 쓸 수 없으면 CPU로 추론하고, 하드웨어 인코더가 없으면 소프트웨어 인코더를 사용합니다. 이 경우 크게 느려지며 화면에 표시합니다.
+- 캡처 입력은 SDR만 지원합니다. 파일 변환은 SDR과 HDR(HLG·PQ) 영상을 지원하며 HDR은 SDR(BT.709)로 출력합니다.
+- 다른 캡처 카드는 제조사 드라이버가 Media Foundation 또는 DirectShow로 제공하는 지원 모드에서 사용합니다. DeckLink·Magewell 전용 SDK 입력, 압축 전용 모드와 벤더 전용 오디오는 포함하지 않습니다. 장비별 검증 상태는 [하드웨어 검증](app/HARDWARE-TESTS.md)을 확인하세요.
 
 <a id="features"></a>
 
@@ -149,35 +152,45 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 | 남은 움직임 중복 | 0.48% (기준 1% 이하) |
 | 길이 차이 / 최대 오디오 동기 변화 | 0ms / 6.83ms |
 | 입력 중복 비율 | 50.31% (움직이는 프레임의 절반이 중복) |
-| 처리 시간 | 변환만 약 157초, 변환과 검증 약 200초 |
+| 처리 시간 (기본 Vulkan·검증 해제) | 변환 약 82초, 분석 포함 약 89초 |
 
-처리 시간과 결과는 영상의 내용과 장치에 따라 달라집니다. YouTube 1080p의 10Mbps 설정에서는 복잡한 장면에 압축 흔적이 남을 수 있습니다. 화면의 GTA VI 파일명은 UI 예시이며, 비교 영상과 실측은 위 파이어엠블렘 녹화를 사용했습니다.
+처리 시간과 결과는 영상의 내용과 장치에 따라 달라집니다. YouTube 1080p의 10Mbps 설정에서는 복잡한 장면에 압축 흔적이 남을 수 있습니다. 비교 영상과 위 수치는 RIFE 파일 변환 결과이며 실시간 DLSS·VFX 성능 측정이 아닙니다.
 
 <a id="screenshots"></a>
 
 ## 🖼️ 화면 모음
 
-| 첫 화면 | 영어 화면 | 업데이트 |
+| 실시간 영어 화면 | 파일 변환 | 캡처 설정 |
 | --- | --- | --- |
-| <img src="docs/img/screen-empty.png" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" width="300"> | <img src="docs/img/screen-en.png" alt="영어로 표시한 화면" width="300"> | <img src="docs/img/screen-update.png" alt="새 버전의 변경 사항과 설치 단계가 있는 업데이트 창" width="300"> |
+| <img src="docs/img/screenshot-en.png" alt="실제 캡처 입력을 표시하는 영어 화면" width="300"> | <img src="docs/img/screen-empty.png" alt="제목 표시줄에서 전환한 파일 변환 화면" width="300"> | <img src="docs/img/screen-settings.png" alt="캡처 저장 위치와 녹화 형식을 고르는 설정 창" width="300"> |
 
 <a id="download"></a>
 
 ## 📥 내려받기와 실행
 
-1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler_v102.zip)로 `FrameDoubler_v102.zip`(약 208MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
-2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 460MB)는 통째로 유지합니다. 폴더에는 `FrameDoubler.exe`, `FrameDoubler.Cli.exe`와 .NET 런타임이 든 `dll` 폴더가 있습니다.
+1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.0/FrameDoubler_v200.zip)로 `FrameDoubler_v200.zip`(약 264MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
+2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 536MB)는 통째로 유지합니다. 폴더에는 `FrameDoubler.exe`, `FrameDoubler.Cli.exe`와 .NET 런타임이 든 `dll` 폴더가 있습니다.
 3. `FrameDoubler.exe`를 실행합니다.
 
 .NET 런타임, RIFE 모델, FFmpeg가 모두 들어 있어 Python, CUDA Toolkit, 별도 SDK를 설치할 필요가 없습니다. GPU 드라이버는 포함하지 않습니다. 파일의 SHA-256은 릴리스 설명에 적혀 있습니다.
 
 ```powershell
-Get-FileHash FrameDoubler_v102.zip -Algorithm SHA256
+Get-FileHash FrameDoubler_v200.zip -Algorithm SHA256
 ```
 
 <a id="usage"></a>
 
 ## 🚀 사용 방법
+
+### 캡처 미리보기와 녹화
+
+1. 캡처 카드를 연결하고 장치·입력 모드를 확인합니다. 지원 모드가 있으면 자동으로 미리보기를 시작합니다.
+2. 필요하면 `중복 프레임 제거`와 `프레임 생성`을 켭니다. 60Hz 신호의 30fps 게임은 중복 제거와 2배 생성을 함께 사용합니다.
+3. `녹화`를 누르면 3초 뒤 시작합니다. 다시 누르면 저장을 마무리합니다. `스크린샷`은 원본 해상도 PNG를 저장합니다. 저장 위치·코덱은 설정 › 캡처에서 바꿉니다.
+
+미리보기를 더블클릭하거나 F11을 눌러 전체 화면으로 전환합니다. 기본 단축키는 F7 스크린샷·F8 녹화·F6 프레임 생성·F10 통계·V 원본 비교이며 설정 › 단축키에서 바꿉니다.
+
+### 녹화 파일 변환
 
 1. 영상을 창에 끌어 놓거나 가운데 영역을 클릭합니다. `영상 추가`와 `Ctrl+O`도 사용할 수 있습니다. 추가하면 바로 분석합니다.
 2. 파일 fps와 실제 움직임 fps를 확인하고, 목표 프레임레이트·프리셋·저장 폴더를 고릅니다. 저장 폴더를 비워 두면 원본과 같은 폴더에 저장합니다.
@@ -200,12 +213,12 @@ Get-FileHash FrameDoubler_v102.zip -Algorithm SHA256
 
 시작할 때 GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 제목 표시줄의 업데이트 버튼(⟳)을 주황색으로 표시합니다. 버튼이나 트레이 메뉴의 `업데이트`를 누르면, 최신 버전일 때는 작은 창으로 알려 주고 새 버전이 있을 때만 변경 사항과 설치 단계(다운로드 → 무결성 확인 → 설정 보존 → 재시작·설치)를 보여 주는 창을 엽니다.
 
-- 해당 버전의 이름(예: `FrameDoubler_v102.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
+- 해당 버전의 이름(예: `FrameDoubler_v200.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
 - 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인합니다. 설치는 설치 폴더 옆에 복사한 별도 설치 프로그램이 맡으며, 이 프로그램이 패키지를 다시 확인하고 준비를 마친 뒤에만 FrameDoubler가 종료됩니다.
 - FrameDoubler가 완전히 종료되면 설치 창이 나타나 이전 설치를 백업으로 옮기고 새 버전을 넣습니다. 파일이 잠시 사용 중이면 최대 30초 동안 다시 시도합니다.
 - 새 버전이 열려 시작을 확인해야 설치가 끝납니다. 교체나 시작에 실패하면 이전 설치로 되돌리고 다시 엽니다. 결과는 설치 창과 `work/updates/last-install.json`에 남습니다.
 - 설정과 성능 기록은 새 버전으로 옮깁니다. 설치 폴더 옆에는 가장 최근의 백업(`FrameDoubler.previous-…`) 하나만 남깁니다.
-- 1.0.0과 1.0.1의 자동 업데이트는 `FrameDoubler.zip`이라는 이름의 파일만 찾습니다. 릴리스에 그 이름의 파일이 없으면 위 링크에서 새 ZIP을 받아 새 폴더에 풀고, 이전 폴더의 `settings.json`과 `performance.json`을 새 폴더로 복사합니다.
+- 1.0.2 이상은 버전 ZIP으로 자동 업데이트합니다. 1.0.0과 1.0.1의 자동 업데이트는 `FrameDoubler.zip`이라는 이름의 파일만 찾습니다. 릴리스에 그 이름의 파일이 없으면 위 링크에서 새 ZIP을 받아 새 폴더에 풀고, 이전 폴더의 `settings.json`과 `performance.json`을 새 폴더로 복사합니다.
 
 <img src="docs/img/screen-installer.png" alt="업데이트 설치 창: 종료 대기, 현재 버전 백업, 새 버전 설치, 새 버전 시작 단계" width="420">
 
@@ -239,7 +252,7 @@ Windows 11 x64, `global.json`의 .NET SDK(10.0.404)와 외부 CMake/Ninja·LLVM-
 ```powershell
 pwsh scripts/setup-dev.ps1                                    # 빌드 도구 준비
 dotnet run --project app/FrameDoubler.Tests                   # 테스트
-pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v102.zip) 생성
+pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v200.zip) 생성
 ```
 
 빌드 도구는 프로젝트의 `tools/dev`, 중간 파일은 `build`에 두며 저장소에는 포함하지 않습니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.

@@ -93,7 +93,7 @@ proprietary software under the NVIDIA RTX SDKs License in `licenses/nvidia-dlss/
 is not covered by FrameDoubler's MIT license. FrameDoubler loads the NGX core that is part of
 the installed NVIDIA driver and calls its public entry points; no NVIDIA file is modified and
 no hardware check is bypassed, so the feature runs only where the driver offers it and only up
-to the multiplier the driver reports. Otherwise FrameDoubler's own interpolation is used.
+to the multiplier the driver reports. Otherwise installed NVIDIA VFX is used, or originals are displayed when neither can run.
 Deleting `engine/dlss/` removes the library.
 
 ## NVIDIA Optical Flow interface headers (optional build dependency)
@@ -114,7 +114,7 @@ SHA-256, and keeps five unmodified DLLs of the Video Effects SDK runtime 1.3.0.0
 (`NVVideoEffects.dll`, `nvVFXVideoFrameGeneration.dll`, `NVCVImage.dll`, `nvngxruntime.dll`,
 `cudart64_12.dll`) with NVIDIA's license texts in `accel/nvvfx/`. They are NVIDIA proprietary
 software and are not covered by FrameDoubler's MIT license. FrameDoubler loads them through the
-public C API only and falls back to its own interpolation when they are missing or cannot run.
+public C API only. If neither DLSS nor VFX can run, live capture displays the original pictures.
 The Remove button in the same place deletes them. The runtime needs the Microsoft Visual C++
 runtime (MSVCP140/VCRUNTIME140), which is not included.
 

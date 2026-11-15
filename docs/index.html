@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FrameDoubler · 30fps 게임 녹화를 진짜 60fps로</title>
-<meta name="description" content="60fps로 녹화되었지만 30fps로 보이는 게임 영상에서 중복 프레임을 찾아내고, RIFE AI로 사이의 프레임을 만들어 실제 60fps 영상으로 바꾸는 Windows 프로그램입니다.">
-<meta property="og:title" content="FrameDoubler · 30fps 게임 녹화를 진짜 60fps로">
-<meta property="og:description" content="30fps 게임 녹화 영상을 실제 60fps로. 중복 프레임 감지와 RIFE AI 프레임 보간.">
+<title>FrameDoubler · 실시간 캡처와 프레임 생성 녹화</title>
+<meta name="description" content="캡처 카드 실시간 미리보기, DLSS·VFX 프레임 생성, 중복 제거와 MP4 녹화를 지원하는 Windows 프로그램입니다. RIFE 기반 녹화 파일 변환도 제공합니다.">
+<meta property="og:title" content="FrameDoubler · 실시간 캡처와 프레임 생성 녹화">
+<meta property="og:description" content="실시간 DLSS·VFX 프레임 생성과 캡처 녹화, RIFE 녹화 파일 변환.">
 <meta property="og:image" content="https://deuxdoom.github.io/FrameDoubler/img/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1280">
@@ -239,6 +239,8 @@ html[lang="en"] .lang::before { transform: translateX(100%); }
 .card h3 { position: relative; margin: 12px 0 6px; }
 .card p { position: relative; color: var(--muted); font-size: .93rem; }
 
+@media (min-width: 900px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
 /* numbers */
 .stats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); margin-top: 38px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
@@ -254,7 +256,7 @@ html[lang="en"] .lang::before { transform: translateX(100%); }
 .gallery { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-top: 16px; }
 .gallery figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; transition: transform .25s, border-color .25s; }
 .gallery figure:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
-.gallery img { border-radius: 9px; aspect-ratio: 1475 / 1000; object-fit: cover; object-position: top; width: 100%; }
+.gallery img { border-radius: 9px; aspect-ratio: 1475 / 925; object-fit: contain; object-position: top; width: 100%; }
 .gallery figcaption { color: var(--muted); font-size: .85rem; margin: 8px 4px 2px; }
 
 /* download */
@@ -284,7 +286,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <a class="brand" href="#top"><img src="img/symbol.svg" alt="">FrameDoubler</a>
     <nav>
-      <a class="opt" href="#new" data-i18n="nav.new">1.0.2</a>
+      <a class="opt" href="#new" data-i18n="nav.new">2.0.0</a>
       <a class="opt" href="#why" data-i18n="nav.why">왜 필요한가</a>
       <a class="opt" href="#how" data-i18n="nav.how">작동 방식</a>
       <a class="opt" href="#features" data-i18n="nav.features">기능</a>
@@ -303,21 +305,21 @@ footer a { color: var(--muted); }
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 1.0.2</b><span data-i18n="news.text">안정적인 업데이트 설치 · 버전별 ZIP · settings.ini</span><i aria-hidden="true">→</i></a>
-      <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">게임 녹화 영상을 위한 RIFE 프레임 보간 도구</p>
-      <h1 class="rise" style="--i:2;margin-top:12px"><span data-i18n="hero.title1">30fps 게임 녹화를</span><span class="shine" data-i18n="hero.title2">진짜 60fps로</span></h1>
-      <p class="lead rise" style="--i:3" data-i18n="hero.lead"><span class="s">60fps로 녹화했는데 화면은 30fps로 끊겨 보이시나요?</span> <span class="s">FrameDoubler는 녹화 파일 속의 <b>중복 프레임</b>을 찾아냅니다.</span> <span class="s">그 자리를 AI가 만든 <b>사이의 프레임</b>으로 채웁니다.</span> <span class="s">그래서 실제 60fps 영상이 됩니다.</span></p>
+      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 2.0.0</b><span data-i18n="news.text">실시간 캡처 · 프레임 생성 · 녹화</span><i aria-hidden="true">→</i></a>
+      <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">캡처 미리보기와 게임 녹화 파일 변환</p>
+      <h1 class="rise" style="--i:2;margin-top:12px"><span data-i18n="hero.title1">게임 화면을</span><span class="shine" data-i18n="hero.title2">더 부드럽게</span></h1>
+      <p class="lead rise" style="--i:3" data-i18n="hero.lead"><span class="s">캡처 카드를 연결해 게임 화면을 실시간으로 보세요.</span> <span class="s"><b>DLSS·VFX 프레임 생성</b>과 중복 제거를 적용합니다.</span> <span class="s">처리된 화면과 소리를 그대로 녹화할 수 있습니다.</span> <span class="s">녹화 파일은 RIFE로 부드럽게 변환합니다.</span></p>
       <div class="cta rise" style="--i:4">
-        <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler_v102.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="hero.download">다운로드</span></a>
+        <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.0/FrameDoubler_v200.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="hero.download">다운로드</span></a>
         <a class="btn" href="#why" data-i18n="hero.why">무엇이 다른가요</a>
-        <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v1.0.2</span></a>
+        <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.0</span></a>
       </div>
-      <div class="badges rise" style="--i:5"><span data-i18n="badge.gpu">Vulkan GPU · CPU 대체</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span data-i18n="badge.hdr">HDR → SDR</span><span data-i18n="badge.portable">설치 없이 압축만 풀기</span><span data-i18n="badge.license">MIT 라이선스</span></div>
+      <div class="badges rise" style="--i:5"><span data-i18n="badge.gpu">실시간 DLSS · VFX</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span data-i18n="badge.hdr">PNG · MP4 녹화</span><span data-i18n="badge.portable">설치 없이 압축만 풀기</span><span data-i18n="badge.license">MIT 라이선스</span></div>
     </div>
 
     <div class="demo">
       <div class="demo-head">
-        <strong data-i18n="demo.title">실제 녹화로 비교하기</strong>
+        <strong data-i18n="demo.title">녹화 파일 변환 비교 · RIFE</strong>
         <div class="toggle" role="group" aria-label="재생 속도" data-i18n-attr="aria-label:demo.speed">
           <button type="button" data-rate="1" aria-pressed="true" data-i18n="demo.real">실제 속도</button>
           <button type="button" data-rate="0.5" aria-pressed="false">1/2</button>
@@ -337,21 +339,23 @@ footer a { color: var(--muted); }
 
 <section id="new">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="new.eyebrow">1.0.1 · 1.0.2 새 기능</p>
-    <h2 class="reveal" data-i18n="new.title">처음 쓰는 사람도, 원본 그대로</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">기본 프리셋은 원본의 해상도, 코덱, 비트레이트를 유지하고 프레임만 채웁니다.</span> <span class="s">HDR 영상, 대기열, 설정과 종료까지 1.0.1에서 함께 다듬었습니다.</span> <span class="s">1.0.2부터는 업데이트를 별도 설치 창에서 진행하고, 실패하면 되돌립니다.</span></p>
+    <p class="eyebrow reveal" data-i18n="new.eyebrow">2.0.0 새 기능</p>
+    <h2 class="reveal" data-i18n="new.title">캡처 카드에서 미리보기와 녹화까지</h2>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">캡처 미리보기를 기본 화면으로 제공합니다.</span> <span class="s">프레임 생성과 중복 제거는 필요할 때 켜고, 선택한 설정은 기억합니다.</span> <span class="s">기존 녹화 파일 변환은 제목 표시줄에서 바로 전환합니다.</span></p>
     <div class="tiles">
-      <article class="tile reveal" style="--i:0"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M9 12h6M12 9v6"/></svg></span><h3 data-i18n="new1.title">원본 유지 프리셋</h3><p data-i18n="new1.text">해상도와 가능한 원본 코덱, 비트레이트를 그대로 두고 보간만 합니다. 오디오는 손대지 않고 그대로 넘깁니다. fps에 비례해 비트레이트를 늘리는 원본 프리셋과 YouTube 4K·1080p 프리셋도 있습니다.</p></article>
-      <article class="tile reveal" style="--i:1"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><h3 data-i18n="new2.title">HDR 영상도 바로 변환</h3><p data-i18n="new2.text">HLG·PQ HDR 영상을 SDR(BT.709)로 톤 매핑해 변환합니다. 목록에는 HDR(HLG) → SDR처럼 표시하고, 썸네일도 변환된 색으로 보여 줍니다.</p></article>
-      <article class="tile reveal" style="--i:2"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="5" rx="1.5"/><rect x="3" y="10.5" width="7" height="5" rx="1.5"/><path d="M13 6.5h8M13 13h8M13 19.5h8M3 19.5h7"/></svg></span><h3 data-i18n="new3.title">썸네일과 대기열</h3><p data-i18n="new3.text">영상마다 대표 장면과 번호를 보여 줍니다. 끌어서 순서를 바꾸고, 전체를 일괄 변환하거나 고른 영상만 선택 변환합니다.</p></article>
-      <article class="tile reveal" style="--i:3"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span><h3 data-i18n="new4.title">설정 창과 깔끔한 종료</h3><p data-i18n="new4.text">고급 옵션과 창·트레이 동작을 설정 창에 모았습니다. 종료하거나 비정상 종료되어도 FFmpeg와 보간 엔진이 남지 않고, 중복 실행하면 기존 창을 엽니다.</p></article>
+      <article class="tile reveal" style="--i:0"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M9 12h6M12 9v6"/></svg></span><h3 data-i18n="new1.title">실시간 프레임 생성</h3><p data-i18n="new1.text">자동은 DLSS FG를 먼저 쓰고, 실행할 수 없으면 설치된 VFX를 사용합니다. 기본은 2배이며 VFX는 3·4배도 지원합니다. DLSS 배율은 드라이버의 실제 지원 범위를 따릅니다.</p></article>
+      <article class="tile reveal" style="--i:1"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><h3 data-i18n="new2.title">캡처 카드 호환성</h3><p data-i18n="new2.text">Media Foundation과 DirectShow 입력을 지원합니다. 같은 이름의 카드는 장치 경로로 구분하고, 다른 장치로 잘못 대체하지 않습니다. NV12·YUY2·UYVY·RGB와 I420·YV12 SDR 입력을 처리합니다.</p></article>
+      <article class="tile reveal" style="--i:2"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="5" rx="1.5"/><rect x="3" y="10.5" width="7" height="5" rx="1.5"/><path d="M13 6.5h8M13 13h8M13 19.5h8M3 19.5h7"/></svg></span><h3 data-i18n="new3.title">화면과 소리 함께 녹화</h3><p data-i18n="new3.text">3초 카운트다운 뒤 처리 화면을 H.264·HEVC와 AAC MP4로 저장합니다. 하드웨어 인코더를 사용하고 영상은 일정한 프레임 간격으로 기록합니다. 원본 해상도 PNG 스크린샷도 지원합니다.</p></article>
+      <article class="tile reveal" style="--i:3"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span><h3 data-i18n="new4.title">작은 창, 선명한 글자</h3><p data-i18n="new4.text">작업 영역과 Windows 배율에 맞춘 고정 창에 Pretendard 글꼴을 적용했습니다. 화면 지연, GPU 사용률, 실제 바뀐 프레임 수를 표시합니다. 미리보기를 더블클릭하면 전체 화면이 됩니다.</p></article>
+      <article class="tile reveal" style="--i:4"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="3"/><path d="M8 21h8M12 18v3"/></svg></span><h3 data-i18n="new5.title">오디오와 표시 설정</h3><p data-i18n="new5.text">캡처 카드 소리를 화면 지연에 맞춰 재생하고, Windows 기본 출력 또는 지정한 장치를 사용합니다. VSync·출력 상한·화면 비율·원본 비교와 사용자 지정 단축키를 제공합니다.</p></article>
+      <article class="tile reveal" style="--i:5"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="3"/><path d="M8 21h8M12 18v3"/></svg></span><h3 data-i18n="new6.title">파일 변환도 더 정확하게</h3><p data-i18n="new6.text">두 RIFE 모델은 FP32 저장·연산을 사용하며 원본 해상도에서 보간합니다. GPU 입력 변환과 엔진 병렬 처리로 불필요한 비용을 줄이고, 선택형 RTX 가속도 설치할 수 있습니다.</p></article>
     </div>
   </div>
 </section>
 
 <section id="why">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="why.eyebrow">문제</p>
+    <p class="eyebrow reveal" data-i18n="why.eyebrow">파일 변환 · 중복 프레임</p>
     <h2 class="reveal" data-i18n="why.title">60fps 파일 안에는 같은 그림이 두 번씩 들어 있습니다</h2>
     <p class="lead reveal" style="margin-top:16px" data-i18n="why.lead1"><span class="s">콘솔 게임이 30fps로 동작하면, 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다.</span> <span class="s">파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps입니다.</span> <span class="s">유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.</span></p>
     <div class="strip-box reveal" id="strip">
@@ -382,7 +386,7 @@ footer a { color: var(--muted); }
 
 <section id="how">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="how.eyebrow">작동 방식</p>
+    <p class="eyebrow reveal" data-i18n="how.eyebrow">파일 변환 · 작동 방식</p>
     <h2 class="reveal" data-i18n="how.title">분석부터 검증까지, 한 번에</h2>
     <ol class="steps">
       <li class="reveal" style="--i:0"><h3 data-i18n="step1.title">입력과 장치 분석</h3><p data-i18n="step1.text"><span class="s">영상의 해상도, 코덱, 프레임레이트, 비트 심도, 색상 정보를 읽습니다.</span> <span class="s">이 PC에서 실제로 동작하는 GPU와 인코더를 시험하여 고릅니다.</span></p></li>
@@ -397,7 +401,7 @@ footer a { color: var(--muted); }
 
 <section>
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="results.eyebrow">측정 결과</p>
+    <p class="eyebrow reveal" data-i18n="results.eyebrow">RIFE 파일 변환 측정 결과</p>
     <h2 class="reveal" data-i18n="results.title">실제 4K 게임 녹화로 확인했습니다</h2>
     <div class="stats">
       <div class="stat reveal" style="--i:0"><div class="num"><span data-count="29.81" data-digits="2">29.81</span><small>fps</small></div><p data-i18n="stat1.text"><span class="s">추정한 실제 움직임입니다.</span> <span class="s">파일은 60fps지만 움직임은 30fps였습니다.</span></p></div>
@@ -411,7 +415,7 @@ footer a { color: var(--muted); }
 
 <section id="features">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="features.eyebrow">기능</p>
+    <p class="eyebrow reveal" data-i18n="features.eyebrow">녹화 파일 변환 기능</p>
     <h2 class="reveal" data-i18n="features.title">영상을 끌어다 놓으면 끝납니다</h2>
     <div class="grid">
       <article class="card reveal" style="--i:0"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><h3 data-i18n="card1.title">자동 분석</h3><p data-i18n="card1.text"><span class="s">코덱, 비트레이트, 길이와 함께 파일의 fps와 추정한 움직임 fps를 나란히 보여 줍니다.</span> <span class="s">1~2시간 녹화도 여러 구간만 읽어 바로 분석합니다.</span></p></article>
@@ -433,16 +437,16 @@ footer a { color: var(--muted); }
 <section id="screens">
   <div class="wrap">
     <p class="eyebrow reveal" data-i18n="screens.eyebrow">실제 화면</p>
-    <h2 class="reveal" data-i18n="screens.title">파일 fps와 움직임 fps를 한눈에</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">분석이 끝나면 이 영상이 어떤 파일인지, 무엇을 할 것인지 바로 알 수 있습니다.</span> <span class="s">기본 화면에는 프레임레이트, 프리셋, 저장 폴더, 검증, 예상 소요 시간만 보여 줍니다.</span> <span class="s">장치와 인코더 같은 세부 옵션은 설정 창의 고급에 있습니다.</span></p>
+    <h2 class="reveal" data-i18n="screens.title">실시간 상태를 한눈에</h2>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="screens.lead"><span class="s">실제 캡처 카드 입력을 띄운 FrameDoubler 화면입니다.</span> <span class="s">미리보기 옆에서 프레임 생성·화질·색·오디오·표시를 조절합니다.</span> <span class="s">하단에서 지연과 GPU 사용률, 표시 속도를 확인합니다.</span></p>
     <div class="shot-wrap reveal">
-      <img class="shot" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1475" height="1000" loading="lazy"
-           alt="FrameDoubler 메인 화면: 영상 썸네일, 출력 프리셋, 예상 시간과 구간 검증 결과" data-i18n-attr="alt:screens.alt">
+      <img class="shot" src="img/screenshot.png" data-en-src="img/screenshot-en.png" width="1770" height="1110" loading="lazy"
+           alt="실제 캡처 카드의 DLSS 미리보기와 지연·GPU·표시 속도" data-i18n-attr="alt:screens.alt">
     </div>
     <div class="gallery">
-      <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" data-en-src="img/screen-en.png" width="1475" height="1000" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" data-i18n-attr="alt:gallery1.alt"><figcaption data-i18n="gallery1.caption">끌어 놓거나 클릭하여 영상을 추가합니다.</figcaption></figure>
-      <figure class="reveal" style="--i:1"><img src="img/screen-en.png" data-en-src="img/screen-empty.png" width="1475" height="1000" loading="lazy" alt="영어로 표시한 FrameDoubler 화면" data-i18n-attr="alt:gallery2.alt"><figcaption data-i18n="gallery2.caption">한국어와 영어를 바로 전환합니다.</figcaption></figure>
-      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" data-en-src="img/screen-update-en.png" width="900" height="775" loading="lazy" alt="새 버전의 변경 사항과 설치 단계가 있는 업데이트 창" data-i18n-attr="alt:gallery3.alt"><figcaption data-i18n="gallery3.caption">새 버전이 있으면 변경 사항과 설치 단계를 보여 줍니다.</figcaption></figure>
+      <figure class="reveal" style="--i:0"><img src="img/screen-empty.png" data-en-src="img/screen-en.png" width="1770" height="1110" loading="lazy" alt="영상을 끌어 놓거나 클릭하여 선택하는 첫 화면" data-i18n-attr="alt:gallery1.alt"><figcaption data-i18n="gallery1.caption">제목 표시줄에서 파일 변환으로 전환합니다.</figcaption></figure>
+      <figure class="reveal" style="--i:1"><img src="img/screen-settings.png" data-en-src="img/screen-settings-en.png" width="1110" height="780" loading="lazy" alt="캡처 저장 위치와 녹화 형식을 고르는 설정 창" data-i18n-attr="alt:gallery2.alt"><figcaption data-i18n="gallery2.caption">저장 위치와 녹화 형식은 설정에서 고릅니다.</figcaption></figure>
+      <figure class="reveal" style="--i:2"><img src="img/screen-update.png" data-en-src="img/screen-update-en.png" width="1080" height="930" loading="lazy" alt="새 버전의 변경 사항과 설치 단계가 있는 업데이트 창" data-i18n-attr="alt:gallery3.alt"><figcaption data-i18n="gallery3.caption">업데이트 창 예시 · 변경 사항과 설치 단계를 보여 줍니다.</figcaption></figure>
     </div>
   </div>
 </section>
@@ -455,28 +459,28 @@ footer a { color: var(--muted); }
       <div class="panel main reveal">
         <div class="panel-head">
           <h3 data-i18n="start.title">시작하기</h3>
-          <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v1.0.2</span></a>
+          <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.0</span></a>
         </div>
         <div class="cta">
-          <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v1.0.2/FrameDoubler_v102.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download.button">다운로드</span></a>
+          <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.0/FrameDoubler_v200.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download.button">다운로드</span></a>
           <a class="btn" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span data-i18n="download.release">릴리스 페이지</span></a>
         </div>
         <ol>
-          <li data-i18n="start.step1">위 <b>다운로드</b> 버튼으로 프로그램을 받습니다(약 208MB).</li>
-          <li data-i18n="start.step2"><span class="s">원하는 위치에 압축을 풉니다.</span> <span class="s">풀린 <code>FrameDoubler</code> 폴더는 통째로 유지합니다(약 460MB).</span></li>
-          <li data-i18n="start.step3"><code>FrameDoubler.exe</code>를 실행하고 영상을 끌어다 놓습니다.</li>
+          <li data-i18n="start.step1">위 <b>다운로드</b> 버튼으로 프로그램을 받습니다(약 264MB).</li>
+          <li data-i18n="start.step2">원하는 위치에 압축을 풉니다. 풀린 <code>FrameDoubler</code> 폴더는 통째로 유지합니다(약 536MB).</li>
+          <li data-i18n="start.step3"><code>FrameDoubler.exe</code>를 실행하고 캡처 장치와 모드를 확인합니다.</li>
         </ol>
-        <p class="note" data-i18n="start.note"><span class="s">.NET 런타임, RIFE 모델 두 가지, FFmpeg가 모두 들어 있습니다.</span> <span class="s">Python, CUDA Toolkit, 별도 SDK를 설치하거나 모델을 따로 다운로드할 필요가 없습니다.</span></p>
+        <p class="note" data-i18n="start.note">실행에 필요한 .NET·RIFE 모델·FFmpeg·DLSS 라이브러리가 포함됩니다. VFX와 파일 변환용 RTX 가속은 라이선스 동의 후 선택 설치합니다.</p>
       </div>
       <div class="panel reveal" style="--i:1">
         <h3 data-i18n="req.title">필요한 환경</h3>
         <ul>
-          <li data-i18n="req.os"><b>Windows</b> 64비트 PC</li>
-          <li data-i18n="req.gpu"><span class="s"><b>Vulkan을 지원하는 GPU</b>와 최신 드라이버 권장 (NVIDIA, AMD, Intel).</span> <span class="s">없으면 CPU로 처리하며 크게 느려집니다.</span></li>
-          <li data-i18n="req.sdr">SDR · HDR(HLG/PQ → SDR) 영상</li>
+          <li data-i18n="req.os"><b>Windows 11 x64</b> PC</li>
+          <li data-i18n="req.gpu">실시간 프레임 생성은 지원 GPU·드라이버의 DLSS 또는 VFX를 사용합니다. 파일 변환은 Vulkan GPU를 권장하며, 사용할 수 없으면 CPU로 처리합니다.</li>
+          <li data-i18n="req.sdr">캡처는 SDR 입력과 하드웨어 H.264·HEVC 녹화를 지원합니다. 파일 변환은 HDR(HLG·PQ)을 SDR로 바꿉니다.</li>
         </ul>
         <h3 style="margin-top:22px" data-i18n="verify.title">파일 검증</h3>
-        <pre>Get-FileHash <b data-zip-name>FrameDoubler_v102.zip</b> -Algorithm SHA256</pre>
+        <pre>Get-FileHash <b data-zip-name>FrameDoubler_v200.zip</b> -Algorithm SHA256</pre>
         <p class="note" data-i18n="verify.note">SHA-256 값은 릴리스 페이지의 설명에서 확인합니다.</p>
       </div>
     </div>
@@ -497,29 +501,32 @@ footer a { color: var(--muted); }
   /* ---------- Language (Korean in the markup, English below) ---------- */
   const s = (...sentences) => sentences.map(text => `<span class="s">${text}</span>`).join(" ");
   const EN = {
-    "meta.title": "FrameDoubler · Real 60fps from 30fps game recordings",
-    "meta.description": "FrameDoubler finds the duplicate frames in 60fps recordings of 30fps games and fills them with RIFE AI frames to make real 60fps video on Windows.",
-    "nav.new": "1.0.2", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
-    "news.badge": "New 1.0.2", "news.text": "Reliable update installer · versioned ZIP · settings.ini",
-    "hero.eyebrow": "RIFE frame interpolation for game recordings",
-    "hero.title1": "30fps game recordings", "hero.title2": "to real 60fps",
-    "hero.lead": s("Recorded at 60fps, but it still looks like 30fps?", "FrameDoubler finds the <b>duplicate frames</b> in the file.",
-                   "It fills their place with <b>in-between frames</b> made by AI.", "The result is real 60fps video."),
+    "new6.text": "Both RIFE models use FP32 storage and arithmetic at source resolution. GPU input conversion and parallel workers reduce processing overhead. A compatible optional RTX add-on can also be installed.",
+    "new6.title": "More precise file conversion",
+    "new5.text": "Plays the card audio with a delay matched to the picture, through the Windows default output or a selected device. Includes VSync, display caps, aspect modes, original comparison and configurable shortcuts.",
+    "new5.title": "Audio and display controls",
+    "meta.title": "FrameDoubler · Live capture, frame generation and recording",
+    "meta.description": "Windows capture card preview with DLSS/VFX frame generation, deduplication and MP4 recording, plus RIFE conversion for recorded files.",
+    "nav.new": "2.0.0", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
+    "news.badge": "New 2.0.0", "news.text": "Live capture · frame generation · recording",
+    "hero.eyebrow": "Live capture preview and game recording conversion",
+    "hero.title1": "Your game, live", "hero.title2": "with smoother motion",
+    "hero.lead": "<span class=\"s\">Connect a capture card and preview your game live.</span> <span class=\"s\">Apply <b>DLSS/VFX frame generation</b> and deduplication.</span> <span class=\"s\">Record the processed picture together with its sound.</span> <span class=\"s\">Convert recorded files with RIFE interpolation.</span>",
     "hero.download": "Download", "hero.why": "What makes it different", "ver.latest": "Latest",
-    "badge.gpu": "Vulkan GPU · CPU fallback", "badge.hdr": "HDR → SDR", "badge.portable": "Unzip and run", "badge.license": "MIT license",
-    "demo.title": "Compare on a real recording", "demo.speed": "Playback speed", "demo.real": "Real speed",
+    "badge.gpu": "Live DLSS · VFX", "badge.hdr": "PNG · MP4 recording", "badge.portable": "Unzip and run", "badge.license": "MIT license",
+    "demo.title": "File conversion comparison · RIFE", "demo.speed": "Playback speed", "demo.real": "Real speed",
     "demo.video": "The original recording and the FrameDoubler output of the same section, stacked top and bottom",
     "tag.original": "Original recording<small>file 60fps · motion 30fps</small>",
     "tag.output": "FrameDoubler<small>file 60fps · motion 60fps</small>",
     "demo.note": s("The same section of a 4K Fire Emblem Fortune’s Weave recording.", "If the difference is hard to see, slow it down.",
                    "At real speed the difference shows on 60Hz or faster displays."),
-    "new.eyebrow": "New in 1.0.1 · 1.0.2", "new.title": "Easy from the first run, true to the source",
-    "new.lead": s("The default preset keeps the source resolution, codec and bitrate and only adds frames.", "HDR video, the queue, settings and exit were refined in 1.0.1 as well.", "From 1.0.2, updates run in a separate installer window and roll back on failure."),
-    "new1.title": "Source presets", "new1.text": "Keeps the resolution and, when possible, the source codec and bitrate, and only interpolates. Audio passes through untouched. A source preset that scales the bitrate with fps and YouTube 4K and 1080p presets are also included.",
-    "new2.title": "HDR video, converted", "new2.text": "HLG and PQ HDR video is tone-mapped to SDR (BT.709) for conversion. The list shows HDR(HLG) → SDR, and thumbnails use the converted colours.",
-    "new3.title": "Thumbnails and queue", "new3.text": "Every video shows a representative frame and a number. Drag to reorder, then convert all in order or only the selected ones.",
-    "new4.title": "Settings window, clean exit", "new4.text": "Advanced options and window and tray behaviour live in one settings window. FFmpeg and the engine never linger after an exit or crash, and a second launch opens the existing window.",
-    "why.eyebrow": "The problem", "why.title": "A 60fps file can hold every picture twice",
+    "new.eyebrow": "New in 2.0.0", "new.title": "From capture card to preview and recording",
+    "new.lead": "<span class=\"s\">The capture preview is now the default page.</span> <span class=\"s\">Turn on frame generation and deduplication when needed; your choices are remembered.</span> <span class=\"s\">Switch to file conversion directly from the title bar.</span>",
+    "new1.title": "Live frame generation", "new1.text": "Automatic tries DLSS FG first, then installed VFX. The default is 2×; VFX also supports 3× and 4×. DLSS multipliers follow the capabilities reported by the driver.",
+    "new2.title": "Capture card compatibility", "new2.text": "Supports Media Foundation and DirectShow input. Device paths distinguish cards with identical names and prevent a fallback to the wrong device. Processes NV12, YUY2, UYVY, RGB, I420 and YV12 SDR input.",
+    "new3.title": "Record picture and sound", "new3.text": "After a three-second countdown, records processed video as H.264/HEVC with AAC in MP4. Uses a hardware encoder and a constant frame-rate timeline. Full-resolution PNG screenshots are also included.",
+    "new4.title": "Compact window, clear text", "new4.text": "A fixed window adapts to the work area and Windows scaling, using the bundled Pretendard font. Shows display latency, GPU usage and the rate of changed pictures. Double-click the preview for full screen.",
+    "why.eyebrow": "File conversion · duplicate frames", "why.title": "A 60fps file can hold every picture twice",
     "why.lead1": s("When a console game runs at 30fps, the capture card receives each picture twice and saves a 60fps file.",
                    "The file says 60fps, but the motion is still 30fps.", "Uploading it to YouTube does not make it any smoother."),
     "strip.original": "<b>Original recording</b>30fps motion", "strip.output": "<b>FrameDoubler</b>60fps motion",
@@ -531,7 +538,7 @@ footer a { color: var(--muted); }
     "slow.left": "Original · 30fps motion", "slow.right": "FrameDoubler · 60fps motion",
     "slow.caption": s("A 4K Fire Emblem Fortune’s Weave recording at 0.42× speed (25 frames per second) shows every 60fps frame.",
                       "The original on the left shows each picture twice; the output on the right moves every frame."),
-    "how.eyebrow": "How it works", "how.title": "From analysis to verification in one pass",
+    "how.eyebrow": "File conversion · how it works", "how.title": "From analysis to verification in one pass",
     "step1.title": "Input and device analysis",
     "step1.text": s("Reads the resolution, codec, frame rate, bit depth and colour information.", "Tests and picks the GPU and encoder that actually work on this PC."),
     "step2.title": "Estimating the real motion rate",
@@ -544,14 +551,14 @@ footer a { color: var(--muted); }
     "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "Depending on the preset it keeps the source quality or follows YouTube’s recommendations, and keeps the length and audio sync."),
     "step6.title": "Output verification (optional)",
     "step6.text": s("Checks one minute at the start, middle and end (up to three minutes; overlaps merged).", "Global metadata is also checked, but errors outside the samples may be missed."),
-    "results.eyebrow": "Results", "results.title": "Tested on a real 4K game recording",
+    "results.eyebrow": "RIFE file conversion results", "results.title": "Tested on a real 4K game recording",
     "stat1.text": s("The estimated real motion.", "The file was 60fps, but the motion was 30fps."),
     "stat2.unit": "frames", "stat2.text": s("New in-between frames.", "They fill the duplicate slots among 1,283 frames."),
     "stat3.text": s("Moving duplicates left after conversion.", "Within the verification limit of 1%."),
     "stat4.text": s("Length difference from the original.", "Audio sync shifted by at most 6.83ms."),
     "results.note": s("Results from a 21-second 3840×2160, 60fps recording of Fire Emblem Fortune’s Weave.", "Converted and verified on the development PC.",
                       "Results and processing speed vary with the content and hardware."),
-    "features.eyebrow": "Features", "features.title": "Drop in a video and you are done",
+    "features.eyebrow": "Recording file conversion features", "features.title": "Drop in a video and you are done",
     "card1.title": "Automatic analysis", "card1.text": s("Shows codec, bitrate and length with the file fps and the estimated motion fps side by side.", "Even one- or two-hour recordings are analysed right away from a few sampled sections."),
     "card2.title": "Duplicates and still screens", "card2.text": "Tells dropped-frame repeats apart from still screens such as pause menus.",
     "card3.title": "Scene change protection", "card3.text": s("Does not interpolate at a cut.", "No frame shows two scenes overlapping."),
@@ -564,23 +571,22 @@ footer a { color: var(--muted); }
     "card10.title": "Queue and command line", "card10.text": s("Lists videos with thumbnails, lets you drag them into order and converts all or only the selected ones in that order.", "The bundled command-line tool can process a whole folder."),
     "card11.title": "Portable, with verified updates", "card11.text": "Settings (settings.ini) and history stay next to the executable. Updates verify every file hash, are swapped in by a separate installer window after FrameDoubler exits, and roll back if anything fails.",
     "card12.title": "Tray, Korean and English", "card12.text": "Minimize keeps the window in the taskbar by default; the tray is optional in Settings. A second launch activates the existing window. The interface and tray menu support Korean and English.",
-    "screens.eyebrow": "Screenshots", "screens.title": "File fps and motion fps at a glance",
-    "screens.lead": s("After analysis you can see what the file is and what will happen to it.", "The main screen shows only frame rate, preset, output folder, verification and the time estimate.",
-                      "Device and encoder options live under Advanced in the settings window."),
-    "screens.alt": "FrameDoubler main window: video thumbnail, export preset, time estimate and sample verification result",
-    "gallery1.alt": "First screen for dropping or choosing videos", "gallery1.caption": "Drop or click to add videos.",
-    "gallery2.alt": "FrameDoubler shown in Korean", "gallery2.caption": "Switch between Korean and English instantly.",
-    "gallery3.alt": "Update window with the release notes and installation steps", "gallery3.caption": "A new version shows its changes and installation steps.",
+    "screens.eyebrow": "Screenshots", "screens.title": "See the live status at a glance",
+    "screens.lead": "<span class=\"s\">FrameDoubler showing input from a real capture card.</span> <span class=\"s\">Adjust frame generation, quality, colour, audio and display beside the preview.</span> <span class=\"s\">Check latency, GPU usage and display rate below.</span>",
+    "screens.alt": "Live DLSS preview from a real capture card with latency, GPU usage and display rate",
+    "gallery1.alt": "File conversion page for dropping or choosing videos", "gallery1.caption": "Switch to file conversion from the title bar.",
+    "gallery2.alt": "Capture settings for save locations and recording format", "gallery2.caption": "Choose save locations and recording format in Settings.",
+    "gallery3.alt": "Update window with the release notes and installation steps", "gallery3.caption": "Example update window with changes and installation steps.",
     "download.eyebrow": "Download", "download.title": "No installer, just unzip",
     "download.button": "Download", "download.release": "Release page", "download.notes": "Release details",
     "start.title": "Getting started",
-    "start.step1": 'Get the program with the <b>Download</b> button above (about 208MB).',
-    "start.step2": s("Unzip it wherever you like.", "Keep the extracted <code>FrameDoubler</code> folder together (about 460MB)."),
-    "start.step3": "Run <code>FrameDoubler.exe</code> and drop in your videos.",
-    "start.note": s("The .NET runtime, both RIFE models and FFmpeg are included.", "There is no need to install Python, the CUDA Toolkit or another SDK, or to download models."),
-    "req.title": "Requirements", "req.os": "A 64-bit <b>Windows</b> PC",
-    "req.gpu": s("<b>A GPU with Vulkan support</b> and a current driver recommended (NVIDIA, AMD, Intel).", "Without one, processing runs on the CPU and is much slower."),
-    "req.sdr": "SDR or HDR video (HLG/PQ converted to SDR)",
+    "start.step1": "Get the program with the <b>Download</b> button above (about 264MB).",
+    "start.step2": "Unzip it wherever you like. Keep the extracted <code>FrameDoubler</code> folder together (about 536MB).",
+    "start.step3": "Run <code>FrameDoubler.exe</code> and check the capture device and mode.",
+    "start.note": "The .NET runtime, RIFE models, FFmpeg and DLSS library are included. VFX and the optional RTX file-conversion add-on are downloaded after license consent.",
+    "req.title": "Requirements", "req.os": "A <b>Windows 11 x64</b> PC",
+    "req.gpu": "Live frame generation uses DLSS or VFX on a compatible GPU and driver. File conversion recommends a Vulkan GPU and falls back to the CPU when unavailable.",
+    "req.sdr": "Capture supports SDR input and hardware H.264/HEVC recording. File conversion tone-maps HDR (HLG/PQ) to SDR.",
     "verify.title": "File verification", "verify.note": "The SHA-256 value is in the description on the release page.",
     "footer.credit": 'FrameDoubler · MIT license · Uses <a href="https://github.com/hzwer/Practical-RIFE">Practical-RIFE</a> models for interpolation and <a href="https://github.com/Tencent/ncnn">ncnn</a> for inference.',
     "footer.changelog": "Changelog", "footer.notices": "Open source notices",
@@ -684,7 +690,7 @@ footer a { color: var(--muted); }
       if (release && /^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
         document.querySelectorAll("[data-latest-version]").forEach(element => element.textContent = release.tag_name);
         document.querySelectorAll("[data-release-notes]").forEach(element => element.href = `https://github.com/deuxdoom/FrameDoubler/releases/tag/${release.tag_name}`);
-        // From 1.0.2 the package name carries the version (FrameDoubler_v102.zip); 1.0.0/1.0.1 used FrameDoubler.zip.
+        // From 1.0.2 the package name carries the version; 1.0.0/1.0.1 used FrameDoubler.zip.
         const [major, minor, patch] = release.tag_name.slice(1).split(".").map(Number);
         const versioned = major > 1 || (major === 1 && (minor > 0 || patch >= 2));
         const name = versioned ? `FrameDoubler_v${major}${minor}${patch}.zip` : "FrameDoubler.zip";

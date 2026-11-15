@@ -9,9 +9,12 @@ see that file for the matrix and procedure.
 
 FrameDoubler opens on the capture preview (switch to "Convert files" in the title bar; the last
 page is remembered). It automatically starts the selected supported capture card, including
-on first launch. Choose another card or exact mode as needed (NV12, YUY2, UYVY or RGB32;
+on first launch. Choose another card or exact mode as needed (NV12, YUY2, UYVY, RGB32, RGB24, I420 or YV12;
 compressed MJPG modes are not listed and HDR/P010 remains unavailable). Media Foundation
-is preferred; devices exposed only through DirectShow are also listed. The picture is processed on the GPU:
+is preferred; devices exposed only through DirectShow are also listed. Selections keep the device
+path as well as its name. A failed MF open tries only the same device and exact mode through
+DirectShow; ambiguous identical names never switch to another card. DirectShow entries remain
+visible when they expose additional usable modes. Ambiguous audio matches require manual selection. The picture is processed on the GPU.
 
 The app includes Pretendard JP Variable for Latin, Hangul and Japanese text and file names; no font installation is needed.
 
@@ -57,15 +60,21 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
   generation, F10 statistics, V original) can be changed under Settings → Shortcuts and,
   optionally, made global.
 
-The preview occupies a centered 16:9 rectangle and double-clicking it toggles full screen.
+The preview occupies a 16:9 rectangle and double-clicking it toggles full screen.
 The compact main window has a fixed size that fits the monitor's work area and Windows
 scale; its controls scale separately from the native preview. Minimize and move remain available.
 The two panels below show signal and processing time, and preview status: estimated picture
-delay in milliseconds, measured GPU usage including other apps, and display submissions per
-second against the target. The graph shows the last minute of display rate with a dashed
-target line. Tooltips explain the measurements and show long names and status messages.
+delay in milliseconds, measured GPU usage including other apps, and pictures per
+second that changed from the previous picture, including zero. The graph shows the last
+minute of that display rate. Tooltips explain the measurements and show long names and status messages.
 The recording timer includes hours for long sessions. Only the development PC's capture
 card has been tested; other cards and GPUs are unverified.
+
+Capture recording requires a working Media Foundation hardware H.264/HEVC encoder; it does
+not fall back to software encoding. Display latency runs from the capture callback to the
+display refresh and excludes the card transfer and monitor processing. Vendor-only
+DeckLink/Magewell SDK sources, compressed-only video modes and vendor-specific audio
+paths are not included.
 
 ## Converting files
 
@@ -168,7 +177,7 @@ another GUI instance. Close behavior is configurable in Settings. FFmpeg and eng
 are in a kill-on-close job, so none survive an exit or crash. The Updates button
 checks stable releases: when up to date it only says so; a newer release opens
 the notes and download/verify/keep-settings/restart steps. It installs only the asset
-named for that release (`FrameDoubler_v102.zip` for 1.0.2) from that exact tag, with a
+named for that release (`FrameDoubler_v200.zip` for 2.0.0) from that exact tag, with a
 GitHub SHA-256 digest and a matching native manifest. A copy of the installer runs beside
 the installation, re-checks every file and confirms it is ready before FrameDoubler exits.
 After the exact process has exited, an installer window moves the old folder to a backup
@@ -186,8 +195,8 @@ dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --integration --pipeline
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --long
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --installer
-dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler_v102.zip
-dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --launcher-package dist/FrameDoubler dist/FrameDoubler_v102.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler_v200.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --launcher-package dist/FrameDoubler dist/FrameDoubler_v200.zip
 pwsh scripts/setup-dev.ps1
 pwsh scripts/build.ps1
 ```
@@ -198,7 +207,7 @@ Hangul/space path without PATH or a global .NET and drives the real GUI update f
 Build tools are kept in the project but not in the repository, and do not install Torch or Qt.
 The build uses converted MIT models, the existing FFmpeg executables and
 pinned external ncnn/compiler sources described in `poc/ncnn-rife/README.md`.
-The installer-size recommendation is about 500MB including runtime and models.
+The extracted package is about 536MB; the version ZIP is about 264MB, including runtime and models.
 FFmpeg remains separate and replaceable. See `THIRD_PARTY_NOTICES.md` and `licenses/`.
 Real-hardware verification covers only the development PC; other GPU vendors and
 multi-GPU systems follow `HARDWARE-TESTS.md`. The minimal optional Torch model
