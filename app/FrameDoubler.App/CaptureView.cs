@@ -179,7 +179,7 @@ public sealed class CaptureView:UserControl
         var tabsRow=new UniformGrid{Rows=1,Margin=new Thickness(8,8,8,4)};
         foreach(var (key,ko,en) in new[]{("quality","화질","Quality"),("fg","프레임 생성","Frame Gen"),("color","색","Colour"),("audio","오디오","Audio"),("display","표시","Display")}){
             var rb=new RadioButton{Style=(Style)owner.FindResource("TabSegment"),GroupName="CaptureTabs",IsChecked=key==tab};
-            L(s=>rb.Content=s,ko,en);rb.Checked+=(_,_)=>{tab=key;tabContent.Content=tabPages[key];UpdatePipeline(last);};
+            L(s=>rb.Content=s,ko,en);rb.Checked+=(_,_)=>{tab=key;tabContent.Content=tabPages[key];};
             tabButtons[key]=rb;tabsRow.Children.Add(rb);
         }
         tabContent.Content=tabPages[tab];
@@ -300,8 +300,6 @@ public sealed class CaptureView:UserControl
         var stack=new StackPanel();stack.Children.Add(header);stack.Children.Add(body);
         return new Border{Background=Brush("#20272B"),CornerRadius=new CornerRadius(12),BorderBrush=Brush("#2E373C"),BorderThickness=new Thickness(1),Padding=new Thickness(14,12,14,14),Margin=new Thickness(0,0,0,12),Child=stack};
     }
-    private readonly WrapPanel pipeline=new();
-    private readonly Dictionary<string,(Border chip,TextBlock text,string tab,FrameworkElement? target)> stages=new();
     private readonly TextBlock outputSubtitle=new(),vrrBadgeText=new(),aaSubtitle=new(),aaTime=new(),colorNow=new();
     private readonly Border vrrBadge=new();
     private readonly ComboBox aspectBox=new(){Width=180,Margin=new Thickness(0)},capBox=new(){Width=96,Margin=new Thickness(8,0,0,0)};
@@ -344,13 +342,7 @@ public sealed class CaptureView:UserControl
                 "Repeats of a 30/40 fps game in a 60 Hz signal are found by comparing whole pictures; interpolation follows the time each picture really changed. Still scenes get no invented frames.",null),contentHint);
         var fgPage=new StackPanel();fgPage.Children.Add(fgCardRef);fgPage.Children.Add(dedupCardRef);tabPages["fg"]=fgPage;
 
-        // ---- Quality: processing order, then anti-aliasing
-        var order=new StackPanel();
-        var orderHead=new Grid();orderHead.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});orderHead.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        orderHead.Children.Add(Label("처리 순서","Processing order",12,Faint));
-        var locate=Label("누르면 해당 설정으로 이동","Click to locate",11.5,Faint);Grid.SetColumn(locate,1);orderHead.Children.Add(locate);
-        order.Children.Add(orderHead);order.Children.Add(pipeline);pipeline.Margin=new Thickness(0,8,0,0);
-        var orderCard=new Border{Background=Brush("#171C20"),CornerRadius=new CornerRadius(12),BorderBrush=Line,BorderThickness=new Thickness(1),Padding=new Thickness(14,12,14,10),Margin=new Thickness(0,0,0,12),Child=order};
+        // ---- Quality
         var aaToggle=Toggle("aa",options.AntiAlias>0,on=>{int v=on?Math.Max(1,lastAa):0;SetOptions(options with{AntiAlias=v},q=>q with{LiveAntiAlias=v});});
         aaSubtitle.FontSize=11.5;aaSubtitle.Foreground=Faint;
         var methodChip=new TextBlock();L(t=>methodChip.Text=t,"경계 추적","Edge tracing");
@@ -367,7 +359,7 @@ public sealed class CaptureView:UserControl
                     ("1","낮음","Low"),("2","보통","Medium"),("3","높음","High")),stacked:true),
             OptionRow("적용 위치","Applied at",null,null,where),OptionRow("입력·변환·AA GPU 시간","Input·convert·AA GPU time",null,null,aaTime));
         LiveSubtitle(aaCardRef,aaSubtitle);
-        var qualityPage=new StackPanel();qualityPage.Children.Add(orderCard);qualityPage.Children.Add(aaCardRef);tabPages["quality"]=qualityPage;
+        var qualityPage=new StackPanel();qualityPage.Children.Add(aaCardRef);tabPages["quality"]=qualityPage;
         lastAa=Math.Max(1,options.AntiAlias);
 
         // ---- Colour
@@ -455,33 +447,8 @@ public sealed class CaptureView:UserControl
         var saveCard=Card("","저장 위치","Save locations","설정에서 바꿀 수 있습니다","Changeable in Settings",null,saveText,folders);
         var displayPage=new StackPanel();displayPage.Children.Add(outputCard);displayPage.Children.Add(viewCard);displayPage.Children.Add(saveCard);tabPages["display"]=displayPage;
 
-        // Pipeline chips (built after the cards they point to).
-        void Stage(string key,string ko,string en,string tabKey,FrameworkElement? target){
-            var text=new TextBlock{FontSize=12};L(t=>text.Text=t,ko,en);
-            var chip=new Border{CornerRadius=new CornerRadius(13),BorderThickness=new Thickness(1),Padding=new Thickness(10,3,10,4),Child=text,Cursor=Cursors.Hand,Margin=new Thickness(0,0,0,6)};
-            chip.MouseLeftButtonUp+=(_,_)=>{tabButtons[tabKey].IsChecked=true;target?.BringIntoView();};
-            if(pipeline.Children.Count>0)pipeline.Children.Add(new TextBlock{Text="→",Foreground=Faint,Margin=new Thickness(6,3,6,0)});
-            pipeline.Children.Add(chip);stages[key]=(chip,text,tabKey,target);
-        }
-        Stage("input","입력","Input","display",null);Stage("color","색 변환","Colour","color",colorCardRef);Stage("aa","안티앨리어싱","Anti-aliasing","quality",aaCardRef);
-        Stage("dedup","중복 제거","Deduplication","fg",dedupCardRef);Stage("motion","움직임 추정","Motion estimation","fg",fgCardRef);Stage("fg","프레임 생성","Frame generation","fg",fgCardRef);
-        Stage("present","표시 · 녹화","Display · record","display",outputCard);
     }
     private static string KeyName(string shortcut)=>string.IsNullOrEmpty(shortcut)?"—":shortcut;
-    private void UpdatePipeline(LiveStatus? s){
-        if(stages.Count==0)return;
-        bool fg=options.FrameGeneration!="off";bool vfx=s?.FrameGeneration=="vfx"||(s is null&&options.EngineFrameGeneration(LiveEngine.VfxInstalled,LiveEngine.DlssAutomatic)=="vfx");
-        bool dlss=s?.FrameGeneration=="dlss"||(s is null&&options.EngineFrameGeneration(LiveEngine.VfxInstalled,LiveEngine.DlssAutomatic)=="dlss");
-        var state=new Dictionary<string,bool>{["input"]=true,["color"]=true,["aa"]=options.AntiAlias>0,["dedup"]=options.Dedup,["motion"]=fg&&!vfx,["fg"]=fg,["present"]=true};
-        foreach(var (key,(chip,text,_,_)) in stages){
-            bool on=state[key];bool focus=(key=="aa"&&tab=="quality")||(key is "fg" or "dedup"&&tab=="fg")||(key=="color"&&tab=="color");
-            chip.Background=on&&focus?Brush("#2B231D"):Brushes.Transparent;
-            chip.BorderBrush=!on?Line:focus?Accent:Brush("#45535C");
-            text.Foreground=on?(focus?Text:Muted):Faint;
-            text.TextDecorations=on?null:TextDecorations.Strikethrough;
-        }
-        stages["fg"].text.Text=vfx&&fg?T("VFX 생성","VFX generation"):dlss&&fg?T("DLSS 생성","DLSS generation"):T("프레임 생성","Frame generation");
-    }
     private int lastAa=1;
     private static string Signed(int v)=>v>0?"+"+v:v.ToString(CultureInfo.InvariantCulture);
     private static string? Selected(ComboBox box)=>(box.SelectedItem as Choice)?.Value;
@@ -832,7 +799,6 @@ public sealed class CaptureView:UserControl
         vrrBadge.Background=s is null?Brush("#20282D"):tear?Brush("#1D2A22"):Brush("#2A2420");
         vrrBadge.BorderBrush=s is null?Line:tear?Brush("#2F5A40"):Brush("#5A4636");
         if(segments.TryGetValue("sync",out var syncButtons))foreach(var rb in syncButtons)if((string)rb.Tag=="tearing")rb.IsEnabled=s is null||tear;
-        UpdatePipeline(s);
         if(s is null){
             liveText.Text=statusMessage.Length>0?statusMessage:T("대기 중","Idle");liveText.Foreground=statusMessage.Length>0?Warn:Muted;
             statusDot.Fill=Faint;pathText.Text=Hangul.KeepWords(statusMessage.Length>0?statusMessage:T("미리보기가 꺼져 있습니다","Preview is off"));
