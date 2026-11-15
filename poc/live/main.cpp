@@ -288,6 +288,7 @@ int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (flag(argc, argv, L"--list")) { print(fdl_devices()); return 0; }
+    if (flag(argc, argv, L"--dlss-probe")) { print(fdl_dlss_probe(("dlssDir=" + arg(argc, argv, L"--dlss") + "\ndlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n" + (flag(argc, argv, L"--echo") ? "echo=1\n" : "")).c_str())); return 0; }
     if (flag(argc, argv, L"--compare")) return compareMode(argc, argv);
     if (flag(argc, argv, L"--selftest")) {
         std::string s = "vfxDir=" + arg(argc, argv, L"--vfx") + "\nvfxQuality=" + arg(argc, argv, L"--vfx-quality", "1") + "\ndlssDir=" + arg(argc, argv, L"--dlss") + "\ndlssDataDir=" + arg(argc, argv, L"--dlss-data") + "\n";

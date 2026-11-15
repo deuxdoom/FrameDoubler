@@ -338,6 +338,58 @@ bool DlssGenerator::runtimePresent(const std::wstring& directory) {
            GetFileAttributesW(corePath().c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+int DlssGenerator::probeMaxMultiplier(const LUID& adapter, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, bool diagnostics) {
+    trace(diagnostics, "probe: begin");
+    if (!runtimePresent(featureDirectory)) { error = "DLSS frame generation runtime or NVIDIA driver component not found"; return 0; }
+    std::error_code pathError;
+    const std::wstring featurePath = std::filesystem::absolute(featureDirectory, pathError).wstring();
+    const std::wstring dataPath = std::filesystem::absolute(dataDirectory.empty() ? featureDirectory : dataDirectory, pathError).wstring();
+    if (!pathError) std::filesystem::create_directories(dataPath, pathError);
+    if (pathError) { error = "DLSS directories: " + pathError.message(); return 0; }
+    ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter1> device12Adapter; ComPtr<ID3D12Device> device;
+    if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory))) || FAILED(factory->EnumAdapterByLuid(adapter, IID_PPV_ARGS(&device12Adapter)))) { error = "graphics adapter not found"; return 0; }
+    if (FAILED(D3D12CreateDevice(device12Adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) { error = "Direct3D 12 is not available on this GPU"; return 0; }
+    trace(diagnostics, "probe: D3D12 device ready");
+    HMODULE core = LoadLibraryExW(corePath().c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!core) { error = "NVIDIA NGX core could not be loaded"; return 0; }
+    trace(diagnostics, "probe: core loaded");
+    auto init = reinterpret_cast<unsigned (*)(const char*, int, const char*, const wchar_t*, ID3D12Device*, int, const CommonInfo*)>(GetProcAddress(core, "NVSDK_NGX_D3D12_Init_ProjectID"));
+    auto capabilities = reinterpret_cast<unsigned (*)(Parameters**)>(GetProcAddress(core, "NVSDK_NGX_D3D12_GetCapabilityParameters"));
+    auto destroyParameters = reinterpret_cast<unsigned (*)(Parameters*)>(GetProcAddress(core, "NVSDK_NGX_D3D12_DestroyParameters"));
+    auto shutdown = reinterpret_cast<unsigned (*)(ID3D12Device*)>(GetProcAddress(core, "NVSDK_NGX_D3D12_Shutdown1"));
+    if (!init || !capabilities || !destroyParameters || !shutdown) { error = "the NVIDIA driver is too old for DLSS frame generation"; return 0; }
+    const wchar_t* paths[] = {featurePath.c_str()};
+    CommonInfo info{}; info.paths.path = paths; info.paths.length = 1;
+    if (diagnostics) { info.logging.callback = &ngxLog; info.logging.minimum = 2; }
+    trace(diagnostics, "probe: init");
+    unsigned result = init(kProjectId, kEngineCustom, "2.0", dataPath.c_str(), device.Get(), kApiVersion, &info);
+    trace(diagnostics, "probe: init " + hex(result));
+    if (result != kSuccess) { error = "NGX initialisation " + hex(result); return 0; }
+    Parameters* caps = nullptr;
+    int multiplier = 0;
+    result = capabilities(&caps);
+    trace(diagnostics, "probe: capabilities " + hex(result));
+    if (result != kSuccess || !caps) error = "NGX capability query " + hex(result);
+    else {
+        setUint(caps, "FrameDoubler.Probe.Uint", 0xA1B2C3D4u); setFloat(caps, "FrameDoubler.Probe.Float", 1.25f);
+        unsigned probeUint = 0; float probeFloat = 0;
+        getUint(caps, "FrameDoubler.Probe.Uint", &probeUint); getFloat(caps, "FrameDoubler.Probe.Float", &probeFloat);
+        int available = 0; unsigned maximum = 0;
+        if (probeUint != 0xA1B2C3D4u || probeFloat != 1.25f) error = "NGX parameter interface layout is not the expected one";
+        else {
+            getInt(caps, "FrameGeneration.Available", &available); getUint(caps, "DLSSG.MultiFrameCountMax", &maximum);
+            if (available) multiplier = int(std::clamp<unsigned>(maximum, 1u, 5u)) + 1;
+            else error = "DLSS frame generation is not available on this GPU";
+        }
+        trace(diagnostics, "probe: read, multiplier " + std::to_string(multiplier));
+        destroyParameters(caps);
+    }
+    trace(diagnostics, "probe: shutdown");
+    shutdown(device.Get());
+    trace(diagnostics, "probe: done");
+    return multiplier;
+}
+
 bool DlssGenerator::create(Gpu& gpu, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, const DlssOptions& options) {
     destroy();
     const bool diagnostics = options.diagnostics;

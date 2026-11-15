@@ -136,6 +136,27 @@ public static class LiveEngine
         dlssAttempt=false;
     }
     public static void ClearDlssBlock(){try{File.Delete(DlssMarker);}catch(Exception){}}
+    // Largest multiplier the frame generation choices offer on this PC: 2, or what the driver's
+    // DLSS-G reports when it allows more (multi-frame generation, e.g. RTX 50 series). Decided by
+    // the driver's capability, never by GPU names. The query runs inside the driver, so it runs in
+    // the engine's command-line helper: a fault there only means "2x" and cannot close the program.
+    public static string HelperPath=>Path.Combine(Directory,"fd-live.exe");
+    public static int ProbeMaxMultiplier(){
+        if(!Available||!DlssInstalled||DlssBlocked||!File.Exists(HelperPath))return 2;
+        try{
+            var start=new System.Diagnostics.ProcessStartInfo(HelperPath){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+            foreach(string a in new[]{"--dlss-probe","--dlss",DlssDirectory,"--dlss-data",NgxDataDirectory()})start.ArgumentList.Add(a);
+            using var process=System.Diagnostics.Process.Start(start);
+            if(process is null)return 2;
+            var output=process.StandardOutput.ReadToEndAsync();_=process.StandardError.ReadToEndAsync();
+            if(!process.WaitForExit(20000)){try{process.Kill(true);}catch(Exception){}return 2;}
+            if(process.ExitCode!=0)return 2;
+            string text=output.Result;int at=text.LastIndexOf("{\"maxMultiplier\"",StringComparison.Ordinal);
+            if(at<0)return 2;
+            using var document=JsonDocument.Parse(text[at..]);
+            return Math.Clamp(document.RootElement.GetProperty("maxMultiplier").GetInt32(),2,4);
+        }catch(Exception){return 2;}
+    }
     private static void Register(){
         if(Interlocked.Exchange(ref registered,1)!=0)return;
         NativeLibrary.SetDllImportResolver(typeof(LiveEngine).Assembly,(name,assembly,search)=>
@@ -195,6 +216,7 @@ public static class LiveEngine
         [DllImport(Library,CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr fdl_status(IntPtr session);
         [DllImport(Library,CallingConvention=CallingConvention.Cdecl)] public static extern void fdl_close(IntPtr session);
         [DllImport(Library,CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr fdl_selftest([MarshalAs(UnmanagedType.LPUTF8Str)] string settings);
+        [DllImport(Library,CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr fdl_dlss_probe([MarshalAs(UnmanagedType.LPUTF8Str)] string settings);
         [DllImport(Library,CallingConvention=CallingConvention.Cdecl)] public static extern void fdl_free(IntPtr text);
     }
     internal static string TakeText(IntPtr text)=>Take(text);

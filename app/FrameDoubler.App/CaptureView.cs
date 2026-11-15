@@ -35,6 +35,9 @@ public sealed class CaptureView:UserControl
     private CaptureInventory? inventory;
     private LiveSession? session;
     private LiveOptions options;
+    // 2 until the driver reports DLSS multi-frame generation; the saved multiplier is kept and
+    // applied again once the capability allows it.
+    private int maxMultiplier=2;
     private LiveStatus? last;
     private readonly GpuUsage gpuUsage=new();
     private readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(250)};
@@ -79,7 +82,9 @@ public sealed class CaptureView:UserControl
     public CaptureView(MainWindow owner){
         this.owner=owner;
         options=owner.Settings.LiveOptions;
+        options=options with{Multiplier=Math.Min(options.Multiplier,maxMultiplier)};
         Build();
+        ShowMultiplierChoices();
         timer.Tick+=(_,_)=>Poll();
         host.DoubleClicked+=()=>SetImmersive(!immersive);
         host.KeyPressed+=(key,mods)=>HandleShortcut(key,mods);
@@ -312,14 +317,21 @@ public sealed class CaptureView:UserControl
             methodBox.ItemsSource=new[]{new Choice("auto",T("자동 (권장)","Automatic (recommended)")),new Choice("dlss","NVIDIA DLSS FG (RTX)"),new Choice("vfx","NVIDIA VFX (RTX)"),new Choice("own",T("FrameDoubler 움직임 보간","FrameDoubler motion interpolation"))};
             methodBox.SelectedItem=methodBox.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==v);updating=old;},"","");
         methodBox.HorizontalAlignment=HorizontalAlignment.Left;audioBox.HorizontalAlignment=HorizontalAlignment.Stretch;
-        methodBox.SelectionChanged+=(_,_)=>{if(!updating&&methodBox.SelectedItem is Choice c&&options.FrameGeneration!="off"){if(c.Value=="dlss")LiveEngine.ClearDlssBlock();SetOptions(options with{FrameGeneration=c.Value},q=>q with{LiveFrameGeneration=c.Value});}};
+        methodBox.SelectionChanged+=(_,_)=>{
+            if(updating||methodBox.SelectedItem is not Choice c||options.FrameGeneration=="off")return;
+            // NVIDIA VFX is downloaded on request: ask now instead of silently falling back.
+            if(c.Value=="vfx"&&!EnsureVfx()){ShowMethod(options.FrameGeneration);return;}
+            if(c.Value=="dlss")LiveEngine.ClearDlssBlock();
+            SetOptions(options with{FrameGeneration=c.Value},q=>q with{LiveFrameGeneration=c.Value});};
         vfxState.FontSize=12;vfxState.Foreground=Faint;vfxState.TextWrapping=TextWrapping.Wrap;vfxState.Margin=new Thickness(0,6,0,0);
-        var fgToggle=Toggle("fg",options.FrameGeneration!="off",on=>{var v=on?(Selected(methodBox)??"auto"):"off";SetOptions(options with{FrameGeneration=v},q=>q with{LiveFrameGeneration=v});});
+        var fgToggle=Toggle("fg",options.FrameGeneration!="off",on=>{var v=on?(Selected(methodBox)??"auto"):"off";
+            if(v=="vfx"&&!EnsureVfx()){v="auto";ShowMethod(v);}
+            SetOptions(options with{FrameGeneration=v},q=>q with{LiveFrameGeneration=v});});
         var method=OptionRow("생성 방식","Method","자동은 NVIDIA DLSS 프레임 생성, 내려받은 NVIDIA VFX, FrameDoubler 움직임 보간 순서로 고릅니다. 고른 방식을 GPU나 드라이버가 실행하지 못하면 FrameDoubler 보간으로 바뀝니다.",
             "Automatic picks NVIDIA DLSS Frame Generation, then a downloaded NVIDIA VFX, then FrameDoubler's motion interpolation. When the GPU or driver cannot run the choice, FrameDoubler's interpolation is used.",methodBox,stacked:true);
         var methodStack=new StackPanel();methodStack.Children.Add(method);methodStack.Children.Add(vfxState);
-        var multiplier=OptionRow("출력 배율","Multiplier","게임 실제 속도의 2·3·4배입니다. 30fps 게임은 60·90·120fps로 표시합니다. 높은 배율에는 더 많은 GPU 성능과 모니터 주사율이 필요합니다.",
-            "2, 3 or 4 times the game's actual frame rate: a 30 fps game becomes 60, 90 or 120 fps. Higher rates need more GPU performance and display refresh rate.",
+        var multiplier=OptionRow("출력 배율","Multiplier","게임 실제 속도의 2배입니다(30fps 게임은 60fps). 3·4배는 그래픽 드라이버가 DLSS 다중 프레임 생성을 지원하는 GPU(RTX 50 시리즈 등)에서만 표시합니다.",
+            "Twice the game's actual frame rate (a 30 fps game becomes 60 fps). 3x and 4x appear only on GPUs whose driver supports DLSS multi-frame generation (such as the RTX 50 series).",
             Segments("multiplier",options.Multiplier.ToString(CultureInfo.InvariantCulture),v=>{int m=int.Parse(v,CultureInfo.InvariantCulture);SetOptions(options with{Multiplier=m},q=>q with{LiveMultiplier=m});},("2","2×","2×"),("3","3×","3×"),("4","4×","4×")),stacked:true);
         var quality=OptionRow("VFX 품질","VFX quality","높을수록 경계가 깨끗하고 GPU를 더 씁니다.","Higher is cleaner at edges and uses more GPU.",
             Segments("vfxQuality",options.VfxQuality.ToString(CultureInfo.InvariantCulture),v=>{int q2=int.Parse(v,CultureInfo.InvariantCulture);SetOptions(options with{VfxQuality=q2},q=>q with{LiveVfxQuality=q2});},
@@ -523,6 +535,7 @@ public sealed class CaptureView:UserControl
         if(loaded)return;
         loaded=true;
         await RefreshDevicesAsync();
+        _=ProbeMultiplierAsync();
         // Fresh installations also start the selected supported device. Previously only
         // a remembered device started, leaving a first launch on an empty preview.
         if(deviceBox.SelectedItem is DeviceChoice&&modeBox.SelectedItem is ModeChoice)await StartAsync();
@@ -530,6 +543,24 @@ public sealed class CaptureView:UserControl
     public void Deactivate(){if(!Recording&&!Saving&&!StartingRecording){Stop();}}
     private sealed record DeviceChoice(CaptureDevice Device,string Label){public override string ToString()=>Label;}
     private sealed record ModeChoice(FrameDoubler.Core.CaptureMode Mode,string Label){public override string ToString()=>Label;}
+    // Shows 3x/4x only when the driver allows them (see LiveEngine.ProbeMaxMultiplier).
+    private bool multiplierProbed;
+    private async Task ProbeMultiplierAsync(){
+        if(multiplierProbed)return;
+        multiplierProbed=true;
+        int allowed=await Task.Run(LiveEngine.ProbeMaxMultiplier);
+        SetMaxMultiplier(allowed);
+    }
+    private void SetMaxMultiplier(int allowed){
+        maxMultiplier=Math.Clamp(allowed,2,4);
+        ShowMultiplierChoices();
+        int wanted=Math.Min(owner.Settings.LiveMultiplier,maxMultiplier);
+        if(wanted!=options.Multiplier){options=options with{Multiplier=wanted};session?.Apply(options);}
+        SyncControls();ShowStatus(last);
+    }
+    private void ShowMultiplierChoices(){
+        foreach(var rb in segments["multiplier"])rb.Visibility=int.Parse((string)rb.Tag,CultureInfo.InvariantCulture)<=maxMultiplier?Visibility.Visible:Visibility.Collapsed;
+    }
     private async Task RefreshDevicesAsync(){
         statusMessage=T("캡처 장치를 확인하는 중…","Looking for capture devices…");ShowStatus(last);
         try{inventory=await Task.Run(LiveEngine.Devices);statusMessage="";}
@@ -607,9 +638,23 @@ public sealed class CaptureView:UserControl
     }
     // Closing the window: finish a recording and release the device.
     public void Shutdown(){timer.Stop();gpuUsage.Dispose();var s=session;session=null;s?.Dispose();}
+    // Offers the NVIDIA VFX download when it is missing; true when it is installed.
+    private bool EnsureVfx(){
+        if(LiveEngine.VfxInstalled)return true;
+        if(!VfxDownload.Run(Window.GetWindow(this),T))return false;
+        session?.Command("action=reload-vfx");
+        return true;
+    }
+    private void ShowMethod(string value){
+        bool old=updating;updating=true;
+        methodBox.SelectedItem=methodBox.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==(value=="off"?"auto":value));
+        updating=old;
+    }
     public void SettingsChanged(){
         var p=owner.Settings;
         session?.Command($"screenshotDir={p.EffectiveScreenshotDirectory}\nrecordDir={p.EffectiveRecordingDirectory}\nrecordCodec={p.RecordingCodec}\nrecordBitrate={p.RecordingBitrate}");
+        // A runtime downloaded in Settings is picked up without restarting the preview.
+        if(LiveEngine.VfxInstalled)session?.Command("action=reload-vfx");
         Translate();
     }
     private void TakeScreenshot(){if(session is null){statusMessage=T("미리보기를 먼저 시작하세요.","Start the preview first.");ShowStatus(last);return;}session.Screenshot();}
@@ -723,6 +768,7 @@ public sealed class CaptureView:UserControl
     }
     private static string Ms(double? v)=>v is {} x?x.ToString("0.0",CultureInfo.InvariantCulture)+" ms":"—";
     private void ShowStatus(LiveStatus? s){
+        if(s is {DlssMaxMultiplier:>2}&&s.DlssMaxMultiplier>maxMultiplier){SetMaxMultiplier(s.DlssMaxMultiplier);return;}
         if(s?.FrameGeneration=="dlss"&&statusMessage.StartsWith("DLSS frame generation on this GPU supports up to ",StringComparison.Ordinal))statusMessage="";
         var mode=(modeBox.SelectedItem as ModeChoice)?.Mode;
         string backend=s?.FrameGeneration switch{"dlss"=>"NVIDIA DLSS FG","vfx"=>"NVIDIA VFX","own"=>T("FrameDoubler 보간","FrameDoubler interpolation"),"loading"=>T("프레임 생성 준비 중","Frame generation loading"),"off"=>T("꺼짐","off"),_=>"—"};

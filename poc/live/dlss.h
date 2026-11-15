@@ -28,6 +28,9 @@ class DlssGenerator {
 public:
     ~DlssGenerator() { destroy(); }
     static bool runtimePresent(const std::wstring& directory);
+    // Driver capability only (no feature, no textures): the largest multiplier DLSS-G allows on
+    // the adapter (2 = one generated frame), 0 when frame generation is not available.
+    static int probeMaxMultiplier(const LUID& adapter, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, bool diagnostics = false);
     // featureDirectory holds nvngx_dlssg.dll; dataDirectory must be writable (NGX logs).
     bool create(Gpu& gpu, const std::wstring& featureDirectory, const std::wstring& dataDirectory, std::string& error, const DlssOptions& options = {});
     // Generated frames the driver allows between two real ones (1 = 2x, 3 = 4x).

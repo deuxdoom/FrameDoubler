@@ -54,6 +54,9 @@ if($LASTEXITCODE -ne 0){throw 'Native .NET launcher build failed'}
 Copy-Item -LiteralPath (Join-Path $Build 'launchers\FrameDoubler.exe'),(Join-Path $Build 'launchers\FrameDoubler.Cli.exe') -Destination $Destination
 Copy-Item -LiteralPath (Join-Path $Assets 'rife-poc.exe') -Destination (Join-Path $Destination 'engine\rife-poc.exe')
 Copy-Item -LiteralPath (Join-Path $Build 'live\fdlive.dll') -Destination (Join-Path $Destination 'engine\fdlive.dll')
+# The same engine as a command-line helper: the GUI asks it for the driver's DLSS-G limit in a
+# separate process, so a fault inside the driver cannot close the program.
+Copy-Item -LiteralPath (Join-Path $Build 'live\fd-live.exe') -Destination (Join-Path $Destination 'engine\fd-live.exe')
 
 Copy-Item -LiteralPath (Join-Path $Assets 'models'),(Join-Path $Assets 'licenses') -Destination $Destination -Recurse
 # DLSS Frame Generation feature library from NVIDIA's public DLSS repository (the NGX core

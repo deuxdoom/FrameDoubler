@@ -152,28 +152,14 @@ public sealed class SettingsWindow:Window
             :VfxRuntime.Downloaded(engine)?T("설치됨 · 프레임 생성 방식에서 NVIDIA VFX를 고를 수 있습니다.","Installed · NVIDIA VFX can be selected as the frame generation method.")
             :T("미설치 · 설치하지 않아도 프레임 생성은 동작합니다.","Not installed · frame generation works without it.");
         var state=Note(Status());
-        var bar=new ProgressBar{Height=4,Minimum=0,Maximum=1,Margin=new Thickness(0,8,0,0),Visibility=Visibility.Collapsed};
         var install=ActionButton(T("받기…","Download…"),()=>{});var remove=ActionButton(T("제거","Remove"),()=>{});remove.Margin=new Thickness(8,0,0,0);
-        var cancel=ActionButton(T("취소","Cancel"),()=>{});cancel.Margin=new Thickness(8,0,0,0);
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new Thickness(0,8,0,0)};actions.Children.Add(install);actions.Children.Add(remove);actions.Children.Add(cancel);
-        System.Threading.CancellationTokenSource? download=null;bool working=false;
-        void Buttons(){bool have=VfxRuntime.Downloaded(engine);install.IsEnabled=!working&&!bundled&&!have;remove.IsEnabled=!working&&have;
-            cancel.Visibility=working?Visibility.Visible:Visibility.Collapsed;bar.Visibility=working?Visibility.Visible:Visibility.Collapsed;}
-        cancel.Click+=(_,_)=>download?.Cancel();
-        Closing+=(_,e)=>{if(working){e.Cancel=true;download?.Cancel();}};
-        install.Click+=async(_,_)=>{
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new Thickness(0,8,0,0)};actions.Children.Add(install);actions.Children.Add(remove);
+        void Buttons(){bool have=VfxRuntime.Downloaded(engine);install.IsEnabled=!bundled&&!have;remove.IsEnabled=have;}
+        install.Click+=(_,_)=>{
             try{
-                string terms=T($"NVIDIA 공식 패키지 저장소(pypi.nvidia.com)에서 NVIDIA VFX 런타임 {VfxRuntime.DownloadBytes/1_000_000d:0}MB를 받고, 프레임 생성에 필요한 파일 {VfxRuntime.InstalledBytes/1_000_000d:0}MB만 남깁니다.\n\n이 런타임은 NVIDIA의 독점 소프트웨어이며 NVIDIA Software License Agreement와 AI 제품별 조건이 적용됩니다. 라이선스 문서는 설치 폴더의 licenses에 함께 저장합니다. NVIDIA RTX GPU와 최신 드라이버가 필요합니다.\n\n파일의 SHA-256을 확인한 뒤 설치합니다. NVIDIA 라이선스에 동의하고 받을까요?",
-                    $"Download the NVIDIA VFX runtime ({VfxRuntime.DownloadBytes/1_000_000d:0} MB) from NVIDIA's official package index (pypi.nvidia.com); only the {VfxRuntime.InstalledBytes/1_000_000d:0} MB needed for frame generation is kept.\n\nThe runtime is NVIDIA proprietary software under the NVIDIA Software License Agreement and the product-specific terms for AI products. The license documents are saved in the licenses folder next to it. An NVIDIA RTX GPU and a current driver are required.\n\nSHA-256 is checked before installing. Accept NVIDIA's license and download?");
-                if(!Confirm(T("NVIDIA VFX 런타임 받기","Download NVIDIA VFX runtime"),terms))return;
-                working=true;download=new();Buttons();
-                var progress=new Progress<(double Fraction,string Stage)>(x=>{bar.Value=x.Fraction;
-                    state.Text=Hangul.KeepWords(x.Stage=="download"?T($"받는 중… {x.Fraction/.9*100:0}%",$"Downloading… {x.Fraction/.9*100:0}%"):T("파일 확인 중…","Verifying files…"));});
-                string target=engine;await System.Threading.Tasks.Task.Run(()=>VfxRuntime.InstallAsync(target,progress,download.Token));
-                state.Text=Hangul.KeepWords(T("설치 완료 · 미리보기를 다시 시작하면 적용됩니다.","Installed · applies when the preview is restarted."));
-            }catch(OperationCanceledException){state.Text=T("받기를 취소했습니다.","Download cancelled.");}
-            catch(Exception ex){state.Text=Hangul.KeepWords(ex.Message);}
-            finally{working=false;download?.Dispose();download=null;Buttons();owner.Capture?.SettingsChanged();}
+                if(VfxDownload.Run(this,T))state.Text=Hangul.KeepWords(T("설치 완료 · 실행 중인 미리보기에도 바로 적용됩니다.","Installed · applies to the running preview too."));
+            }catch(Exception ex){state.Text=Hangul.KeepWords(ex.Message);}
+            finally{Buttons();owner.Capture?.SettingsChanged();}
         };
         remove.Click+=(_,_)=>{
             try{VfxRuntime.Remove(engine);state.Text=Hangul.KeepWords(Status());}
@@ -182,7 +168,7 @@ public sealed class SettingsWindow:Window
         var body=new StackPanel();
         body.Children.Add(new TextBlock{Text=Hangul.KeepWords(T("NVIDIA VFX 프레임 생성 (선택)","NVIDIA VFX frame generation (optional)")),FontWeight=FontWeights.SemiBold});
         body.Children.Add(Note(T("NVIDIA의 영상용 AI 프레임 생성 모델입니다. 용량이 커서 패키지에 넣지 않고, 원할 때만 받습니다.","NVIDIA's AI frame generation model for video. It is large, so it is downloaded only on request.")));
-        body.Children.Add(state);body.Children.Add(bar);body.Children.Add(actions);Buttons();return Card(body);
+        body.Children.Add(state);body.Children.Add(actions);Buttons();return Card(body);
     }
     // Capture shortcuts: click a box, then press the keys. Esc cancels, Delete clears.
     private sealed record ShortcutAction(string Key,string Ko,string En,string HelpKo,string HelpEn,Func<Preferences,string> Get,Func<Preferences,string,Preferences> Set);

@@ -18,6 +18,8 @@ FDL_API int fdl_command(void* session, const char* command);
 FDL_API char* fdl_status(void* session);
 FDL_API void fdl_close(void* session);
 FDL_API char* fdl_selftest(const char* settings);
+// DLSS-G capability of the high-performance adapter: {"maxMultiplier":N,"error":"..."} (settings: dlssDir, dlssDataDir).
+FDL_API char* fdl_dlss_probe(const char* settings);
 FDL_API void fdl_free(void* text);
 
 // Headless replay (fd-live.exe and tests): frames are fed by the caller.

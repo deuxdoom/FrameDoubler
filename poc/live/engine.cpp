@@ -345,6 +345,8 @@ void Session::command(const Settings& s) {
     if (after.fg == 2 && (before.fg != 2 || before.vfxQuality != after.vfxQuality || directoryChanged)) startVfx();
     if (after.fg == 3 && before.fg != 3) startDlss();
     const std::string action = get(s, "action");
+    // After a download: load NVIDIA VFX when it is the selected method and not running yet.
+    if (action == "reload-vfx" && after.fg == 2 && !vfxReady_ && !vfxLoading_) startVfx();
     if (action == "screenshot") screenshotRequest_ = true;
     else if (action == "record-start") { recordStarting_ = true; recordRequest_ = 1; }
     else if (action == "record-stop") { recordStarting_ = false; recordRequest_ = -1; }
@@ -815,7 +817,8 @@ std::string Session::status() {
     {
         std::lock_guard<std::mutex> lock(vfxMutex_);
         backend = o.fg == 0 ? "off" : (o.fg == 2 && vfxReady_) ? "vfx" : (o.fg == 2 && vfxLoading_) ? "loading" :
-                  (o.fg == 3 && dlssReady_ && o.multiplier - 1 <= (dlss_ ? dlss_->maxGenerated() : 0)) ? "dlss" : (o.fg == 3 && dlssLoading_) ? "loading" : "own";
+                  (o.fg == 3 && dlssReady_ && o.multiplier - 1 <= (dlss_ ? dlss_->maxGenerated() : 0)) ? "dlss" :
+                  (o.fg == 3 && dlssLoading_) ? "loading" : "own";
         runtime = o.fg == 3 ? dlssRuntime_ : vfxRuntime_; vfxQuality = vfxReady_ ? vfxActiveQuality_ : -1;
         dlssMaximum = dlssReady_ && dlss_ ? dlss_->maxGenerated() + 1 : 0;
         dlssMotion=dlssReady_ && dlss_ ? dlss_->motionSource() : "";
@@ -1387,6 +1390,19 @@ FDL_API char* fdl_selftest(const char* settings) {
     std::string result = selfTest(parseSettings(settings));
     CoUninitialize();
     return duplicate(result);
+}
+
+FDL_API char* fdl_dlss_probe(const char* settings) {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const Settings s = parseSettings(settings);
+    std::string error;
+    int multiplier = 0;
+    {
+        Gpu gpu;
+        if (gpu.create(error)) multiplier = DlssGenerator::probeMaxMultiplier(gpu.adapterLuid(), wide(get(s, "dlssDir")), wide(get(s, "dlssDataDir")), error, getInt(s, "echo", 0) != 0);
+    }
+    CoUninitialize();
+    return duplicate("{\"maxMultiplier\":" + std::to_string(multiplier) + ",\"error\":" + jsonString(error) + "}");
 }
 
 FDL_API void fdl_free(void* text) { CoTaskMemFree(text); }
