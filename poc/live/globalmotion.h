@@ -20,7 +20,7 @@ struct Homography {
 // least squares (Cauchy weights). Block fields hold many wrong vectors in flat areas, so the
 // fit starts from the median shift and narrows its tolerance from 32 px down to sigma; a plain
 // least-squares start is pulled away by them. Valid when at least half of the pairs agree.
-inline Homography fitHomography(const std::vector<std::array<double, 4>>& pairs, double sigma = 2.0, int iterations = 10) {
+inline Homography fitHomography(const std::vector<std::array<double, 4>>& pairs, double sigma = 2.0, int iterations = 10, double minShare = 0.5) {
     Homography result;
     const size_t n = pairs.size();
     if (n < 16) return result;
@@ -98,7 +98,7 @@ inline Homography fitHomography(const std::vector<std::array<double, 4>>& pairs,
     for (int k = 0; k < 9; ++k) result.h[k] = H[k];
     result.inlierShare = double(inliers) / double(n);
     result.rms = inliers ? std::sqrt(squared / double(inliers)) : 0;
-    result.valid = std::isfinite(H[0]) && result.inlierShare > 0.5;
+    result.valid = std::isfinite(H[0]) && result.inlierShare > minShare;
     return result;
 }
 

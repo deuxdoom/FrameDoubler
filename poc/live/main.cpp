@@ -193,7 +193,7 @@ int compareMode(int argc, wchar_t** argv) {
         {
             const int64_t start = now100ns();
             std::vector<float> field; int gw = 0, gh = 0;
-            if (gpu.readField(2, field, gw, gh)) camera = fitHomography(fieldPairsBtoA(field, gw, gh, 16.0, 2));   // as in the engine
+            if (gpu.readField(2, field, gw, gh)) camera = fitHomography(fieldPairsBtoA(field, gw, gh, 16.0, 2), 2.0, 10, std::stod(arg(argc, argv, L"--camera-share", "0.5")));   // as in the engine
             if (flag(argc, argv, L"--echo") && !field.empty()) {
                 std::vector<float> xs, ys; for (size_t i = 0; i + 1 < field.size(); i += 2) { xs.push_back(field[i]); ys.push_back(field[i + 1]); }
                 std::vector<float> sx = xs, sy = ys; std::nth_element(sx.begin(), sx.begin() + sx.size() / 2, sx.end()); std::nth_element(sy.begin(), sy.begin() + sy.size() / 2, sy.end());
