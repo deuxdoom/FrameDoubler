@@ -35,7 +35,8 @@ internal static class LiveTests
                 try{VfxRuntime.ExtractAsync(zip,Path.Combine(vfx,"missing"),[new VfxFile("Absent.dll",1,hash)]).GetAwaiter().GetResult();}catch(IOException){missing=true;}
                 assert(rejected&&missing,"NVIDIA VFX extraction rejects a wrong hash and a missing library");
                 string vfxEngine=Path.Combine(vfx,"app","engine");
-                assert(VfxRuntime.DownloadDirectory(vfxEngine)==Path.Combine(vfx,"app","accel","nvvfx")&&!VfxRuntime.Downloaded(vfxEngine)&&VfxRuntime.Files.Length==5&&VfxRuntime.InstalledBytes==210788400,
+                // DownloadDirectory returns a full path; the work root may be given with '/' separators.
+                assert(VfxRuntime.DownloadDirectory(vfxEngine)==Path.GetFullPath(Path.Combine(vfx,"app","accel","nvvfx"))&&!VfxRuntime.Downloaded(vfxEngine)&&VfxRuntime.Files.Length==5&&VfxRuntime.InstalledBytes==210788400,
                     "NVIDIA VFX installs beside the other optional add-on (kept across updates) and is absent until downloaded");
                 // With NVIDIA's wheel already on this development PC, run the real install path (hash, extraction, load) without the network.
                 string? repo=AppContext.BaseDirectory;
