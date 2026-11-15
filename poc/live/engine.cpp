@@ -142,7 +142,7 @@ struct Options {
     int outputCap = 0;     // 0 off, -1 the display's refresh rate, otherwise frames per second
 };
 
-struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0, distinct = 0, distinctGenerated = 0; double latency = 0, dedupMs = 0, vfxMs = 0, scanout = 0; int latencyCount = 0, vfxCount = 0, scanoutCount = 0; };
+struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0, distinct = 0, distinctGenerated = 0; double latency = 0, dedupMs = 0, vfxMs = 0, scanout = 0, arrivalLatency = 0; int latencyCount = 0, vfxCount = 0, scanoutCount = 0, arrivalCount = 0; };
 
 // An output rate as a fraction signal*multiplier*p/q (q <= 6), else 1e7/period. A grid
 // slower than the outputs loses pictures, a faster one only leaves gaps, so the nearest
@@ -333,12 +333,16 @@ private:
         std::sort(sorted.begin(), sorted.end());
         return std::clamp<int64_t>(sorted[sorted.size() * 9 / 10] + 10000, 20000, 200000);
     }
+    // k/N scheduling waits only as long as the measured lead needs: a pair's first in-between
+    // picture is shown as soon as B is in and generated, B a gap/N later (Veyra shows the
+    // generated frame once B is ready and B half an interval later). The gap-based delay
+    // (the whole 33 ms gap of 30 fps content) is only the start-up value and no longer a floor.
     int64_t uniformDelay() const {
         int64_t d = timeline_.delay();
         if (leads_.size() < 4) return d;
         std::vector<int64_t> sorted(leads_.begin(), leads_.end());
         std::sort(sorted.begin(), sorted.end());
-        return std::clamp(sorted[sorted.size() - 2] + prepareAllowance(), d, 4 * interval_);
+        return std::clamp(sorted[sorted.size() - 2] + prepareAllowance(), interval_ / 2, 4 * interval_);
     }
     ComPtr<ID3D11Query> readyQuery_;
     uint64_t waitInterrupts_ = 0, backlogBreaks_ = 0, clockResyncs_ = 0;
@@ -977,6 +981,10 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             if (picture != shownPicture_ || pairA != shownA_ || pairB != shownB_ || phase != shownPhase_) {
                 ++window_.distinct; shownPicture_ = picture; shownA_ = pairA; shownB_ = pairB; shownPhase_ = phase;
                 if (sourceSlot < 0) ++window_.distinctGenerated;
+                // Shown latency as Veyra logs it: an original from its capture callback to Present.
+                else if (slotArrival_[sourceSlot] > 0 && presentEnd > slotArrival_[sourceSlot]) {
+                    window_.arrivalLatency += double(presentEnd - slotArrival_[sourceSlot]) / 1e4; ++window_.arrivalCount;
+                }
             }
             if (shown.valid) {
                 presentEnds_[presentHead_++ % presentEnds_.size()] = {shown.lastPresent, presentEnd};
@@ -1100,6 +1108,8 @@ std::string Session::status() {
         ",\"tearing\":" + (gpu_.tearingSupported() ? "true" : "false") +
         ",\"skipped\":" + std::to_string(w.skipped) + ",\"dedupMs\":" + fixed(w.input ? w.dedupMs / double(w.input) : 0, 3) +
         ",\"latencyMs\":" + (w.latencyCount ? fixed(w.latency / w.latencyCount, 1) : std::string("null")) +
+        // Capture callback of an original -> its Present -> the vblank that showed it.
+        ",\"shownLatencyMs\":" + (w.arrivalCount ? fixed(w.arrivalLatency / w.arrivalCount + (w.scanoutCount ? w.scanout / w.scanoutCount : 0), 1) : std::string("null")) +
         ",\"stages\":{\"upload\":" + stage(StageUpload) + ",\"motion\":" + stage(StageMotion) + ",\"interpolate\":" +
         ((backend == "vfx" || backend == "dlss") && w.vfxCount ? fixed(w.vfxMs / w.vfxCount) : stage(StageInterpolate)) +
         ",\"present\":" + stage(StagePresent) + ",\"encode\":" + stage(StageEncode) + "}" +

@@ -833,8 +833,11 @@ public sealed class CaptureView:UserControl
         values["upload"].Text=Ms(s?.Stages.Upload);values["motion"].Text=Ms(s?.Stages.Motion);values["fg"].Text=Ms(s?.Stages.Interpolate);
         values["present"].Text=Ms(s?.Stages.Present);values["encode"].Text=Ms(s?.Stages.Encode);values["total"].Text=s is null?"—":Ms(s.Stages.Total);
         values["encode"].ToolTip=T("NV12 변환과 인코더에 넘기는 그래픽 큐의 경과 시간입니다. 대기를 포함하며 하드웨어 인코더 자체의 처리 시간은 아닙니다.","Elapsed graphics-queue time for NV12 conversion and encoder submission, including waits. This is not the hardware encoder's own processing time.");
-        latencyMetric.Set(s?.LatencyMs?.ToString("0",CultureInfo.InvariantCulture)??"—","ms",T("낮을수록 빠름","Lower is faster"));
-        latencyMetric.ToolTip=T("캡처 프레임 시각부터 앱이 화면을 제출할 때까지의 추정 지연입니다. 모니터 자체 지연은 포함하지 않으며 외부 실측값은 아닙니다.","Estimated time from the captured frame timestamp to the app's display submission. Excludes the monitor's own delay; this is not an external latency measurement.");
+        // As Veyra logs it: an original picture from the capture callback to the vblank that showed
+        // it. The capture timestamp itself is earlier by the card's transfer (about 15 ms at 4K).
+        double? shownLatency=s?.ShownLatencyMs??s?.LatencyMs;
+        latencyMetric.Set(shownLatency?.ToString("0",CultureInfo.InvariantCulture)??"—","ms",T("낮을수록 빠름","Lower is faster"));
+        latencyMetric.ToolTip=T("캡처 카드가 원본 프레임을 넘겨준 순간부터 그 프레임이 화면 갱신에 표시될 때까지의 평균입니다. 프레임 생성은 다음 프레임이 와야 중간 프레임을 만들 수 있어 그만큼 늘어납니다. 카드 내부 전송과 모니터 자체 지연은 포함하지 않습니다.","Average from the capture card handing over an original frame to the refresh that shows it. Frame generation must wait for the next frame, which adds to it. Excludes the card's internal transfer and the monitor's own delay.");
         gpuUsage.SelectAdapter(s?.GpuLuid??"");
         double? gpuPercent=s is null?null:gpuUsage.Percent;
         gpuMetric.Set(gpuPercent?.ToString("0",CultureInfo.InvariantCulture)??"—","%",T("선택한 GPU 전체","Selected GPU, all apps"),gpuPercent is >=90?Warn:Text);
