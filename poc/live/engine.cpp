@@ -141,7 +141,7 @@ struct Options {
     int outputCap = 0;     // 0 off, -1 the display's refresh rate, otherwise frames per second
 };
 
-struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0; double latency = 0, dedupMs = 0, vfxMs = 0; int latencyCount = 0, vfxCount = 0; };
+struct Window { double seconds = 0; uint64_t input = 0, unique = 0, outputs = 0, interpolated = 0, dropped = 0, skipped = 0, presented = 0; double latency = 0, dedupMs = 0, vfxMs = 0, scanout = 0; int latencyCount = 0, vfxCount = 0, scanoutCount = 0; };
 
 // An output rate as a fraction signal*multiplier*p/q (q <= 6), else 1e7/period. A grid
 // slower than the outputs loses pictures, a faster one only leaves gaps, so the nearest
@@ -250,7 +250,7 @@ private:
     std::atomic<bool> dlssReady_{false}, dlssLoading_{false}, dlssTried_{false}, dlssLimitLogged_{false};
     std::string dlssRuntime_;
     uint64_t slotId_[Gpu::kSlots] = {};
-    int64_t slotArrival_[Gpu::kSlots] = {};   // capture callback of the picture (pacing trace)
+    int64_t slotArrival_[Gpu::kSlots] = {}, slotSample_[Gpu::kSlots] = {};   // capture callback and PTS of the picture (pacing trace)
     uint64_t pyramidId_[Gpu::kSlots] = {}, motionA_[Gpu::kSlots] = {}, motionB_[Gpu::kSlots] = {};
     // Global camera motion of each pair (fitted to its block field) for the own interpolation.
     Homography camera_[Gpu::kSlots];
@@ -300,6 +300,10 @@ private:
     bool realtimeReplay_ = false;
     FILE* pacingTrace_ = nullptr;
     FILE* dedupTrace_ = nullptr;   // diagnostics: one row per input sample (capture thread)
+    std::array<std::pair<uint32_t, int64_t>, 16> presentEnds_{};   // DXGI present count -> Present return
+    size_t presentHead_ = 0;
+    uint32_t lastShownPresent_ = 0;
+    std::atomic<double> pictureLatencyMs_{0};   // capture PTS -> scanout, last window
     ComPtr<ID3D11Query> readyQuery_;
     uint64_t waitInterrupts_ = 0, backlogBreaks_ = 0, clockResyncs_ = 0;
     bool preparedValid_ = false, preparedInterpolated_ = false;
@@ -370,7 +374,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
         if (!pacingTrace_) { error="pacing trace could not be opened"; return false; }
         setvbuf(pacingTrace_,nullptr,_IOFBF,65536);
         fputs("content,kind,idA,idB,phase,arrival,sample,deadline,prepareBegin,prepareEnd,readyBefore,presentBegin,presentEnd,readyAfter,presented,interrupts,backlog,resyncs,"
-              "srcArrival,clockOffset,statsValid,lastPresent,shownPresent,shownRefresh,shownTime\n",pacingTrace_);
+              "srcArrival,clockOffset,statsValid,lastPresent,shownPresent,shownRefresh,shownTime,srcSample\n",pacingTrace_);
         D3D11_QUERY_DESC query{D3D11_QUERY_EVENT,0};
         gpu_.device()->CreateQuery(&query,&readyQuery_);
     }
@@ -394,7 +398,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
         const std::string audioIn = get(s, "audio");
         if (!audioIn.empty() && audioIn != "none") {
             std::string audioError;
-            audio_.setVolume(options_.volume); audio_.setMute(options_.mute);
+            audio_.setVolume(options_.volume); audio_.setMute(options_.mute); audio_.setTrace(get(s, "audioTrace"));
             audio_.setTap([this](const float* d, int frames, int ch, int rate, int64_t t) {
                 if (auto recorder = getRecorder(); recorder && recorder->active()) recorder->pushAudio(d, frames, ch, rate, t);
             });
@@ -646,7 +650,7 @@ void Session::processFresh(const Packet& p) {
     }
     sceneCut_[slot] = cut;
     if (sceneCut_[slot]) ++sceneEpoch_;
-    slotScene_[slot] = p.scene; slotSceneEpoch_[slot] = sceneEpoch_; slotArrival_[slot] = p.arrival;
+    slotScene_[slot] = p.scene; slotSceneEpoch_[slot] = sceneEpoch_; slotArrival_[slot] = p.arrival; slotSample_[slot] = p.sample;
     timeline_.addUnique({p.content, slot, ++uniqueId_});
     slotId_[slot] = uniqueId_;
     lastSlot_ = slot;
@@ -882,6 +886,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         const int capFps = o.outputCap > 0 ? o.outputCap : o.outputCap < 0 ? displayHz_.load() : 0;
         const int64_t now = now100ns();
         const bool due = capFps <= 0 || now - lastPresent_ >= int64_t(1e7 / capFps * 0.92);
+        Gpu::DisplayStats shown;
         if (hwnd_ && due) {
             ID3D11ShaderResourceView* original = o.compare ? gpu_.originalView(plan.slotA) : nullptr;
             gpu_.timer.mark(c, StagePresent, true);
@@ -889,19 +894,31 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             if (!gpu_.present(o.compare == 2 ? original : source, o.compare == 1 ? original : nullptr, o.sync, o.aspect)) { log_.add("warning", "preview window unavailable"); hwnd_ = nullptr; }
             presentEnd = now100ns();
             lastPresent_ = now;
+            // Present -> vblank that showed it (DXGI frame statistics), for the sound delay.
+            shown = gpu_.displayStats();
             std::lock_guard<std::mutex> s(statsMutex_);
             ++window_.presented;
+            if (shown.valid) {
+                presentEnds_[presentHead_++ % presentEnds_.size()] = {shown.lastPresent, presentEnd};
+                if (shown.shownPresent != lastShownPresent_) {
+                    lastShownPresent_ = shown.shownPresent;
+                    for (const auto& e : presentEnds_) if (e.first == shown.shownPresent && e.second) {
+                        const double ms = double(shown.shownTime - e.second) / 1e4;
+                        if (ms > -1 && ms < 200) { window_.scanout += ms; ++window_.scanoutCount; }
+                        break;
+                    }
+                }
+            }
         } else if (replay_) c->Flush();
         const int64_t readyAfter = readyQuery_ && c->GetData(readyQuery_.Get(),nullptr,0,D3D11_ASYNC_GETDATA_DONOTFLUSH)==S_OK ? now100ns() : 0;
         if (pacingTrace_) {
-            const Gpu::DisplayStats shown = presentBegin ? gpu_.displayStats() : Gpu::DisplayStats{};
             // The picture this output needed last: A for an original, B for a generated frame.
             const int needed = plan.kind == OutputPlan::Interpolate && plan.slotB >= 0 ? plan.slotB : plan.slotA;
-            fprintf(pacingTrace_,"%lld,%d,%llu,%llu,%.6f,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%llu,%llu,%llu,%lld,%lld,%d,%u,%u,%u,%lld\n",
+            fprintf(pacingTrace_,"%lld,%d,%llu,%llu,%.6f,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%d,%llu,%llu,%llu,%lld,%lld,%d,%u,%u,%u,%lld,%lld\n",
                 plan.contentTime,int(plan.kind),(unsigned long long)(plan.idA?plan.idA:slotId_[plan.slotA]),(unsigned long long)plan.idB,plan.phase,tick.arrival,tick.sample,deadline,
                 prepareBegin,prepareEnd,readyBefore,presentBegin,presentEnd,readyAfter,presentBegin!=0,
                 (unsigned long long)waitInterrupts_,(unsigned long long)backlogBreaks_,(unsigned long long)clockResyncs_,
-                needed >= 0 ? slotArrival_[needed] : 0LL,presentationClock_.offset(),int(shown.valid),shown.lastPresent,shown.shownPresent,shown.shownRefresh,shown.shownTime);
+                needed >= 0 ? slotArrival_[needed] : 0LL,presentationClock_.offset(),int(shown.valid),shown.lastPresent,shown.shownPresent,shown.shownRefresh,shown.shownTime,needed >= 0 ? slotSample_[needed] : 0LL);
         }
         if (auto recorder = getRecorder(); recorder && recorder->active()) {
             gpu_.timer.mark(c, StageEncode, true);
@@ -951,9 +968,15 @@ void Session::publish() {
     }
     gpu_.timer.take(stages_);
     for (int i = 0; i < StageCount; ++i) if (stages_[i] >= 0) { totalStage_[i] += stages_[i]; ++totalStageCount_[i]; }
-    // Keep the sound as late as the picture: measured capture-to-present latency.
+    // Keep the sound as late as the picture. Picture: capture PTS -> Present return plus the
+    // measured Present -> scanout. Sound: the output queue plus the path's own measured part
+    // (IAudioClock; 15 ms until measured). The old "present latency - 15 ms" ignored both
+    // and its queue never shrank: 52 ms late without FG on the live card.
     if (window_.latencyCount) {
-        const int target = std::clamp(int(window_.latency / window_.latencyCount) - 15 + options_.audioOffsetMs, 20, 400);
+        const double picture = window_.latency / window_.latencyCount + (window_.scanoutCount ? window_.scanout / window_.scanoutCount : 0);
+        const double own = audio_.ownLatencyMs();
+        pictureLatencyMs_ = picture;
+        const int target = std::clamp(int(std::lround(picture - (own > 0 ? own : 15.0))) + options_.audioOffsetMs, 20, 400);
         audioDelayMs_ = target; audio_.setDelay(target);
     }
     window_ = {};
@@ -1005,6 +1028,9 @@ std::string Session::status() {
         ",\"dlssCounts\":{\"generated\":" + std::to_string(dlssCounters.generated) + ",\"cached\":" + std::to_string(dlssCounters.cached) +
         ",\"checked\":" + std::to_string(dlssCounters.checked) + ",\"disabled\":" + std::to_string(dlssCounters.disabled) + "}" +
         ",\"audioDelayMs\":" + std::to_string(audioDelayMs_.load()) + ",\"audio\":" + (audio_.running() ? "true" : "false") +
+        // Capture -> scanout of the picture and capture -> output of the sound (IAudioClock),
+        // both without the monitor's and speaker's own processing.
+        ",\"pictureLatencyMs\":" + fixed(pictureLatencyMs_.load(), 1) + ",\"soundLatencyMs\":" + fixed(audio_.latencyMs(), 1) +
         ",\"audioInputPeak\":" + fixed(audio_.inputPeak(), 6) + ",\"audioOutputPeak\":" + fixed(audio_.outputPeak(), 6) +
         ",\"audioInputFrames\":" + std::to_string(audio_.inputFrames()) + ",\"audioOutputFrames\":" + std::to_string(audio_.outputFrames()) +
         ",\"audioInputState\":" + jsonString(audioStatus.input) + ",\"audioOutputState\":" + jsonString(audioStatus.output) +

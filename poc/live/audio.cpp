@@ -160,8 +160,14 @@ void AudioPassthrough::run(std::string captureId, std::string) {
         UINT32 renderFrames = 0;
         uint64_t revision = 0; int attempts = 0;
         int64_t nextAttempt = 0, outputBegan = 0;
+        // Diagnostics: frames handed to the output since it started, and its clock.
+        ComPtr<IAudioClock> renderClock; UINT64 clockFrequency = 0; uint64_t written = 0;
+        FILE* trace = tracePath_.empty() ? nullptr : _wfopen(wide(tracePath_).c_str(), L"wb");
+        struct TraceCloser { FILE* f; ~TraceCloser() { if (f) fclose(f); } } closeTrace{trace};
+        if (trace) fputs("capture,play,latencyMs,paddingMs,targetMs,skipped\n", trace);
         auto closeOutput = [&] {
             if (render) render->Stop();
+            renderClock.Reset(); clockFrequency = 0; written = 0;
             renderClient.Reset(); render.Reset(); renderFrames = 0; outputPeak_ = 0;
             { std::lock_guard<std::mutex> lock(route_->mutex); route_->active.clear(); }
             std::lock_guard<std::mutex> lock(stateMutex_); state_.queueMs = 0; state_.outputId.clear(); state_.outputName.clear(); state_.bufferMs = 0;
@@ -178,11 +184,13 @@ void AudioPassthrough::run(std::string captureId, std::string) {
             if (SUCCEEDED(result)) result = render->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, 2000000, 0, &format.Format, nullptr);
             if (SUCCEEDED(result)) result = render->GetService(IID_PPV_ARGS(&renderClient));
             if (SUCCEEDED(result)) result = render->GetBufferSize(&renderFrames);
+            if (SUCCEEDED(result) && SUCCEEDED(render->GetService(IID_PPV_ARGS(&renderClock)))) renderClock->GetFrequency(&clockFrequency);
             BYTE* silence = nullptr;
             const UINT32 prefill = std::min<UINT32>(renderFrames, UINT32(int64_t(delayMs_) * rate / 1000));
             if (SUCCEEDED(result) && prefill) {
                 result = renderClient->GetBuffer(prefill, &silence);
                 if (SUCCEEDED(result)) result = renderClient->ReleaseBuffer(prefill, AUDCLNT_BUFFERFLAGS_SILENT);
+                if (SUCCEEDED(result)) written += prefill;
             }
             if (SUCCEEDED(result)) result = render->Start();
             if (FAILED(result)) { closeOutput(); return result; }
@@ -249,14 +257,19 @@ void AudioPassthrough::run(std::string captureId, std::string) {
                 const UINT32 target = UINT32(int64_t(delayMs_) * rate / 1000);
                 UINT32 skip = 0;
                 if (SUCCEEDED(outResult)) {
-                    if (padding > target + UINT32(rate / 25)) skip = std::min(frames, padding - target);
-                    if (padding < UINT32(rate / 200) && target > padding) {
+                    // Hold the output queue within 8 ms of the target in both directions. The
+                    // earlier 40 ms hysteresis (and silence only at an underrun) left the 50-60 ms
+                    // start-up queue in place: sound played 52 ms after the picture without FG.
+                    const UINT32 tolerance = UINT32(rate / 125);
+                    if (padding > target + tolerance) skip = std::min(frames, padding - target);
+                    if (padding + frames + tolerance < target) {
                         if (padding == 0) { std::lock_guard<std::mutex> lock(stateMutex_); ++state_.underruns; }
-                        const auto silenceCount = std::min(renderFrames - padding, target - padding);
+                        const auto silenceCount = std::min(renderFrames - padding, target - padding - frames);
                         BYTE* out = nullptr;
                         if (silenceCount) {
                             outResult = renderClient->GetBuffer(silenceCount, &out);
                             if (SUCCEEDED(outResult)) outResult = renderClient->ReleaseBuffer(silenceCount, AUDCLNT_BUFFERFLAGS_SILENT);
+                            if (SUCCEEDED(outResult)) written += silenceCount;
                         }
                     }
                     if (SUCCEEDED(outResult)) outResult = render->GetCurrentPadding(&padding);
@@ -270,6 +283,26 @@ void AudioPassthrough::run(std::string captureId, std::string) {
                         if (SUCCEEDED(outResult)) {
                             memcpy(out, buffer.data() + size_t(skip) * channels, size_t(count) * channels * 4);
                             outResult = renderClient->ReleaseBuffer(count, 0);
+                            if (SUCCEEDED(outResult) && renderClock && clockFrequency) {
+                                // Output position p (in clock units) was reached at QPC q; the
+                                // packet's first frame is frame `written` of the stream.
+                                UINT64 p = 0, q = 0;
+                                if (SUCCEEDED(renderClock->GetPosition(&p, &q)) && q) {
+                                    const double played = double(p) / double(clockFrequency);
+                                    const int64_t play = int64_t(q) + int64_t((double(written) / rate - played) * 1e7);
+                                    const int64_t captured = time + int64_t(skip) * 10000000 / rate;
+                                    const double latency = double(play - captured) / 1e4, queued = double(padding) * 1000.0 / rate;
+                                    // The path's own part (capture read, shared engine): what the
+                                    // queue target cannot change.
+                                    if (latency > 0 && latency < 1000) {
+                                        const double own = latency - queued, previous = ownLatencyMs_.load();
+                                        ownLatencyMs_ = previous <= 0 ? own : previous + 0.05 * (own - previous);
+                                        latencyMs_ = latency;
+                                    }
+                                    if (trace) fprintf(trace, "%lld,%lld,%.3f,%.3f,%d,%u\n", captured, play, latency, queued, delayMs_.load(), skip);
+                                }
+                            }
+                            if (SUCCEEDED(outResult)) written += count;
                             if (SUCCEEDED(outResult)) {
                                 float outputPeak = 0;
                                 for (size_t i = size_t(skip)*channels; i < size_t(skip+count)*channels; ++i) outputPeak = std::max(outputPeak, std::abs(buffer[i]));

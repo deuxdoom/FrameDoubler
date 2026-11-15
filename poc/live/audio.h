@@ -26,6 +26,9 @@ public:
     void setMute(bool mute) { mute_ = mute; }
     void setDelay(int ms) { delayMs_ = ms; }
     void setTap(Tap tap) { std::lock_guard<std::mutex> lock(tapMutex_); tap_ = std::move(tap); }
+    // Diagnostics (set before start): one CSV row per played packet with its capture time
+    // and the time IAudioClock places its first sample at the output (not a DAC measurement).
+    void setTrace(const std::string& path) { tracePath_ = path; }
     void selectOutput(const std::string& renderId);
     AudioStatus status() const { std::lock_guard<std::mutex> lock(stateMutex_); return state_; }
     bool running() const { return running_; }
@@ -35,6 +38,10 @@ public:
     float outputPeak() const { return outputPeak_; }
     uint64_t inputFrames() const { return inputFrames_; }
     uint64_t outputFrames() const { return outputFrames_; }
+    // Capture time -> IAudioClock play time of the latest packet, and the smoothed part of it
+    // that is not the output queue (0 = not measured yet).
+    double latencyMs() const { return latencyMs_; }
+    double ownLatencyMs() const { return ownLatencyMs_; }
 private:
     void run(std::string captureId, std::string renderId);
     std::thread thread_;
@@ -45,9 +52,11 @@ private:
     std::atomic<int> channels_{0}, rate_{0};
     std::atomic<float> inputPeak_{0}, outputPeak_{0};
     std::atomic<uint64_t> inputFrames_{0}, outputFrames_{0};
+    std::atomic<double> latencyMs_{0}, ownLatencyMs_{0};
     std::mutex tapMutex_;
     Tap tap_;
     EventLog* log_ = nullptr;
+    std::string tracePath_;
     HANDLE ready_ = nullptr;
     std::string startError_;
     std::shared_ptr<AudioRoute> route_;

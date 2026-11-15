@@ -71,6 +71,7 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "sync=" + arg(argc,argv,L"--sync","auto") + "\n";
     s += "pacingTrace=" + arg(argc,argv,L"--pacing-trace") + "\n";
     s += "dedupTrace=" + arg(argc,argv,L"--dedup-trace") + "\n";
+    s += "audioTrace=" + arg(argc,argv,L"--audio-trace") + "\n";
     if(flag(argc,argv,L"--realtime"))s+="realtime=1\n";
     if(flag(argc,argv,L"--mute"))s+="mute=1\n";   // speakers silent; recordings still get the sound
     if (flag(argc, argv, L"--echo")) s += "echo=1\n";
