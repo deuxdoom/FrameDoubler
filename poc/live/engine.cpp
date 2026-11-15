@@ -202,11 +202,26 @@ private:
     ColorSetup color() const;
     ColorInfo device_;                                  // colour the capture device states
     std::string colorJson();
-    bool useUniformDlss(const Options& o) const {
-        return o.fg == 3 && dlssReady_ && dlss_ && o.multiplier - 1 <= dlss_->maxGenerated();
+    // The generator making in-between pictures now: 3 DLSS, 2 NVIDIA VFX, 1 FrameDoubler's own
+    // interpolation (only when asked for explicitly, by the comparison and replay tools), 0
+    // none. Live capture never falls back to the own interpolation (user decision 2026-11-15):
+    // while DLSS or VFX loads, or when neither can run, originals are shown without delay.
+    // DLSS beyond its driver limit, or failed, hands over to VFX when that is ready.
+    int generator(const Options& o) const {
+        if (o.fg == 0 || o.fg == 1) return o.fg;
+        if (o.fg == 3 && dlssReady_ && dlss_ && o.multiplier - 1 <= dlss_->maxGenerated()) return 3;
+        return vfxReady_ ? 2 : 0;
     }
+    // The options as run: DLSS beyond its driver limit without VFX makes its largest multiplier.
+    Options effective(Options o) const {
+        if (o.fg == 3 && dlssReady_ && dlss_ && o.multiplier - 1 > dlss_->maxGenerated() && !vfxReady_ && !vfxLoading_)
+            o.multiplier = dlss_->maxGenerated() + 1;
+        return o;
+    }
+    // DLSS and VFX place each original and its k/N pictures at content time.
+    bool useUniform(const Options& o) const { const int g = generator(o); return g == 2 || g == 3; }
     int64_t outputInterval(const Options& o) const {
-        const int64_t period = o.dedup ? (useUniformDlss(o) ? dlssContentPeriod_.load() : contentPeriod_.load()) : interval_;
+        const int64_t period = o.dedup ? (useUniform(o) ? dlssContentPeriod_.load() : contentPeriod_.load()) : interval_;
         return std::max<int64_t>(1, (period > 0 ? period : interval_) / o.multiplier);
     }
     // Declared rate of a recording (its constant frame grid). The FG output rate is
@@ -247,7 +262,7 @@ private:
     // DLSS frame generation: created once on its own thread; a failure keeps the own interpolation.
     std::unique_ptr<DlssGenerator> dlss_;
     std::thread dlssLoader_;
-    std::atomic<bool> dlssReady_{false}, dlssLoading_{false}, dlssTried_{false}, dlssLimitLogged_{false};
+    std::atomic<bool> dlssReady_{false}, dlssLoading_{false}, dlssTried_{false}, vfxFallbackTried_{false};
     std::string dlssRuntime_;
     uint64_t slotId_[Gpu::kSlots] = {};
     int64_t slotArrival_[Gpu::kSlots] = {}, slotSample_[Gpu::kSlots] = {};   // capture callback and PTS of the picture (pacing trace)
@@ -304,6 +319,24 @@ private:
     size_t presentHead_ = 0;
     uint32_t lastShownPresent_ = 0;
     std::atomic<double> pictureLatencyMs_{0};   // capture PTS -> scanout, last window
+    // Recent "B arrival - first k/N picture" leads and "B arrival - generated picture prepared"
+    // times (render thread). VFX blocks the CPU while it runs (5-8 ms at 2x in a live test), so
+    // the allowance is measured, not fixed.
+    std::deque<int64_t> leads_, readiness_;
+    int64_t prevUniqueContent_ = INT64_MIN, appliedDelay_ = 0;
+    int64_t prepareAllowance() const {
+        if (readiness_.size() < 4) return 40000;
+        std::vector<int64_t> sorted(readiness_.begin(), readiness_.end());
+        std::sort(sorted.begin(), sorted.end());
+        return std::clamp<int64_t>(sorted[sorted.size() * 9 / 10] + 10000, 20000, 200000);
+    }
+    int64_t uniformDelay() const {
+        int64_t d = timeline_.delay();
+        if (leads_.size() < 4) return d;
+        std::vector<int64_t> sorted(leads_.begin(), leads_.end());
+        std::sort(sorted.begin(), sorted.end());
+        return std::clamp(sorted[sorted.size() - 2] + prepareAllowance(), d, 4 * interval_);
+    }
     ComPtr<ID3D11Query> readyQuery_;
     uint64_t waitInterrupts_ = 0, backlogBreaks_ = 0, clockResyncs_ = 0;
     bool preparedValid_ = false, preparedInterpolated_ = false;
@@ -412,7 +445,8 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
 
 void Session::applyOptions(const Settings& s) {
     std::lock_guard<std::mutex> lock(optionsMutex_);
-    if (s.count("fg")) { const auto v = get(s, "fg"); options_.fg = v == "off" ? 0 : v == "vfx" ? 2 : v == "dlss" ? 3 : 1; }
+    // "own" only by explicit request (tools); anything else unknown means DLSS with the VFX fallback.
+    if (s.count("fg")) { const auto v = get(s, "fg"); options_.fg = v == "off" ? 0 : v == "vfx" ? 2 : v == "own" ? 1 : 3; }
     if (s.count("multiplier")) options_.multiplier = std::clamp(getInt(s, "multiplier", 2), 2, 4);
     if (s.count("aa")) options_.aa = std::clamp(getInt(s, "aa", 0), 0, 3);
     if (s.count("sync")) { const auto v = get(s, "sync"); options_.sync = v == "vsync" ? 1 : v == "tearing" ? 2 : 0; }
@@ -477,7 +511,7 @@ void Session::startDlss() {
         }
         dlssReady_ = ok; dlssLoading_ = false;
         if (ok) log_.add("info", "DLSS frame generation ready (" + dlssRuntime_ + ")");
-        else log_.add("warning", "DLSS frame generation unavailable, using FrameDoubler interpolation: " + error);
+        else log_.add("warning", "DLSS frame generation unavailable; NVIDIA VFX is used when available: " + error);
         CoUninitialize();
     });
 }
@@ -520,7 +554,7 @@ void Session::startVfx() {
             vfxRuntime_ = runtime; vfxActiveQuality_ = ok ? quality : -1;
             vfxReady_ = ok; vfxLoading_ = false;
             if (ok) log_.add("info", "NVIDIA VFX frame generation ready (runtime " + runtime + ")");
-            else log_.add("warning", "NVIDIA VFX frame generation unavailable, using FrameDoubler interpolation: " + error);
+            else log_.add("warning", "NVIDIA VFX frame generation unavailable; showing the original pictures: " + error);
         }
         CoUninitialize();
     });
@@ -639,18 +673,29 @@ void Session::processFresh(const Packet& p) {
         std::lock_guard<std::mutex> q(queueMutex_);
         bufferBusy_[p.buffer] = false;
     }
-    // DLSS without engine vectors needs no pyramid or block field; a failed or over-limit
-    // pair computes them lazily (ensureOwnMotion) before the own interpolation.
-    const bool selfContainedDlss=o.fg==3 && dlssReady_ && dlss_ && !dlss_->needsEngineMotion() && o.multiplier-1<=dlss_->maxGenerated();
-    if (o.fg != 0 && !selfContainedDlss) {
+    // Block motion only for the explicit own interpolation and for DLSS fed with engine vectors.
+    const bool engineMotion = o.fg == 1 || (o.fg == 3 && dlssReady_ && dlss_ && dlss_->needsEngineMotion());
+    if (engineMotion) {
         gpu_.timer.mark(gpu_.context(), StageMotion, true);
         ensurePyramid(slot);
-        if (!cut && lastSlot_ >= 0 && (o.fg == 1 || o.fg == 3)) ensureOwnMotion(lastSlot_, slot);
+        if (!cut && lastSlot_ >= 0) ensureOwnMotion(lastSlot_, slot);
         gpu_.timer.mark(gpu_.context(), StageMotion, false);
     }
     sceneCut_[slot] = cut;
     if (sceneCut_[slot]) ++sceneEpoch_;
     slotScene_[slot] = p.scene; slotSceneEpoch_[slot] = sceneEpoch_; slotArrival_[slot] = p.arrival; slotSample_[slot] = p.sample;
+    // k/N scheduling: the pair's first in-between picture is due at t_A + gap/N + D, when B
+    // must already be here and processed. With a content time a tick before its sample, 4x
+    // needed about 45 ms where the gap rule gave 33 ms (every 0.25 picture 10.7 ms late).
+    if (prevUniqueContent_ != INT64_MIN && presentationClock_.ready()) {
+        const int n = std::max(2, effective(o).multiplier);
+        const int64_t gap = p.content - prevUniqueContent_;
+        if (gap > 0 && gap <= 4 * interval_ + interval_ / 2) {
+            leads_.push_back(p.arrival - (prevUniqueContent_ + gap / n) - presentationClock_.offset());
+            if (leads_.size() > 16) leads_.pop_front();
+        }
+    }
+    prevUniqueContent_ = p.content;
     timeline_.addUnique({p.content, slot, ++uniqueId_});
     slotId_[slot] = uniqueId_;
     lastSlot_ = slot;
@@ -696,7 +741,7 @@ void Session::renderLoop() {
             rc.directory = wide(get(config_, "recordDir"));
             if (rc.directory.empty()) { wchar_t* videos = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos))) { rc.directory = std::wstring(videos) + L"\\FrameDoubler"; CoTaskMemFree(videos); } }
             rc.width = width_; rc.height = height_;
-            recordingRate(o, rc.fpsNum, rc.fpsDen);
+            recordingRate(effective(o), rc.fpsNum, rc.fpsDen);
             rc.hevc = get(config_, "recordCodec") == "hevc";
             rc.bitrateMbps = getInt(config_, "recordBitrate", 0);
             rc.audio = audio_.running() || replayAudio_;
@@ -756,16 +801,30 @@ void Session::finishRecording() {
 }
 
 void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
-    Options o; { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
+    Options o; bool vfxConfigured;
+    { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; vfxConfigured = !get(config_, "vfxDir").empty(); }
     if (lastSlot_ < 0) return;
-    const bool useVfx = o.fg == 2 && vfxReady_;
-    const bool timeline = o.fg != 0;
-    const bool uniform = useUniformDlss(o);
+    // DLSS failed or over its driver limit: load VFX once as the replacement.
+    if (o.fg == 3 && vfxConfigured && !vfxFallbackTried_ && !vfxReady_ && !vfxLoading_ && dlssTried_ && !dlssLoading_ &&
+        (!dlssReady_ || !dlss_ || o.multiplier - 1 > dlss_->maxGenerated())) { vfxFallbackTried_ = true; startVfx(); }
+    o = effective(o);
+    const int gen = generator(o);
+    const bool timeline = gen != 0;
+    const bool uniform = gen == 2 || gen == 3;
     if (!uniform) preparedValid_ = false;
     const int64_t outInterval = outputInterval(o);
     presentationClock_.observe(tick.sample, tick.arrival);
     if (timeline) timeline_.advance(o.dedup);
-    const int64_t limit = tick.sample - timeline_.delay(), horizon = limit + interval_;
+    // k/N scheduling also waits for the measured B lead; like the gap delay, a longer one is
+    // taken at once and a shorter one approached by 1/30 of an interval per tick.
+    int64_t delay = timeline_.delay();
+    if (uniform) {
+        const int64_t target = uniformDelay();
+        appliedDelay_ = appliedDelay_ <= 0 || target >= appliedDelay_ ? target
+                      : appliedDelay_ - std::min<int64_t>(std::max<int64_t>(1, interval_ / 30), appliedDelay_ - target);
+        delay = appliedDelay_;
+    } else appliedDelay_ = 0;
+    const int64_t limit = tick.sample - delay, horizon = limit + interval_;
     if (timeline && (!haveNextOutput_ || nextT_ < limit - 4 * outInterval)) {
         if (haveNextOutput_) ++clockResyncs_;
         nextT_ = std::max(limit, lastOutputT_ == INT64_MIN ? limit : lastOutputT_ + outInterval);
@@ -790,7 +849,7 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             nextT_ = plan.contentTime;
         } else if (timeline) plan = timeline_.planAt(nextT_);
         else { plan.kind = OutputPlan::Original; plan.slotA = lastSlot_; plan.contentTime = tick.sample; }
-        const int64_t deadline = !timeline ? tick.arrival : uniform ? presentationClock_.deadline(nextT_,timeline_.delay()) : tick.arrival + (nextT_ - limit);
+        const int64_t deadline = !timeline ? tick.arrival : uniform ? presentationClock_.deadline(nextT_,delay) : tick.arrival + (nextT_ - limit);
         auto waitForOutput = [&]() {
         if (timeline && (!replay_ || realtimeReplay_)) {
             if (sub > 0 && moreWaiting) { ++backlogBreaks_; return false; }
@@ -831,41 +890,39 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
             source = gpu_.frameView(original); sourceTexture = gpu_.frame(original);
             if (dlss_) dlss_->resetHistory();
         } else if (plan.kind == OutputPlan::Interpolate) {
-            if (useVfx && vfxReady_ && vfx_) {
+            if (gen == 2 && vfxReady_ && vfx_) {
+                // VFX takes any time value: the k/N picture of the pair, 3x and 4x included.
                 std::string error;
                 if (vfx_->interpolate(gpu_, plan.slotA, plan.slotB, float(plan.phase), vfxSceneEpoch_ != slotSceneEpoch_[plan.slotA], error)) {
                     vfxSceneEpoch_ = slotSceneEpoch_[plan.slotA];
                     interpolated = true;
                     std::lock_guard<std::mutex> s(statsMutex_);
                     window_.vfxMs += vfx_->lastMs(); ++window_.vfxCount;
-                } else { log_.add("warning", "NVIDIA VFX failed, switching to FrameDoubler interpolation: " + error); vfxReady_ = false; }
-            }
-            if (!interpolated && o.fg == 3 && dlssReady_ && dlss_) {
-                // DLSS-G makes evenly spaced frames only, and no more than the driver allows.
+                } else { log_.add("warning", "NVIDIA VFX failed; showing the original pictures: " + error); vfxReady_ = false; }
+            } else if (gen == 3 && dlssReady_ && dlss_) {
+                // DLSS-G makes evenly spaced frames only, and no more than the driver allows
+                // (generator() already checked the multiplier).
                 const int generated = std::max(1, o.multiplier - 1);
-                if (generated > dlss_->maxGenerated()) {
-                    if (!dlssLimitLogged_.exchange(true)) log_.add("warning", "DLSS frame generation on this GPU supports up to " + std::to_string(dlss_->maxGenerated() + 1) + "x; using FrameDoubler interpolation for this multiplier");
-                } else {
-                    dlssLimitLogged_ = false;
-                    std::string error;
-                    if(dlss_->needsEngineMotion())ensureOwnMotion(plan.slotA,plan.slotB);
-                    if (dlss_->interpolate(gpu_, plan.slotA, plan.slotB, slotId_[plan.slotA], slotId_[plan.slotB], float(plan.phase), generated, error)) {
-                        interpolated = true;
-                        std::lock_guard<std::mutex> s(statsMutex_);
-                        window_.vfxMs += dlss_->lastMs(); ++window_.vfxCount;
-                    } else { log_.add("warning", "DLSS frame generation failed, switching to FrameDoubler interpolation: " + error); dlssReady_ = false; }
-                }
-            }
-            if (!interpolated) {
+                std::string error;
+                if (dlss_->needsEngineMotion()) ensureOwnMotion(plan.slotA, plan.slotB);
+                if (dlss_->interpolate(gpu_, plan.slotA, plan.slotB, slotId_[plan.slotA], slotId_[plan.slotB], float(plan.phase), generated, error)) {
+                    interpolated = true;
+                    std::lock_guard<std::mutex> s(statsMutex_);
+                    window_.vfxMs += dlss_->lastMs(); ++window_.vfxCount;
+                } else { log_.add("warning", "DLSS frame generation failed; NVIDIA VFX is used when available: " + error); dlssReady_ = false; }
+            } else if (gen == 1) {
                 gpu_.timer.mark(c, StageInterpolate, true);
-                // Includes a failed hardware-DLSS pair whose own pyramids were skipped.
                 ensureOwnMotion(plan.slotA, plan.slotB);
                 gpu_.interpolate(plan.slotA, plan.slotB, float(plan.phase), ownCamera(plan.slotA, plan.slotB));
                 gpu_.timer.mark(c, StageInterpolate, false);
                 interpolated = true;
             }
-            source = gpu_.outputView(); sourceTexture = gpu_.output();
-            sourceSlot = -1;
+            if (interpolated) { source = gpu_.outputView(); sourceTexture = gpu_.output(); sourceSlot = -1; }
+            else {
+                // The generator just failed: the nearer original, never a substitute generator.
+                const int original = plan.phase < .5 ? plan.slotA : plan.slotB;
+                sourceSlot = original; source = gpu_.frameView(original); sourceTexture = gpu_.frame(original);
+            }
         }
         if (!reusePrepared && readyQuery_) c->End(readyQuery_.Get());
         // Submit before sleeping: otherwise D3D11's deferred copies/NGX handoff
@@ -875,7 +932,12 @@ void Session::renderOutputs(const Packet& tick, bool moreWaiting) {
         if (uniform && !reusePrepared) {
             preparedPlan_ = plan; preparedMultiplier_ = o.multiplier; preparedSourceSlot_ = sourceSlot;
             preparedInterpolated_ = interpolated; preparedBegin_ = prepareBegin; preparedEnd_ = prepareEnd;
-            preparedValid_ = dlssReady_;
+            preparedValid_ = gen != 0;
+            // The pair's first k/N picture is prepared as soon as B is in: its readiness.
+            if (interpolated && plan.slotB >= 0 && std::abs(plan.phase * o.multiplier - 1.0) < 0.01 && slotArrival_[plan.slotB] > 0) {
+                readiness_.push_back(prepareEnd - slotArrival_[plan.slotB]);
+                if (readiness_.size() > 32) readiness_.pop_front();
+            }
         }
         lock.unlock();
         if (uniform && !waitForOutput()) break;
@@ -992,13 +1054,13 @@ std::string Session::status() {
     char gpuLuidText[32]; snprintf(gpuLuidText, sizeof gpuLuidText, "0x%08x_0x%08x", unsigned(gpuLuid.HighPart), unsigned(gpuLuid.LowPart));
     const double sec = w.seconds > 0 ? w.seconds : 1;
     auto stage = [&](int i) { return stages[i] < 0 ? std::string("null") : fixed(stages[i]); };
-    std::string backend, runtime, dlssMotion; int vfxQuality, dlssMaximum; DlssGenerator::Counters dlssCounters;
+    std::string backend, runtime, dlssMotion; int vfxQuality, dlssMaximum, gen; DlssGenerator::Counters dlssCounters;
     {
         std::lock_guard<std::mutex> lock(vfxMutex_);
-        backend = o.fg == 0 ? "off" : (o.fg == 2 && vfxReady_) ? "vfx" : (o.fg == 2 && vfxLoading_) ? "loading" :
-                  (o.fg == 3 && dlssReady_ && o.multiplier - 1 <= (dlss_ ? dlss_->maxGenerated() : 0)) ? "dlss" :
-                  (o.fg == 3 && dlssLoading_) ? "loading" : "own";
-        runtime = o.fg == 3 ? dlssRuntime_ : vfxRuntime_; vfxQuality = vfxReady_ ? vfxActiveQuality_ : -1;
+        o = effective(o); gen = generator(o);
+        // "none": frame generation is on but neither DLSS nor VFX can run (originals shown).
+        backend = o.fg == 0 ? "off" : gen == 3 ? "dlss" : gen == 2 ? "vfx" : gen == 1 ? "own" : (dlssLoading_ || vfxLoading_) ? "loading" : "none";
+        runtime = gen == 3 ? dlssRuntime_ : gen == 2 ? vfxRuntime_ : o.fg == 3 ? dlssRuntime_ : vfxRuntime_; vfxQuality = vfxReady_ ? vfxActiveQuality_ : -1;
         dlssMaximum = dlssReady_ && dlss_ ? dlss_->maxGenerated() + 1 : 0;
         dlssMotion=dlssReady_ && dlss_ ? dlss_->motionSource() : "";
         if (dlss_) dlssCounters = dlss_->counters();
@@ -1008,7 +1070,8 @@ std::string Session::status() {
         ",\"captureState\":" + jsonString(capture_ && capture_->failed() ? "failed" : totalInput_ ? "active" : "waiting") +
         ",\"width\":" + std::to_string(width_) + ",\"height\":" + std::to_string(height_) +
         ",\"format\":" + jsonString(formatName(format_)) + colorJson() + ",\"modeFps\":" + fixed(double(fpsNum_) / fpsDen_, 3) +
-        ",\"targetFps\":" + fixed(o.fg == 0 ? double(fpsNum_) / fpsDen_ : 1e7 / outputInterval(o), 3) +
+        ",\"targetFps\":" + fixed(gen == 0 ? double(fpsNum_) / fpsDen_ : 1e7 / outputInterval(o), 3) +
+        ",\"multiplier\":" + std::to_string(gen == 0 ? 1 : o.multiplier) +
         ",\"gpu\":" + jsonString(gpu_.adapterName()) +
         ",\"gpuLuid\":" + jsonString(gpuLuidText) +
         ",\"inputFps\":" + fixed(w.input / sec) + ",\"contentFps\":" + fixed(w.unique / sec) +

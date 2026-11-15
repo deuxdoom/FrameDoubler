@@ -48,6 +48,7 @@ private:
     void run();
     void release(int slot);
     int takeSlot();
+    void addUse(int slot);
     RecorderConfig config_;
     IMFSinkWriter* writer_ = nullptr;
     IMFDXGIDeviceManager* manager_ = nullptr;
@@ -62,7 +63,7 @@ private:
     std::deque<AudioItem> audio_;
     std::atomic<bool> active_{false}, stop_{false};
     std::atomic<uint64_t> dropped_{0}, written_{0}, repeated_{0};
-    ComPtr<ID3D11Texture2D> held_;      // NV12 copy of the last picture, for empty slots
+    int heldSlot_ = -1;                 // texture of the last picture, referenced until the next
     double slotLength_ = 166666.67;     // 100 ns per recorded frame
     int64_t lastIndex_ = -1;            // grid slot of the last picture (render thread)
     int64_t origin_ = -1;               // time of the first picture

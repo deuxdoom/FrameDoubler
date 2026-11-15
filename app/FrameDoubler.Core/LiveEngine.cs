@@ -57,6 +57,8 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
     public double TargetFps {get;init;}
     public string GpuLuid {get;init;}="";
     public int DlssMaxMultiplier {get;init;}
+    // The multiplier actually run (1 = no generator; 0 = older engine).
+    public int Multiplier {get;init;}
     public string DlssMotion {get;init;}="";
     // Colour actually used: "limited"/"full", "709"/"601", each with "manual", "device" or "default" as its source.
     public string ColorRange{get;init;}="";public string ColorRangeSource{get;init;}="";public string ColorMatrix{get;init;}="";public string ColorMatrixSource{get;init;}="";
@@ -89,7 +91,7 @@ public sealed record LiveStatus(bool Running,bool CaptureFailed,int Width,int He
             new(N(stages,"upload"),N(stages,"motion"),N(stages,"interpolate"),N(stages,"present"),N(stages,"encode")),S(r,"fg"),S(r,"vfxRuntime"),
             (int)(N(r,"audioDelayMs")??0),B(r,"audio"),(long)(N(totals,"input")??0),(long)(N(totals,"unique")??0),(long)(N(totals,"duplicates")??0),(long)(N(totals,"dropped")??0),
             B(recording,"active"),S(recording,"path"),N(recording,"seconds")??0,(long)(N(recording,"dropped")??0),events){TargetFps=N(r,"targetFps")??0,
-                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),DlssMotion=S(r,"dlssMotion"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
+                GpuLuid=S(r,"gpuLuid"),DlssMaxMultiplier=(int)(N(r,"dlssMaxMultiplier")??0),Multiplier=(int)(N(r,"multiplier")??0),DlssMotion=S(r,"dlssMotion"),ColorRange=S(r,"colorRange"),ColorRangeSource=S(r,"colorRangeSource"),ColorMatrix=S(r,"colorMatrix"),ColorMatrixSource=S(r,"colorMatrixSource"),AudioInputPeak=N(r,"audioInputPeak")??0,AudioOutputPeak=N(r,"audioOutputPeak")??0,AudioInputFrames=(long)(N(r,"audioInputFrames")??0),AudioOutputFrames=(long)(N(r,"audioOutputFrames")??0),
                 CaptureState=S(r,"captureState"),AudioInputState=S(r,"audioInputState"),AudioOutputState=S(r,"audioOutputState"),AudioOutputId=S(r,"audioOutputId"),AudioOutputName=S(r,"audioOutputName"),
                 AudioQueueMs=(int)(N(r,"audioQueueMs")??0),AudioBufferMs=(int)(N(r,"audioBufferMs")??0),AudioOutputAttempts=(long)(N(r,"audioOutputAttempts")??0),AudioUnderruns=(long)(N(r,"audioUnderruns")??0),
                 RecordingFinalizing=B(recording,"finalizing"),RecordingStarting=B(recording,"starting"),RecordingFps=N(recording,"fps")??0};
@@ -101,11 +103,13 @@ public sealed record LiveOptions(string FrameGeneration="off",int Multiplier=2,i
     string Matrix="auto",int VfxQuality=1,int Volume=100,bool Mute=false,int AudioOffsetMs=0,
     string Sync="auto",string Aspect="fit",string Compare="off",string OutputCap="off")
 {
-    // "auto" prefers DLSS frame generation, then NVIDIA VFX when its runtime was downloaded, then
-    // FrameDoubler's own interpolation. The engine falls back to its own interpolation by
-    // itself when the GPU or driver cannot run the selected method.
-    public string EngineFrameGeneration(bool vfxInstalled,bool dlssInstalled=false)=>FrameGeneration switch{"off"=>"off","own"=>"own","vfx"=>"vfx","dlss"=>"dlss",
-        _=>dlssInstalled?"dlss":vfxInstalled?"vfx":"own"};
+    // Live capture generates frames with NVIDIA DLSS or NVIDIA VFX only; FrameDoubler's own
+    // interpolation is for file conversion (user decision 2026-11-15). "auto" (and an "own"
+    // saved by an earlier version) prefers DLSS, then a downloaded VFX. The engine hands DLSS
+    // over to VFX when the driver cannot run it or the multiplier, and shows the original
+    // pictures when neither can run.
+    public string EngineFrameGeneration(bool vfxInstalled,bool dlssInstalled=false)=>FrameGeneration switch{"off"=>"off","vfx"=>"vfx","dlss"=>"dlss",
+        _=>dlssInstalled?"dlss":"vfx"};
     public string Commands(bool vfxInstalled,bool dlssInstalled=false)=>string.Join('\n',
         "fg="+EngineFrameGeneration(vfxInstalled,dlssInstalled),"multiplier="+Multiplier,"aa="+AntiAlias,"dedup="+(Dedup?"1":"0"),"range="+Range,"matrix="+Matrix,
         "vfxQuality="+VfxQuality,"volume="+Volume,"mute="+(Mute?"1":"0"),"audioOffsetMs="+AudioOffsetMs,
@@ -214,6 +218,9 @@ public static class LiveEngine
         Add("audio",audioId??"none");Add("vfxDir",VfxDirectory);Add("dlssDir",DlssInstalled?DlssDirectory:"");Add("dlssDataDir",NgxDataDirectory());Add("screenshotDir",screenshotDirectory);Add("recordDir",recordingDirectory);
         Add("audioOutput",audioOutput is null or "default"?"":audioOutput);
         Add("recordCodec",recordingCodec);Add("recordBitrate",recordingBitrate);
+        // Development validation only (tools/validation/live-gui): native timing traces.
+        if(Environment.GetEnvironmentVariable("FRAMEDOUBLER_PACING_TRACE") is {Length:>0} pacingTrace)Add("pacingTrace",pacingTrace);
+        if(Environment.GetEnvironmentVariable("FRAMEDOUBLER_AUDIO_TRACE") is {Length:>0} audioTrace)Add("audioTrace",audioTrace);
         BeginDlssAttempt(options);
         settings.Append(options.Commands(VfxInstalled,DlssAutomatic)).Append('\n');
         IntPtr handle=Native.fdl_open(settings.ToString(),window,out IntPtr error);

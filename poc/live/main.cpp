@@ -396,14 +396,21 @@ int wmain(int argc, wchar_t** argv) {
         char* error = nullptr;
         void* session = fdl_open(settings.c_str(), window, &error);
         if (!session) { fprintf(stderr, "open failed: %s\n", error ? error : "?"); return 2; }
-        if (!get(parseSettings(settings.c_str()), "recordDir").empty()) fdl_command(session, "action=record-start");
+        // Like the app, recording starts after a 3-2-1 countdown, past the start-up stall of
+        // duplicate removal and the frame generation model.
+        const bool record = !get(parseSettings(settings.c_str()), "recordDir").empty();
         const int seconds = std::stoi(arg(argc, argv, L"--seconds", "5"));
-        const ULONGLONG end = GetTickCount64() + ULONGLONG(seconds) * 1000;
+        const ULONGLONG begin = GetTickCount64(), end = begin + ULONGLONG(seconds) * 1000;
+        int countdown = record ? 3 : 0;
         ULONGLONG nextStatus = GetTickCount64() + 1100;
         bool shot = !arg(argc, argv, L"--screenshot").empty();
         while (GetTickCount64() < end) {
             MSG msg;
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { if (msg.message == WM_QUIT) goto finished; TranslateMessage(&msg); DispatchMessageW(&msg); }
+            if (countdown > 0 && GetTickCount64() >= begin + ULONGLONG(3 - countdown + 1) * 1000) {
+                fprintf(stderr, "recording in %d\n", countdown);
+                if (--countdown == 0) fdl_command(session, "action=record-start");
+            }
             if (GetTickCount64() >= nextStatus) {
                 if (shot) { fdl_command(session, "action=screenshot"); shot = false; }
                 print(fdl_status(session)); nextStatus += 1000;

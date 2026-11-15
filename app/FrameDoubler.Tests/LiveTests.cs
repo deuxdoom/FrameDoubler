@@ -72,6 +72,8 @@ internal static class LiveTests
                 new Preferences{LiveMultiplier=multiplier}.Save();
                 assert(Preferences.Load().LiveMultiplier==multiplier,"Content multiplier survives restart: "+multiplier);
             }
+            File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\nLiveFrameGeneration=\"own\"\n");
+            assert(Preferences.Load().LiveFrameGeneration=="auto","A saved FrameDoubler-interpolation choice becomes Automatic: live capture uses DLSS or VFX only");
             File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\nLiveMultiplier=\"1\"\n");
             assert(Preferences.Load().LiveMultiplier==2&&new LiveOptions().Multiplier==2,"Legacy signal multiplier migrates to the default content 2x");
             File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\n");
@@ -88,10 +90,11 @@ internal static class LiveTests
         assert(new LiveOptions(FrameGeneration:"auto").Commands(true,true).Contains("fg=dlss")&&new LiveOptions(FrameGeneration:"auto").Commands(true,false).Contains("fg=vfx")
             &&new LiveOptions(FrameGeneration:"dlss").Commands(false,false).Contains("fg=dlss")&&new LiveOptions(FrameGeneration:"vfx").Commands(true,true).Contains("fg=vfx")
             &&new LiveOptions(FrameGeneration:"off").Commands(true,true).Contains("fg=off"),
-            "Automatic frame generation prefers DLSS, then a downloaded VFX, then the own interpolation; explicit choices are kept");
+            "Automatic frame generation prefers DLSS, then VFX; explicit choices are kept");
         string commands=options.Commands(vfxInstalled:true);
-        assert(commands.Contains("fg=vfx")&&options.Commands(false).Contains("fg=own")&&new LiveOptions(FrameGeneration:"off").Commands(true).Contains("fg=off"),
-            "Automatic frame generation uses NVIDIA VFX only when its runtime is installed");
+        assert(commands.Contains("fg=vfx")&&!options.Commands(false).Contains("fg=own")&&!new LiveOptions(FrameGeneration:"own").Commands(true,true).Contains("fg=own")
+               &&new LiveOptions(FrameGeneration:"off").Commands(true).Contains("fg=off"),
+            "Live capture never asks the engine for FrameDoubler interpolation (an old \"own\" choice runs as Automatic)");
         foreach(string expected in new[]{"multiplier=2","aa=3","dedup=0","sync=vsync","aspect=stretch","compare=split","outputCap=display"})
             assert(commands.Split('\n').Contains(expected),"Engine command carries "+expected);
 
@@ -110,9 +113,9 @@ internal static class LiveTests
             "Saving is distinct from active recording and retains the declared video rate");
         var starting=LiveStatus.Parse("{\"running\":true,\"stages\":{},\"totals\":{},\"recording\":{\"starting\":true}}");
         assert(starting.RecordingStarting&&!starting.Recording&&!starting.RecordingFinalizing,"A pending start can be cancelled before an active recording exists");
-        var limited=LiveStatus.Parse("{\"dlssMaxMultiplier\":2,\"fg\":\"own\",\"stages\":{},\"totals\":{},\"recording\":{}}");
-        assert(limited.DlssMaxMultiplier==2&&limited.FrameGeneration=="own"&&starting.DlssMaxMultiplier==0,
-            "DLSS reports the driver multiplier limit alongside the actual fallback backend; absent limits are unknown");
+        var limited=LiveStatus.Parse("{\"dlssMaxMultiplier\":2,\"fg\":\"vfx\",\"multiplier\":3,\"stages\":{},\"totals\":{},\"recording\":{}}");
+        assert(limited.DlssMaxMultiplier==2&&limited.FrameGeneration=="vfx"&&limited.Multiplier==3&&starting.DlssMaxMultiplier==0&&starting.Multiplier==0,
+            "DLSS reports the driver multiplier limit alongside the backend and multiplier actually run; absent values are unknown");
         assert(LiveStatus.Parse("{\"fg\":\"dlss\",\"dlssMotion\":\"nvof\",\"stages\":{},\"totals\":{},\"recording\":{}}").DlssMotion=="nvof"&&starting.DlssMotion=="",
             "The reported DLSS motion source is explicit; an older engine does not imply hardware optical flow");
 

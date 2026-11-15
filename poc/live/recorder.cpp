@@ -15,7 +15,8 @@
 extern "C" HRESULT WINAPI MFCreateTrackedSample(IMFTrackedSample** sample);
 
 namespace fdl {
-struct RecorderSlots { std::mutex mutex; bool busy[kRecorderSlots] = {}; };
+// Samples referring to each encoder texture; a repeated picture adds a reference to the same texture.
+struct RecorderSlots { std::mutex mutex; int uses[kRecorderSlots] = {}; };
 
 unsigned recordingH264Level(int width, int height, uint32_t fpsNum, uint32_t fpsDen) {
     const int64_t blocks = int64_t((width + 15) / 16) * ((height + 15) / 16);
@@ -41,7 +42,7 @@ struct TrackedRelease : IMFAsyncCallback {
     STDMETHODIMP_(ULONG) AddRef() override { return ++refs; }
     STDMETHODIMP_(ULONG) Release() override { ULONG r = --refs; if (!r) delete this; return r; }
     STDMETHODIMP GetParameters(DWORD*, DWORD*) override { return E_NOTIMPL; }
-    STDMETHODIMP Invoke(IMFAsyncResult*) override { std::lock_guard<std::mutex> lock(pool->mutex); pool->busy[slot] = false; return S_OK; }
+    STDMETHODIMP Invoke(IMFAsyncResult*) override { std::lock_guard<std::mutex> lock(pool->mutex); if (pool->uses[slot] > 0) --pool->uses[slot]; return S_OK; }
 };
 
 namespace {
@@ -105,10 +106,6 @@ bool Recorder::start(const RecorderConfig& config, Gpu& gpu, std::string& path, 
             d.BindFlags = D3D11_BIND_RENDER_TARGET;
             if (FAILED(gpu.device()->CreateTexture2D(&d, nullptr, &textures_[i]))) { error = "this GPU cannot render NV12 pictures for the encoder"; MFShutdown(); return false; }
         }
-        if (i == 0) {
-            D3D11_TEXTURE2D_DESC h = d; h.BindFlags = D3D11_BIND_RENDER_TARGET;
-            if (FAILED(gpu.device()->CreateTexture2D(&h, nullptr, &held_))) { error = "recording picture copy"; MFShutdown(); return false; }
-        }
     }
     UINT token = 0;
     HRESULT hr = MFCreateDXGIDeviceManager(&token, &manager_);
@@ -151,7 +148,7 @@ bool Recorder::start(const RecorderConfig& config, Gpu& gpu, std::string& path, 
     hr = writer_->BeginWriting();
     if (FAILED(hr)) { error = "recording could not start (" + hresult(hr) + ")"; writer_->Release(); writer_ = nullptr; manager_->Release(); manager_ = nullptr; for (auto& t : textures_) t.Reset(); DeleteFileW(file.c_str()); MFShutdown(); return false; }
     path_ = utf8(file); path = path_;
-    origin_ = -1; lastVideo_ = -1; lastIndex_ = -1; audioSamples_ = 0; resamplePos_ = 0; resampleTail_.clear();
+    origin_ = -1; lastVideo_ = -1; lastIndex_ = -1; heldSlot_ = -1; audioSamples_ = 0; resamplePos_ = 0; resampleTail_.clear();
     slotLength_ = 1e7 * double(config_.fpsDen) / double(std::max<uint32_t>(1, config_.fpsNum));
     dropped_ = 0; written_ = 0; error_.clear();
     stop_ = false; active_ = true;
@@ -161,12 +158,17 @@ bool Recorder::start(const RecorderConfig& config, Gpu& gpu, std::string& path, 
 
 void Recorder::release(int slot) {
     std::lock_guard<std::mutex> lock(slots_->mutex);
-    slots_->busy[slot] = false;
+    if (slots_->uses[slot] > 0) --slots_->uses[slot];
+}
+
+void Recorder::addUse(int slot) {
+    std::lock_guard<std::mutex> lock(slots_->mutex);
+    ++slots_->uses[slot];
 }
 
 int Recorder::takeSlot() {
     std::lock_guard<std::mutex> lock(slots_->mutex);
-    for (int i = 0; i < kSlots; ++i) if (!slots_->busy[i]) { slots_->busy[i] = true; return i; }
+    for (int i = 0; i < kSlots; ++i) if (slots_->uses[i] == 0) { slots_->uses[i] = 1; return i; }
     return -1;
 }
 
@@ -181,24 +183,27 @@ bool Recorder::pushVideo(Gpu& gpu, ID3D11ShaderResourceView* picture, int64_t ti
     { std::lock_guard<std::mutex> lock(mutex_); if (origin_ < 0) origin_ = time; origin = origin_; }
     const int64_t index = std::max<int64_t>(0, std::llround(double(time - origin) / slotLength_));
     if (lastIndex_ >= 0 && index <= lastIndex_) { ++dropped_; return false; }
-    auto queue = [&](int slot, int64_t at) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        video_.push_back({slot, std::llround(double(at) * slotLength_)});
-    };
-    // Up to two seconds of repeats; a longer capture stall keeps its gap.
-    const int64_t repeats = lastIndex_ >= 0 && index - lastIndex_ - 1 <= int64_t(2e7 / slotLength_) ? index - lastIndex_ - 1 : 0;
-    for (int64_t k = 1; k <= repeats; ++k) {
-        const int slot = takeSlot();
-        if (slot < 0) { ++dropped_; break; }
-        gpu.context()->CopyResource(textures_[slot].Get(), held_.Get());
-        queue(slot, lastIndex_ + k); ++repeated_;
-    }
     const int slot = takeSlot();
     if (slot < 0) { ++dropped_; return false; }
     if (!gpu.toNv12(picture, textures_[slot].Get())) { release(slot); ++dropped_; return false; }
-    gpu.context()->CopyResource(held_.Get(), textures_[slot].Get());
     gpu.context()->Flush();
-    queue(slot, index);
+    // Empty grid slots repeat the previous picture as extra references to its texture, which
+    // the recorder holds until the next picture. A repeat therefore never needs a free slot,
+    // and a slow encoder start leaves no hole in the grid. (Repeats taking free slots dropped
+    // 1470 new pictures at a 90 fps start; every hole shortened the file against its sound.)
+    // Holes over ten seconds (a stopped capture) keep their gap.
+    const int64_t missing = heldSlot_ >= 0 && index - lastIndex_ - 1 <= int64_t(1e8 / slotLength_) ? index - lastIndex_ - 1 : 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (int64_t k = 1; k <= missing; ++k) {
+            addUse(heldSlot_);
+            video_.push_back({heldSlot_, std::llround(double(lastIndex_ + k) * slotLength_)});
+        }
+        video_.push_back({slot, std::llround(double(index) * slotLength_)});
+    }
+    repeated_ += uint64_t(missing);
+    if (heldSlot_ >= 0) release(heldSlot_);
+    addUse(slot); heldSlot_ = slot;
     lastIndex_ = index;
     wake_.notify_one();
     return true;
@@ -320,7 +325,7 @@ void Recorder::stop() {
     writer_->Release(); writer_ = nullptr;
     if (manager_) { manager_->Release(); manager_ = nullptr; }
     for (auto& t : textures_) t.Reset();
-    held_.Reset();
+    heldSlot_ = -1;
     MFShutdown();
 }
 

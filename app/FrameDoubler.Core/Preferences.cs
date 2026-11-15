@@ -88,7 +88,9 @@ public sealed record Preferences
         if(value.MinimizeAction!="tray")value=value with{MinimizeAction="taskbar"};
         if(value.Accelerator is not ("auto" or "vulkan" or "rtx"))value=value with{Accelerator="auto"};
         if(value.StartPage is not ("capture" or "convert"))value=value with{StartPage="capture"};
-        if(value.LiveFrameGeneration is not ("auto" or "dlss" or "vfx" or "own" or "off"))value=value with{LiveFrameGeneration="off"};
+        // "own" from an earlier version: live capture no longer uses FrameDoubler interpolation.
+        if(value.LiveFrameGeneration=="own")value=value with{LiveFrameGeneration="auto"};
+        if(value.LiveFrameGeneration is not ("auto" or "dlss" or "vfx" or "off"))value=value with{LiveFrameGeneration="off"};
         if(value.LiveRange is not ("auto" or "limited" or "full"))value=value with{LiveRange="auto"};
         if(value.RecordingCodec is not ("h264" or "hevc"))value=value with{RecordingCodec="h264"};
         if(value.LiveMatrix is not ("auto" or "709" or "601"))value=value with{LiveMatrix="auto"};
