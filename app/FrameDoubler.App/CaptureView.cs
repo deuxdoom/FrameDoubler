@@ -624,20 +624,23 @@ public sealed class CaptureView:UserControl
             session=await Task.Run(()=>LiveEngine.Open(d.Device,m.Mode,audio,options,p.EffectiveScreenshotDirectory,p.EffectiveRecordingDirectory,p.RecordingCodec,p.RecordingBitrate,window,p.CaptureAudioOutput));
             owner.ChangeSettings(q=>q with{CaptureDevice=d.Device.Name,CaptureMode=m.Mode.Key});
             statusMessage="";fpsHistory.Clear();
+            KeepAwake.Set(true);
             owner.LogCapture(T("미리보기 시작: ","Preview started: ")+d.Device.Name+" · "+m.Mode.Label);
         }catch(Exception ex){
             session=null;statusMessage=ex.Message;host.Visibility=Visibility.Collapsed;placeholder.Visibility=Visibility.Visible;
             owner.LogCapture(T("미리보기 실패: ","Preview failed: ")+ex.Message);
         }finally{starting=false;UpdateStart();UpdateRecordButton();ShowStatus(last);}
     }
+    public string? StatusJson()=>session?.StatusJson();
     public void Stop(){
+        KeepAwake.Set(false);
         var s=session;session=null;last=null;
         s?.Dispose();
         host.Visibility=Visibility.Collapsed;placeholder.Visibility=Visibility.Visible;
         UpdateStart();UpdateRecordButton();ShowStatus(null);
     }
     // Closing the window: finish a recording and release the device.
-    public void Shutdown(){timer.Stop();gpuUsage.Dispose();var s=session;session=null;s?.Dispose();}
+    public void Shutdown(){timer.Stop();KeepAwake.Set(false);gpuUsage.Dispose();var s=session;session=null;s?.Dispose();}
     // Offers the NVIDIA VFX download when it is missing; true when it is installed.
     private bool EnsureVfx(){
         if(LiveEngine.VfxInstalled)return true;

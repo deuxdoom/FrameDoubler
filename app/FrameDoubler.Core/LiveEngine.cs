@@ -179,6 +179,7 @@ public static class LiveEngine
         if(text==IntPtr.Zero)return "";
         try{return Marshal.PtrToStringUTF8(text)??"";}finally{Native.fdl_free(text);}
     }
+    public static string DevicesJson(){Register();return Take(Native.fdl_devices());}
     public static CaptureInventory Devices(){
         Register();
         using var document=JsonDocument.Parse(Take(Native.fdl_devices()));
@@ -250,6 +251,9 @@ public sealed class LiveSession:IDisposable
     }
     public void StartRecording()=>Command("action=record-start");
     public void StopRecording()=>Command("action=record-stop");
+    public string? StatusJson(){
+        lock(gate){if(handle==IntPtr.Zero)return null;return LiveEngine.TakeText(LiveEngine.Native.fdl_status(handle));}
+    }
     public LiveStatus? Status(){
         string json;
         lock(gate){if(handle==IntPtr.Zero)return null;json=LiveEngine.TakeText(LiveEngine.Native.fdl_status(handle));}

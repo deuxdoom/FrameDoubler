@@ -307,6 +307,7 @@ public partial class MainWindow:Window
         RefreshEstimateText();
     }
     internal void Log(string text){LogBox.AppendText(text+Environment.NewLine);LogBox.ScrollToEnd();}
+    internal string LogText=>LogBox.Text;
     private async void StartClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync();
     private async void SelectedClicked(object sender,RoutedEventArgs e)=>await RunQueueAsync(SelectedForConversion());
     internal QueueEntry[] SelectedInListOrder()=>Entries.Where(x=>QueueList.SelectedItems.Contains(x)).ToArray();

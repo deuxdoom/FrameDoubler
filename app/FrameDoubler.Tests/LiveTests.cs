@@ -121,6 +121,11 @@ internal static class LiveTests
         var device=new CaptureDevice("Live Gamer Ultra 2.1-Video","id","",modes);
         assert(device.PreferredMode==modes[2],"Default mode: largest picture at 60 fps, NV12 before YUY2, never an unsupported format");
         var inventory=new CaptureInventory([device],[new("mic","USB Microphone",true),new("card","HDMI/Line In(Live Gamer Ultra 2.1-Audio)",false)]);
+        {
+            string masked=Privacy.Mask(@"C:\Users\Kim\Videos kim log; Kimchi stays; \\?\usb#vid_07ca&pid_2553&mi_00#6&1162f4de&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global","Kim",@"C:\Users\Kim");
+            assert(!masked.Contains("1162f4de")&&!masked.Contains("e5323777")&&masked.Contains("vid_07ca&pid_2553")&&masked.Contains(@"%USERPROFILE%\Videos")&&masked.Contains("<user> log")&&masked.Contains("Kimchi"),
+                "Diagnostics hide the profile path, user name and device instance IDs but keep vendor/product numbers and other words: "+masked);
+        }
         assert(inventory.MatchingAudio(device)?.Id=="card","The capture card's own audio input is matched by name, not the default microphone");
         {
             var mic=new AudioInput("mic","Microphone (USB Audio Device)",true);

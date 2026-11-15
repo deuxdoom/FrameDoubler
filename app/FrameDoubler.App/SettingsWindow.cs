@@ -299,6 +299,17 @@ public sealed class SettingsWindow:Window
         ((StackPanel)((Grid)card.Children[2]).Children[0]).Children.Add(Styled(estimates));
         ((StackPanel)((Grid)card.Children[4]).Children[0]).Children.Add(Styled(workSize));
         stack.Children.Add(Note(T("설정(settings.ini)과 예상 시간 기록(performance.json)은 실행 파일이 있는 폴더에 저장됩니다.","Settings (settings.ini) and time estimates (performance.json) are stored next to the executable.")));
+        var diagnosticsState=Note("");
+        var diagnostics=ActionButton(T("저장…","Save…"),()=>{
+            var dialog=new Microsoft.Win32.SaveFileDialog{FileName="FrameDoubler-diagnostics-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".zip",Filter="ZIP|*.zip",
+                InitialDirectory=Environment.GetFolderPath(Environment.SpecialFolder.Desktop)};
+            if(dialog.ShowDialog(this)!=true)return;
+            try{Diagnostics.Write(dialog.FileName,owner.LogText,owner.Capture?.StatusJson());diagnosticsState.Text=Hangul.KeepWords(T("저장했습니다: ","Saved: ")+dialog.FileName);}
+            catch(Exception ex){diagnosticsState.Text=Hangul.KeepWords(ex.Message);}
+        });
+        stack.Children.Add(Card(Row(T("진단 정보","Diagnostics"),T("문제를 알릴 때 첨부할 ZIP을 만듭니다. 버전·캡처 상태·장치·설정·최근 기록만 담고 사용자 이름과 장치 고유 번호는 가립니다. 화면·소리는 넣지 않고 어디로도 보내지 않습니다.",
+            "Creates a ZIP to attach to a problem report: versions, capture status, devices, settings and the recent log, with the user name and device IDs hidden. No picture or sound; nothing is sent."),diagnostics,"SettingDiagnostics")));
+        stack.Children.Add(diagnosticsState);
         return stack;
         TextBlock Styled(TextBlock text){text.Foreground=(Brush)FindResource("MutedBrush");text.FontSize=12;text.Margin=new Thickness(0,4,0,0);text.TextWrapping=TextWrapping.Wrap;return text;}
     }
