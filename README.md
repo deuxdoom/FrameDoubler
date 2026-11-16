@@ -170,14 +170,14 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 ## 📥 내려받기와 실행
 
-1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.0/FrameDoubler_v200.zip)로 `FrameDoubler_v200.zip`(약 264MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
+1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.1/FrameDoubler_v201.zip)로 `FrameDoubler_v201.zip`(약 265MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
 2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 536MB)는 통째로 유지합니다. 폴더에는 `FrameDoubler.exe`, `FrameDoubler.Cli.exe`와 .NET 런타임이 든 `dll` 폴더가 있습니다.
 3. `FrameDoubler.exe`를 실행합니다.
 
 .NET 런타임, RIFE 모델, FFmpeg가 모두 들어 있어 Python, CUDA Toolkit, 별도 SDK를 설치할 필요가 없습니다. GPU 드라이버는 포함하지 않습니다. 파일의 SHA-256은 릴리스 설명에 적혀 있습니다.
 
 ```powershell
-Get-FileHash FrameDoubler_v200.zip -Algorithm SHA256
+Get-FileHash FrameDoubler_v201.zip -Algorithm SHA256
 ```
 
 <a id="usage"></a>
@@ -215,7 +215,7 @@ Get-FileHash FrameDoubler_v200.zip -Algorithm SHA256
 
 시작할 때 GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 제목 표시줄의 업데이트 버튼(⟳)을 주황색으로 표시합니다. 버튼이나 트레이 메뉴의 `업데이트`를 누르면, 최신 버전일 때는 작은 창으로 알려 주고 새 버전이 있을 때만 변경 사항과 설치 단계(다운로드 → 무결성 확인 → 설정 보존 → 재시작·설치)를 보여 주는 창을 엽니다.
 
-- 해당 버전의 이름(예: `FrameDoubler_v200.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
+- 해당 버전의 이름(예: `FrameDoubler_v201.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
 - 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인합니다. 설치는 설치 폴더 옆에 복사한 별도 설치 프로그램이 맡으며, 이 프로그램이 패키지를 다시 확인하고 준비를 마친 뒤에만 FrameDoubler가 종료됩니다.
 - FrameDoubler가 완전히 종료되면 설치 창이 나타나 이전 설치를 백업으로 옮기고 새 버전을 넣습니다. 파일이 잠시 사용 중이면 최대 30초 동안 다시 시도합니다.
 - 새 버전이 열려 시작을 확인해야 설치가 끝납니다. 교체나 시작에 실패하면 이전 설치로 되돌리고 다시 엽니다. 결과는 설치 창과 `work/updates/last-install.json`에 남습니다.
@@ -254,7 +254,7 @@ Windows 11 x64, `global.json`의 .NET SDK(10.0.404)와 외부 CMake/Ninja·LLVM-
 ```powershell
 pwsh scripts/setup-dev.ps1                                    # 빌드 도구 준비
 dotnet run --project app/FrameDoubler.Tests                   # 테스트
-pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v200.zip) 생성
+pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v201.zip) 생성
 ```
 
 빌드 도구는 프로젝트의 `tools/dev`, 중간 파일은 `build`에 두며 저장소에는 포함하지 않습니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
@@ -267,6 +267,7 @@ FrameDoubler는 [MIT 라이선스](LICENSE)로 배포하는 독립 프로젝트�
 
 - 프레임 보간: [Practical-RIFE](https://github.com/hzwer/Practical-RIFE)의 공식 가중치를 ncnn 형식으로 변환 (MIT, Copyright (c) 2021 hzwer)
 - 추론: [Tencent ncnn](https://github.com/Tencent/ncnn) (BSD-3-Clause)과 glslang
+- 실시간 안티앨리어싱: [SMAA](https://github.com/iryoku/smaa) 참조 셰이더와 사전 계산 표 (MIT)
 - 앱: Microsoft .NET / Windows Desktop 런타임 (MIT)
 - 디코딩과 인코딩: [FFmpeg](https://ffmpeg.org) (BtbN LGPL 빌드, 교체 가능한 별도 실행 파일)
 

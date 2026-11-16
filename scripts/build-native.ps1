@@ -124,7 +124,7 @@ $Inventory=@(Get-ChildItem -LiteralPath $Destination -File -Recurse | Sort-Objec
 if(@($Inventory.path | Where-Object {$_ -notlike 'engine/nvvfx/*'}) -match '(?i)(torch|python|cudnn|cublas|cudart|\.pkl$|\.pt$)'){throw 'Forbidden legacy runtime/model file in native package'}
 $Total=($Inventory | Measure-Object -Property bytes -Sum).Sum
 $SourceFiles=@(& git -C $ProjectRoot ls-files --cached --others --exclude-standard -- app poc/ncnn-rife poc/ort-rife poc/dotnet-launcher poc/live |
-    Where-Object {[IO.Path]::GetExtension($_) -in '.cs','.xaml','.csproj','.cpp','.h','.ps1','.py','.json','.props','.rc','.manifest'} | Sort-Object | ForEach-Object {
+    Where-Object {[IO.Path]::GetExtension($_) -in '.cs','.xaml','.csproj','.cpp','.h','.hlsl','.ps1','.py','.json','.props','.rc','.manifest'} | Sort-Object | ForEach-Object {
         [ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot $_)).Hash.ToLowerInvariant()}
     })
 if($SourceFiles.Count -eq 0){throw 'No tracked source files found'}

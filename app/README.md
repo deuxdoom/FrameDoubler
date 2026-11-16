@@ -182,7 +182,7 @@ another GUI instance. Close behavior is configurable in Settings. FFmpeg and eng
 are in a kill-on-close job, so none survive an exit or crash. The Updates button
 checks stable releases: when up to date it only says so; a newer release opens
 the notes and download/verify/keep-settings/restart steps. It installs only the asset
-named for that release (`FrameDoubler_v200.zip` for 2.0.0) from that exact tag, with a
+named for that release (`FrameDoubler_v201.zip` for 2.0.1) from that exact tag, with a
 GitHub SHA-256 digest and a matching native manifest. A copy of the installer runs beside
 the installation, re-checks every file and confirms it is ready before FrameDoubler exits.
 After the exact process has exited, an installer window moves the old folder to a backup
@@ -200,8 +200,8 @@ dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --integration --pipeline
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --long
 dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --installer
-dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler_v200.zip
-dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --launcher-package dist/FrameDoubler dist/FrameDoubler_v200.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --update-package dist/FrameDoubler_v201.zip
+dotnet run --project app/FrameDoubler.Tests/FrameDoubler.Tests.csproj -- --launcher-package dist/FrameDoubler dist/FrameDoubler_v201.zip
 pwsh scripts/setup-dev.ps1
 pwsh scripts/build.ps1
 ```
