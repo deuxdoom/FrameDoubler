@@ -7,9 +7,9 @@ see that file for the matrix and procedure.
 
 ## Capture preview
 
-FrameDoubler opens on the capture preview (switch to "Convert files" in the title bar; the last
-page is remembered). It automatically starts the selected supported capture card, including
-on first launch. Choose another card or exact mode as needed (NV12, P010, YUY2, UYVY, RGB32, RGB24, I420 or YV12;
+A first launch opens on "Convert files"; switch to "Capture preview" in the title bar (the last
+page is remembered and opens next time). The preview starts only when you press "Start preview";
+opening the page lists the cards and keeps the last device and mode selected. Choose another card or exact mode as needed (NV12, P010, YUY2, UYVY, RGB32, RGB24, I420 or YV12;
 compressed MJPG modes are not listed). Media Foundation
 is preferred; devices exposed only through DirectShow are also listed. Selections keep the device
 path as well as its name. A failed MF open tries only the same device and exact mode through
@@ -84,16 +84,20 @@ paths are not included.
 ## Converting files
 
 Run `FrameDoubler.exe` in `dist/FrameDoubler`. Click the drop area or use Ctrl+O
-to select videos; dropping files works too. Review file and estimated motion fps,
+to select videos; dropping files works too. Videos with rotation metadata (portrait phone
+recordings) are converted upright, as players show them, without a rotation tag in the output. Review file and estimated motion fps,
 select an output folder/preset and convert. Queue items are numbered and can be
 dragged to reorder; Convert all runs every remaining item in that order, Convert
 selected only the selected ones (Ctrl/Shift multi-select). Existing files are protected.
-Four fixed export presets: Source (keep bitrate, default), Source (bitrate scales with fps), YouTube 4K, YouTube 1080p. Both Source modes keep the source size/codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). YouTube uses H.264 High VBR at 45 Mbps for 4K and 10 Mbps for 1080p, plus AAC-LC 48 kHz (256 kbps when the source is at least 256 kbps; otherwise 192 kbps, including unknown source bitrate). HDR is tone-mapped to SDR at the same bitrate. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
+Keyboard: Delete removes the selection, Ctrl+A selects all, Alt+Up/Alt+Down move the selection,
+Ctrl+Enter converts all, Ctrl+Shift+Enter converts the selection and Enter (in the list) opens the
+result. All keys, including Ctrl+O, can be changed under Settings → Shortcuts → Convert files.
+Four fixed export presets: Source (keep bitrate, default), Source (bitrate scales with fps), YouTube 4K, YouTube 1080p. Both Source modes keep the source size/codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). YouTube uses H.264 High VBR at 45 Mbps for 4K and 10 Mbps for 1080p, plus AAC-LC 48 kHz (256 kbps when the source is at least 256 kbps; otherwise 192 kbps, including unknown source bitrate). HDR is tone-mapped to SDR at the same bitrate. The 4K/1080p sizes apply to the short side, so a portrait 1080×1920 video stays 1080p. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
 Each queued video shows a representative thumbnail (FFmpeg thumbnail filter).
 The Settings button (gear) opens General, Window and tray, Advanced, Data and About pages:
 update check at startup, close/minimize button actions, advanced device/encoder/model/HUD options, data folder,
 time-estimate reset, working-file cleanup, version and device information.
-The frameless title bar supports dragging, resizing, minimizing and maximizing.
+The frameless, fixed-size window supports dragging and minimizing.
 The device menu supports automatic choice, individual Vulkan devices and CPU.
 The encoder menu contains only combinations that passed an actual startup test.
 NVENC/AMF/QSV and software H.264/HEVC/AV1 are considered independently of the

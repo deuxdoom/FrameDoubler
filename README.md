@@ -15,11 +15,17 @@
   <img src="https://img.shields.io/badge/ENCODER-NVENC%20%C2%B7%20AMF%20%C2%B7%20QSV%20%C2%B7%20SOFTWARE-64748B" alt="NVENC · AMF · QSV · Software">
 </p>
 
-<p align="center"><b>캡처 카드의 게임 화면을 부드럽게 표시·녹화하는 Windows 프로그램</b><br>
-실시간 DLSS·VFX 프레임 생성과 RIFE 기반 녹화 파일 변환을 제공합니다.</p>
+<p align="center"><b>30fps 게임 녹화를 60fps로 바꾸고, 캡처 카드 화면도 부드럽게 표시·녹화하는 Windows 프로그램</b><br>
+RIFE 기반 녹화 파일 변환과 실시간 DLSS·VFX 프레임 생성을 제공합니다.</p>
 
 <p align="center">
-  <img src="docs/img/screenshot.png" alt="FrameDoubler 메인 화면" width="900">
+  <img src="docs/img/screen-empty.png" alt="FrameDoubler 파일 변환 화면" width="900"><br>
+  <sub>파일 변환 (시작 화면)</sub>
+</p>
+
+<p align="center">
+  <img src="docs/img/screenshot.png" alt="실제 캡처 입력을 표시하는 FrameDoubler 캡처 미리보기 화면" width="900"><br>
+  <sub>캡처 미리보기</sub>
 </p>
 
 <p align="center">
@@ -47,7 +53,18 @@
 
 ## 📌 소개
 
-캡처 카드를 연결하면 실시간 미리보기에서 화면과 소리를 확인하고 처리 결과를 녹화할 수 있습니다. 제목 표시줄에서 캡처 미리보기와 파일 변환을 전환합니다.
+녹화 파일을 추가하면 중복 프레임을 걷어 내 실제 움직임을 복원한 뒤 60fps로 변환합니다. 캡처 카드를 연결하면 실시간 미리보기에서 화면과 소리를 확인하고 처리 결과를 녹화할 수 있습니다. 제목 표시줄에서 파일 변환과 캡처 미리보기를 전환합니다. 처음 실행하면 파일 변환 화면이 열리고, 그다음부터는 마지막으로 쓴 화면으로 시작합니다.
+
+### 녹화 파일 변환
+
+콘솔 게임이 30fps로 동작하면 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다. 파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps이므로, 유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.
+
+일반적인 보간 프로그램은 이 파일을 그대로 2배로 늘리기 때문에 똑같은 두 프레임 사이를 보간하게 됩니다. FrameDoubler는 먼저 **중복 프레임을 걷어 내어 실제 움직임을 복원**한 뒤에, 남은 프레임 사이를 [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) 모델로 보간합니다.
+
+```
+녹화 원본      A  A  B  B  C  C      파일 60fps · 움직임 30fps
+FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
+```
 
 ### 실시간 캡처와 녹화
 
@@ -62,18 +79,8 @@
 - PNG 스크린샷과 H.264/HEVC·AAC MP4 녹화를 지원합니다. 녹화는 3초 카운트다운 뒤 시작하고 다시 누르면 취소합니다. 영상은 고정 프레임레이트로 저장하며 빈 칸은 직전 그림으로 채웁니다.
 - 하단에는 화면 지연(ms), GPU 사용률(%), 실제로 바뀐 프레임의 표시 속도(fps)를 보여 줍니다. 최근 1분의 표시 속도 그래프와 각 수치의 설명도 확인할 수 있습니다.
 - 같은 이름의 카드는 장치 경로로 구분해 선택을 기억합니다. Media Foundation에서 열 수 없는 모드는 같은 장치의 DirectShow로 시도하며, 연결이 모호하면 다른 카드로 대체하지 않습니다. NV12·P010·YUY2·UYVY·RGB32·RGB24·I420·YV12 입력을 지원합니다.
+- 미리보기는 `미리보기 시작`을 눌러야 시작합니다. 화면을 열기만 해서는 캡처 장치를 쓰지 않습니다.
 - 메인 창은 화면 작업 영역과 Windows 배율에 맞춘 작은 고정 크기입니다. 미리보기를 더블클릭하면 전체 화면으로 전환합니다.
-
-### 녹화 파일 변환
-
-콘솔 게임이 30fps로 동작하면 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다. 파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps이므로, 유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.
-
-일반적인 보간 프로그램은 이 파일을 그대로 2배로 늘리기 때문에 똑같은 두 프레임 사이를 보간하게 됩니다. FrameDoubler는 먼저 **중복 프레임을 걷어 내어 실제 움직임을 복원**한 뒤에, 남은 프레임 사이를 [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) 모델로 보간합니다.
-
-```
-녹화 원본      A  A  B  B  C  C      파일 60fps · 움직임 30fps
-FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
-```
 
 <a id="compare"></a>
 
@@ -103,7 +110,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 ### 🔍 입력과 장치 자동 분석
 
-영상을 추가하면 해상도, 코덱, 비트레이트, 길이, 프레임레이트, CFR/VFR, 비트 심도, 색상 정보를 읽습니다. 1~2시간 길이의 녹화도 여러 구간만 읽어 바로 분석합니다. **파일 프레임레이트**와 **실제 움직임 프레임레이트**를 나란히 보여 주므로 이 영상이 어떤 파일인지 바로 알 수 있습니다. 시작할 때에는 이 PC의 CPU, GPU, Vulkan 기능, 인코더를 확인합니다.
+영상을 추가하면 해상도, 코덱, 비트레이트, 길이, 프레임레이트, CFR/VFR, 비트 심도, 색상, 회전 정보를 읽습니다. 휴대폰으로 찍은 세로 영상처럼 회전 정보가 있는 영상은 화면에 보이는 방향으로 세워서 변환합니다. 1~2시간 길이의 녹화도 여러 구간만 읽어 바로 분석합니다. **파일 프레임레이트**와 **실제 움직임 프레임레이트**를 나란히 보여 주므로 이 영상이 어떤 파일인지 바로 알 수 있습니다. 시작할 때에는 이 PC의 CPU, GPU, Vulkan 기능, 인코더를 확인합니다.
 
 ### 🎞️ 중복 프레임 감지와 움직임 복원
 
@@ -135,8 +142,9 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 ### 🧰 편의 기능
 
 - 클릭, 끌어 놓기, `Ctrl+O`로 여러 영상을 추가하고 번호순으로 처리하는 대기열 (대표 장면 썸네일, 끌어서 순서 변경, `일괄 변환`·`선택 변환`)
+- 파일 변환 단축키: `Delete` 선택 제거, `Ctrl+A` 모두 선택, `Alt+↑`·`Alt+↓` 순서 이동, `Ctrl+Enter` 일괄 변환, `Ctrl+Shift+Enter` 선택 변환, `Enter` 결과 열기. 설정 › 단축키에서 바꿉니다.
 - 제목 표시줄의 설정(⚙) 버튼: 시작할 때 업데이트 확인, 닫기·최소화 버튼 동작, 고급(추론 장치·인코더·RIFE 모델·고정 HUD), 설정 폴더 열기, 예상 시간 기록 초기화, 작업 파일 정리, 버전·장치 정보
-- 프레임리스 창(이동, 크기 조절, 최대화), 접어 둔 처리 기록
+- 프레임리스 고정 크기 창(이동, 최소화), 접어 둔 처리 기록
 - 중복 실행은 새 창을 만들지 않고 기존 창을 앞으로 가져옴. 최소화·트레이·최대화 상태 복원
 - 최소화 기본값은 작업 표시줄이며, 설정에서 선택했을 때만 트레이로 보냄. 닫기 동작은 확인·트레이·종료 중 선택
 - 메인 창과 같은 색상·아이콘의 트레이 메뉴: 창 열기, 설정, 업데이트 확인, GitHub, 종료
@@ -162,41 +170,34 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 
 ## 🖼️ 화면 모음
 
-| 실시간 영어 화면 | 파일 변환 | 캡처 설정 |
+| 실시간 영어 화면 | 캡처 설정 | 업데이트 |
 | --- | --- | --- |
-| <img src="docs/img/screenshot-en.png" alt="실제 캡처 입력을 표시하는 영어 화면" width="300"> | <img src="docs/img/screen-empty.png" alt="제목 표시줄에서 전환한 파일 변환 화면" width="300"> | <img src="docs/img/screen-settings.png" alt="캡처 저장 위치와 녹화 형식을 고르는 설정 창" width="300"> |
+| <img src="docs/img/screenshot-en.png" alt="실제 캡처 입력을 표시하는 영어 화면" width="300"> | <img src="docs/img/screen-settings.png" alt="캡처 저장 위치와 녹화 형식을 고르는 설정 창" width="300"> | <img src="docs/img/screen-update.png" alt="새 버전의 변경 사항과 설치 단계를 보여 주는 업데이트 창" width="300"> |
 
 <a id="download"></a>
 
 ## 📥 내려받기와 실행
 
-1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.1/FrameDoubler_v201.zip)로 `FrameDoubler_v201.zip`(약 265MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
+1. [ZIP 내려받기](https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.2/FrameDoubler_v202.zip)로 `FrameDoubler_v202.zip`(약 265MB)을 받습니다. 1.0.2부터 ZIP 이름에 버전이 들어갑니다. 버전과 SHA-256은 [릴리스 정보](https://github.com/deuxdoom/FrameDoubler/releases/latest)에서 확인합니다.
 2. 원하는 위치에 압축을 풉니다. 풀린 `FrameDoubler` 폴더(약 536MB)는 통째로 유지합니다. 폴더에는 `FrameDoubler.exe`, `FrameDoubler.Cli.exe`와 .NET 런타임이 든 `dll` 폴더가 있습니다.
 3. `FrameDoubler.exe`를 실행합니다.
 
 .NET 런타임, RIFE 모델, FFmpeg가 모두 들어 있어 Python, CUDA Toolkit, 별도 SDK를 설치할 필요가 없습니다. GPU 드라이버는 포함하지 않습니다. 파일의 SHA-256은 릴리스 설명에 적혀 있습니다.
 
 ```powershell
-Get-FileHash FrameDoubler_v201.zip -Algorithm SHA256
+Get-FileHash FrameDoubler_v202.zip -Algorithm SHA256
 ```
 
 <a id="usage"></a>
 
 ## 🚀 사용 방법
 
-### 캡처 미리보기와 녹화
-
-1. 캡처 카드를 연결하고 장치·입력 모드를 확인합니다. 지원 모드가 있으면 자동으로 미리보기를 시작합니다.
-2. 필요하면 `중복 프레임 제거`와 `프레임 생성`을 켭니다. 60Hz 신호의 30fps 게임은 중복 제거와 2배 생성을 함께 사용합니다.
-3. `녹화`를 누르면 3초 뒤 시작합니다. 다시 누르면 저장을 마무리합니다. `스크린샷`은 원본 해상도 PNG를 저장합니다. 저장 위치·코덱은 설정 › 캡처에서 바꿉니다.
-
-미리보기를 더블클릭하거나 F11을 눌러 전체 화면으로 전환합니다. 기본 단축키는 F7 스크린샷·F8 녹화·F6 프레임 생성·F10 통계·V 원본 비교이며 설정 › 단축키에서 바꿉니다.
-
 ### 녹화 파일 변환
 
 1. 영상을 창에 끌어 놓거나 가운데 영역을 클릭합니다. `영상 추가`와 `Ctrl+O`도 사용할 수 있습니다. 추가하면 바로 분석합니다.
 2. 파일 fps와 실제 움직임 fps를 확인하고, 목표 프레임레이트·프리셋·저장 폴더를 고릅니다. 저장 폴더를 비워 두면 원본과 같은 폴더에 저장합니다.
 3. `예상 소요 시간`을 확인하고 `일괄 변환`(목록 번호순으로 모두) 또는 `선택 변환`(고른 영상만)을 누릅니다. 목록의 영상은 끌어서 순서를 바꿀 수 있고, `Ctrl`·`Shift`로 여러 개를 고를 수 있습니다. 끝나면 `결과 열기` 또는 `폴더 열기`를 누릅니다. 결과를 검사하려면 `변환 후 검증`을 켜 둡니다.
+4. 키보드로도 다룰 수 있습니다. `Delete`는 선택 제거, `Alt+↑`·`Alt+↓`는 순서 이동, `Ctrl+Enter`는 일괄 변환, `Enter`는 결과 열기이며, 모든 단축키는 설정 › 단축키에서 바꿉니다.
 
 | 입력 | 기본 출력 (`입력에 맞춤`) |
 | --- | --- |
@@ -209,13 +210,21 @@ Get-FileHash FrameDoubler_v201.zip -Algorithm SHA256
 
 설정(`settings.ini`), 성능 기록(`performance.json`), 작업 파일(`work`)은 모두 `FrameDoubler.exe`가 있는 폴더에 저장합니다. 폴더를 통째로 옮겨도 설정이 그대로 이어집니다. `settings.ini`는 UTF-8 텍스트이며, 1.0.1까지 쓰던 `settings.json`은 처음 실행할 때 한 번 `settings.ini`로 옮깁니다.
 
+### 캡처 미리보기와 녹화
+
+1. 제목 표시줄에서 `캡처 미리보기`로 바꾸고, 캡처 카드를 연결한 뒤 장치·입력 모드를 확인합니다. `미리보기 시작`을 누르면 미리보기가 시작됩니다.
+2. 필요하면 `중복 프레임 제거`와 `프레임 생성`을 켭니다. 60Hz 신호의 30fps 게임은 중복 제거와 2배 생성을 함께 사용합니다.
+3. `녹화`를 누르면 3초 뒤 시작합니다. 다시 누르면 저장을 마무리합니다. `스크린샷`은 원본 해상도 PNG를 저장합니다. 저장 위치·코덱은 설정 › 캡처에서 바꿉니다.
+
+미리보기를 더블클릭하거나 F11을 눌러 전체 화면으로 전환합니다. 기본 단축키는 F7 스크린샷·F8 녹화·F6 프레임 생성·F10 통계·V 원본 비교이며 설정 › 단축키에서 바꿉니다.
+
 <a id="update"></a>
 
 ## 🔄 업데이트
 
 시작할 때 GitHub의 안정 릴리스를 확인하고, 새 버전이 있으면 제목 표시줄의 업데이트 버튼(⟳)을 주황색으로 표시합니다. 버튼이나 트레이 메뉴의 `업데이트`를 누르면, 최신 버전일 때는 작은 창으로 알려 주고 새 버전이 있을 때만 변경 사항과 설치 단계(다운로드 → 무결성 확인 → 설정 보존 → 재시작·설치)를 보여 주는 창을 엽니다.
 
-- 해당 버전의 이름(예: `FrameDoubler_v201.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
+- 해당 버전의 이름(예: `FrameDoubler_v202.zip`)과 다운로드 주소가 정확히 맞고 GitHub가 제공하는 SHA-256이 있는 파일만 설치합니다. 릴리스 설명에 SHA-256이 적혀 있으면 서로 일치해야 합니다.
 - 내려받은 뒤 패키지의 매니페스트와 모든 파일의 해시를 확인합니다. 설치는 설치 폴더 옆에 복사한 별도 설치 프로그램이 맡으며, 이 프로그램이 패키지를 다시 확인하고 준비를 마친 뒤에만 FrameDoubler가 종료됩니다.
 - FrameDoubler가 완전히 종료되면 설치 창이 나타나 이전 설치를 백업으로 옮기고 새 버전을 넣습니다. 파일이 잠시 사용 중이면 최대 30초 동안 다시 시도합니다.
 - 새 버전이 열려 시작을 확인해야 설치가 끝납니다. 교체나 시작에 실패하면 이전 설치로 되돌리고 다시 엽니다. 결과는 설치 창과 `work/updates/last-install.json`에 남습니다.
@@ -254,7 +263,7 @@ Windows 11 x64, `global.json`의 .NET SDK(10.0.404)와 외부 CMake/Ninja·LLVM-
 ```powershell
 pwsh scripts/setup-dev.ps1                                    # 빌드 도구 준비
 dotnet run --project app/FrameDoubler.Tests                   # 테스트
-pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v201.zip) 생성
+pwsh scripts/build.ps1                                        # dist/FrameDoubler와 버전 ZIP(dist/FrameDoubler_v202.zip) 생성
 ```
 
 빌드 도구는 프로젝트의 `tools/dev`, 중간 파일은 `build`에 두며 저장소에는 포함하지 않습니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
