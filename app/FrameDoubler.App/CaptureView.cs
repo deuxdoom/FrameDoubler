@@ -521,14 +521,17 @@ public sealed class CaptureView:UserControl
         active=true;
         if(!LiveEngine.Available){ShowStatus(null);statusMessage=T("실시간 엔진(fdlive.dll)을 찾지 못했습니다.","The live engine (fdlive.dll) was not found.");ShowStatus(null);return;}
         timer.Start();
-        if(loaded)return;
+        if(loaded){if(loading is not null)await loading;return;}
         loaded=true;
+        loading=LoadDevicesAsync();await loading;
+    }
+    // The preview never starts by itself (user decision, 2026-11-17): opening the page lists the
+    // devices and remembers the last device and mode; "Start preview" opens the card.
+    private Task? loading;
+    private async Task LoadDevicesAsync(){
         await RefreshDevicesAsync();
         if(!active||shutDown)return;
         _=ProbeMultiplierAsync();
-        // Fresh installations also start the selected supported device. Previously only
-        // a remembered device started, leaving a first launch on an empty preview.
-        if(deviceBox.SelectedItem is DeviceChoice&&modeBox.SelectedItem is ModeChoice)await StartAsync();
     }
     public void Deactivate(){active=false;if(!Recording&&!Saving&&!StartingRecording){timer.Stop();Stop();}}
     private sealed record DeviceChoice(CaptureDevice Device,string Label){public override string ToString()=>Label;}
@@ -718,11 +721,11 @@ public sealed class CaptureView:UserControl
         var p=owner.Settings;
         string pressed=Shortcut.Format(modifiers,key);
         if(pressed.Length==0)return false;
-        if(pressed==p.ShortcutScreenshot){TakeScreenshot();return true;}
-        if(pressed==p.ShortcutRecord){ToggleRecording();return true;}
-        if(pressed==p.ShortcutFullscreen){SetImmersive(!immersive);return true;}
-        if(pressed==p.ShortcutFrameGeneration){toggles["fg"].IsChecked=toggles["fg"].IsChecked!=true;return true;}
-        if(pressed==p.ShortcutStats){toggles["stats"].IsChecked=toggles["stats"].IsChecked!=true;return true;}
+        if(Shortcut.Matches(p.ShortcutScreenshot,modifiers,key)){TakeScreenshot();return true;}
+        if(Shortcut.Matches(p.ShortcutRecord,modifiers,key)){ToggleRecording();return true;}
+        if(Shortcut.Matches(p.ShortcutFullscreen,modifiers,key)){SetImmersive(!immersive);return true;}
+        if(Shortcut.Matches(p.ShortcutFrameGeneration,modifiers,key)){toggles["fg"].IsChecked=toggles["fg"].IsChecked!=true;return true;}
+        if(Shortcut.Matches(p.ShortcutStats,modifiers,key)){toggles["stats"].IsChecked=toggles["stats"].IsChecked!=true;return true;}
         return false;
     }
     public void RunShortcut(string action){
@@ -1031,16 +1034,21 @@ internal sealed class Sparkline:FrameworkElement
     }
 }
 
-// "Ctrl+Shift+F7"-style key combinations for the capture shortcuts.
+// "Ctrl+Shift+F7"-style key combinations for the capture and file conversion shortcuts.
 internal static class Shortcut
 {
+    // Keys with two enum names print the familiar one (Key.Return and Key.Enter are the same value).
+    private static string Name(Key key)=>key switch{Key.Enter=>"Enter",Key.PageDown=>"PageDown",Key.PageUp=>"PageUp",Key.CapsLock=>"CapsLock",Key.PrintScreen=>"PrintScreen",_=>key.ToString()};
+    // Compares the parsed combination, so "Ctrl+Return" saved by an older build still matches Ctrl+Enter.
+    public static bool Matches(string text,ModifierKeys modifiers,Key key)=>key!=Key.None&&TryParse(text,out var m,out var k)&&m==modifiers&&k==key;
+    public static string Normalize(string text)=>TryParse(text,out var m,out var k)?Format(m,k):"";
     public static bool IsModifier(Key key)=>key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.System;
     public static string Format(ModifierKeys modifiers,Key key){
         if(key==Key.None||IsModifier(key))return "";
         var parts=new List<string>();
         if(modifiers.HasFlag(ModifierKeys.Control))parts.Add("Ctrl");if(modifiers.HasFlag(ModifierKeys.Alt))parts.Add("Alt");
         if(modifiers.HasFlag(ModifierKeys.Shift))parts.Add("Shift");if(modifiers.HasFlag(ModifierKeys.Windows))parts.Add("Win");
-        parts.Add(key.ToString());
+        parts.Add(Name(key));
         return string.Join("+",parts);
     }
     public static bool TryParse(string text,out ModifierKeys modifiers,out Key key){

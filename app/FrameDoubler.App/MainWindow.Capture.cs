@@ -59,7 +59,7 @@ public partial class MainWindow
     internal void OpenSettings(string? category){
         if(busy)return;
         new SettingsWindow(this,category).ShowDialog();
-        capture?.SettingsChanged();ApplyShortcuts();
+        capture?.SettingsChanged();ApplyShortcuts();RefreshShortcutHints();
     }
 
     // ---- shortcuts

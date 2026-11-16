@@ -22,7 +22,7 @@ public sealed record Preferences
     public string CloseAction{get;init;}="ask";
     public string MinimizeAction{get;init;}="taskbar";
     // Capture preview (live engine).
-    public string StartPage{get;init;}="capture";
+    public string StartPage{get;init;}="convert";
     public string CaptureDevice{get;init;}="";
     public string CaptureDeviceId{get;init;}="";
     public string CaptureMode{get;init;}="";
@@ -61,6 +61,15 @@ public sealed record Preferences
     public string ShortcutStats{get;init;}="F10";
     public string ShortcutOriginal{get;init;}="V";
     public bool GlobalShortcuts{get;init;}=false;
+    // File conversion shortcuts (FrameDoubler window only).
+    public string ShortcutAddVideos{get;init;}="Ctrl+O";
+    public string ShortcutRemove{get;init;}="Delete";
+    public string ShortcutSelectAll{get;init;}="Ctrl+A";
+    public string ShortcutMoveUp{get;init;}="Alt+Up";
+    public string ShortcutMoveDown{get;init;}="Alt+Down";
+    public string ShortcutConvertAll{get;init;}="Ctrl+Enter";
+    public string ShortcutConvertSelected{get;init;}="Ctrl+Shift+Enter";
+    public string ShortcutOpenResult{get;init;}="Enter";
     public static string DefaultScreenshotDirectory=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),"FrameDoubler");
     public static string DefaultRecordingDirectory=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),"FrameDoubler");
     public string EffectiveScreenshotDirectory=>string.IsNullOrWhiteSpace(ScreenshotDirectory)?DefaultScreenshotDirectory:ScreenshotDirectory;
@@ -92,7 +101,7 @@ public sealed record Preferences
         if(OutputPresets.FindExact(value.Preset) is null)value=value with{Preset="source"};
         if(value.MinimizeAction!="tray")value=value with{MinimizeAction="taskbar"};
         if(value.Accelerator is not ("auto" or "vulkan" or "rtx"))value=value with{Accelerator="auto"};
-        if(value.StartPage is not ("capture" or "convert"))value=value with{StartPage="capture"};
+        if(value.StartPage is not ("capture" or "convert"))value=value with{StartPage="convert"};
         // "own" from an earlier version: live capture no longer uses FrameDoubler interpolation.
         if(value.LiveFrameGeneration=="own")value=value with{LiveFrameGeneration="auto"};
         if(value.LiveFrameGeneration is not ("auto" or "dlss" or "vfx" or "off"))value=value with{LiveFrameGeneration="off"};
@@ -133,7 +142,7 @@ public sealed record Preferences
             Accelerator=S(nameof(Accelerator),"auto"),
             Verify=B(nameof(Verify),false),HardwareEncoding=B(nameof(HardwareEncoding),true),CheckUpdates=B(nameof(CheckUpdates),true),
             CloseAction=S(nameof(CloseAction),"ask"),MinimizeAction=S(nameof(MinimizeAction),"taskbar"),
-            StartPage=S(nameof(StartPage),"capture"),CaptureDevice=S(nameof(CaptureDevice),""),CaptureMode=S(nameof(CaptureMode),""),CaptureAudio=S(nameof(CaptureAudio),"auto"),
+            StartPage=S(nameof(StartPage),"convert"),CaptureDevice=S(nameof(CaptureDevice),""),CaptureMode=S(nameof(CaptureMode),""),CaptureAudio=S(nameof(CaptureAudio),"auto"),
             CaptureDeviceId=S(nameof(CaptureDeviceId),""),CaptureAudioOutput=S(nameof(CaptureAudioOutput),"default"),
             LiveDlssMotion=S(nameof(LiveDlssMotion),"none"),LiveEdgeAegis=B(nameof(LiveEdgeAegis),false),
             LiveFrameGeneration=S(nameof(LiveFrameGeneration),"off"),LiveMultiplier=I(nameof(LiveMultiplier),2),LiveAntiAlias=I(nameof(LiveAntiAlias),0),LiveDedup=B(nameof(LiveDedup),false),
@@ -143,7 +152,10 @@ public sealed record Preferences
             LiveAspect=S(nameof(LiveAspect),"fit"),LiveOutputCap=S(nameof(LiveOutputCap),"off"),LiveHoldOriginal=B(nameof(LiveHoldOriginal),true),ShortcutOriginal=S(nameof(ShortcutOriginal),"V"),ScreenshotDirectory=S(nameof(ScreenshotDirectory),""),RecordingDirectory=S(nameof(RecordingDirectory),""),
             RecordingCodec=S(nameof(RecordingCodec),"h264"),RecordingBitrate=I(nameof(RecordingBitrate),0),
             ShortcutScreenshot=S(nameof(ShortcutScreenshot),"F7"),ShortcutRecord=S(nameof(ShortcutRecord),"F8"),ShortcutFullscreen=S(nameof(ShortcutFullscreen),"F11"),
-            ShortcutFrameGeneration=S(nameof(ShortcutFrameGeneration),"F6"),ShortcutStats=S(nameof(ShortcutStats),"F10"),GlobalShortcuts=B(nameof(GlobalShortcuts),false)};
+            ShortcutFrameGeneration=S(nameof(ShortcutFrameGeneration),"F6"),ShortcutStats=S(nameof(ShortcutStats),"F10"),GlobalShortcuts=B(nameof(GlobalShortcuts),false),
+            ShortcutAddVideos=S(nameof(ShortcutAddVideos),"Ctrl+O"),ShortcutRemove=S(nameof(ShortcutRemove),"Delete"),ShortcutSelectAll=S(nameof(ShortcutSelectAll),"Ctrl+A"),
+            ShortcutMoveUp=S(nameof(ShortcutMoveUp),"Alt+Up"),ShortcutMoveDown=S(nameof(ShortcutMoveDown),"Alt+Down"),ShortcutConvertAll=S(nameof(ShortcutConvertAll),"Ctrl+Enter"),
+            ShortcutConvertSelected=S(nameof(ShortcutConvertSelected),"Ctrl+Shift+Enter"),ShortcutOpenResult=S(nameof(ShortcutOpenResult),"Enter")};
         return Normalize(result,values.ContainsKey(nameof(PresetDefaultsVersion)));
     }
     public void Save(string? directory=null){
@@ -170,6 +182,9 @@ public sealed record Preferences
         Add(nameof(RecordingCodec),RecordingCodec);Add(nameof(RecordingBitrate),RecordingBitrate);
         Add(nameof(ShortcutScreenshot),ShortcutScreenshot);Add(nameof(ShortcutRecord),ShortcutRecord);Add(nameof(ShortcutFullscreen),ShortcutFullscreen);
         Add(nameof(ShortcutFrameGeneration),ShortcutFrameGeneration);Add(nameof(ShortcutStats),ShortcutStats);Add(nameof(GlobalShortcuts),GlobalShortcuts);
+        Add(nameof(ShortcutAddVideos),ShortcutAddVideos);Add(nameof(ShortcutRemove),ShortcutRemove);Add(nameof(ShortcutSelectAll),ShortcutSelectAll);
+        Add(nameof(ShortcutMoveUp),ShortcutMoveUp);Add(nameof(ShortcutMoveDown),ShortcutMoveDown);Add(nameof(ShortcutConvertAll),ShortcutConvertAll);
+        Add(nameof(ShortcutConvertSelected),ShortcutConvertSelected);Add(nameof(ShortcutOpenResult),ShortcutOpenResult);
         string target=Path.Combine(directory,FileName),temp=target+"."+Guid.NewGuid().ToString("N")+".tmp";
         try{File.WriteAllText(temp,content.ToString(),new UTF8Encoding(false));File.Move(temp,target,true);}
         finally{if(File.Exists(temp))File.Delete(temp);}

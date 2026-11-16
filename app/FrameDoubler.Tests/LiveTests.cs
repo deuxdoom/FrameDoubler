@@ -10,7 +10,7 @@ internal static class LiveTests
         Directory.CreateDirectory(root);
         try{
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",root);
-            var saved=new Preferences{StartPage="convert",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureDeviceId="device-path-2",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
+            var saved=new Preferences{StartPage="capture",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureDeviceId="device-path-2",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
                 LiveFrameGeneration="vfx",LiveMultiplier=2,LiveAntiAlias=3,LiveAntiAliasMode="smaa",LiveTransfer="hlg",LiveDedup=false,LiveRange="full",LiveMatrix="2020",LiveVfxQuality=2,LiveVolume=35,LiveMute=true,
                 LiveAudioOffset=-40,LiveStats=false,LiveSync="tearing",LiveAspect="fill",LiveOutputCap="144",LiveHoldOriginal=false,LiveDlssMotion="nvof",LiveEdgeAegis=true,
                 ScreenshotDirectory="F:\\캡처 사진; #1",RecordingDirectory="F:\\녹화 = 영상",RecordingCodec="hevc",RecordingBitrate=80,
@@ -66,7 +66,7 @@ internal static class LiveTests
             assert(loaded with{}==saved,"Every capture preview setting survives a restart, including quotes, ';', '#', '=' and Korean paths");
             File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\nStartPage=\"x\"\nLiveFrameGeneration=\"xess\"\nLiveMultiplier=\"9\"\nLiveAntiAlias=\"-1\"\nLiveRange=\"x\"\nLiveSync=\"fast\"\nLiveAspect=\"zoom\"\nLiveOutputCap=\"5\"\nLiveVolume=\"500\"\nRecordingCodec=\"av1\"\nLiveAntiAliasMode=\"fxaa\"\nLiveTransfer=\"dolby\"\nLiveMatrix=\"2100\"\n");
             var fixedUp=Preferences.Load();
-            assert(fixedUp.StartPage=="capture"&&fixedUp.LiveFrameGeneration=="off"&&fixedUp.LiveMultiplier==4&&fixedUp.LiveAntiAlias==0&&fixedUp.LiveRange=="auto"&&
+            assert(fixedUp.StartPage=="convert"&&fixedUp.LiveFrameGeneration=="off"&&fixedUp.LiveMultiplier==4&&fixedUp.LiveAntiAlias==0&&fixedUp.LiveRange=="auto"&&
                    fixedUp.LiveSync=="auto"&&fixedUp.LiveAspect=="fit"&&fixedUp.LiveOutputCap=="off"&&fixedUp.LiveVolume==100&&fixedUp.RecordingCodec=="h264"&&
                    fixedUp.LiveAntiAliasMode=="edge"&&fixedUp.LiveTransfer=="auto"&&fixedUp.LiveMatrix=="auto",
                 "Unknown or out-of-range capture settings fall back to safe values");

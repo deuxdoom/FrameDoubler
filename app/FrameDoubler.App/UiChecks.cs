@@ -34,8 +34,33 @@ public partial class MainWindow
         int picks=0;FilePicker=()=>{picks++;return[];};
         var peer=new ButtonAutomationPeer(EmptyPanel);((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();await Idle();
         Check(picks==1,"Drop target click invokes file chooser");
-        ApplicationCommands.Open.Execute(null,this);await Idle();Check(picks==2,"Ctrl+O command invokes file chooser");
+        Keyboard.ClearFocus();
+        Check(HandleConvertShortcut(Key.O,ModifierKeys.Control),"Ctrl+O shortcut is handled on the conversion page");await Idle();Check(picks==2,"Ctrl+O shortcut invokes file chooser");
         FilePicker=null;
+        // Conversion list shortcuts work on placeholder entries; nothing is analyzed or converted.
+        foreach(string name in new[]{"a","b","c"})Entries.Add(new QueueEntry(System.IO.Path.Combine(@"X:\ui-check",name+".mp4"),T));
+        await Idle();UpdateLayout();string Order()=>string.Join(",",Entries.Select(x=>x.Name[..1]));
+        QueueList.SelectedItem=Entries[2];
+        Check(HandleConvertShortcut(Key.Up,ModifierKeys.Alt)&&Order()=="a,c,b"&&QueueList.SelectedItems.Count==1&&((QueueEntry)QueueList.SelectedItem).Name=="c.mp4","Alt+Up moves the selected video up and keeps it selected");
+        Check(HandleConvertShortcut(Key.Up,ModifierKeys.Alt)&&HandleConvertShortcut(Key.Up,ModifierKeys.Alt)&&Order()=="c,a,b","Moving up stops at the top of the list");
+        Check(HandleConvertShortcut(Key.Down,ModifierKeys.Alt)&&Order()=="a,c,b","Alt+Down moves the selected video down");
+        Check(HandleConvertShortcut(Key.A,ModifierKeys.Control)&&QueueList.SelectedItems.Count==3,"Ctrl+A selects every video");
+        Check(HandleConvertShortcut(Key.Down,ModifierKeys.Alt)&&Order()=="a,c,b","Moving a full selection keeps the order");
+        QueueList.UnselectAll();QueueList.SelectedItem=Entries[1];await Idle();
+        bool removed=HandleConvertShortcut(Key.Delete,ModifierKeys.None);await Idle();
+        Check(removed&&Order()=="a,b"&&(QueueList.SelectedItem as QueueEntry)?.Name=="b.mp4",
+            $"Delete removes the selection and selects the next video (handled {removed}, order {Order()}, selected {(QueueList.SelectedItem as QueueEntry)?.Name}, focus {Keyboard.FocusedElement?.GetType().Name})");
+        Check(!HandleConvertShortcut(Key.Enter,ModifierKeys.None)||QueueList.IsKeyboardFocusWithin,"A bare Enter acts on the list only from inside it");
+        OutputBox.Focus();await Idle();
+        Check(!HandleConvertShortcut(Key.Delete,ModifierKeys.None)&&!HandleConvertShortcut(Key.A,ModifierKeys.Control)&&Order()=="a,b","Text boxes keep Delete and Ctrl+A");
+        FilePicker=()=>{picks++;return[];};
+        Check(HandleConvertShortcut(Key.O,ModifierKeys.Control)&&picks==3,"Ctrl+O still adds videos while typing in a text box");
+        FilePicker=null;
+        Keyboard.ClearFocus();
+        var saved=preferences;preferences=preferences with{ShortcutRemove="",ShortcutConvertAll="",ShortcutConvertSelected="Ctrl+Return"};
+        Check(!HandleConvertShortcut(Key.Delete,ModifierKeys.None)&&Order()=="a,b"&&HandleConvertShortcut(Key.Enter,ModifierKeys.Control|ModifierKeys.Shift)==false&&HandleConvertShortcut(Key.Enter,ModifierKeys.Control),
+            "A cleared shortcut does nothing; an older Return spelling still matches Enter");
+        preferences=saved;Entries.Clear();UpdateControls();
         foreach(var size in new[]{new Size(1180,800),new Size(900,640),new Size(820,480)})foreach(string lang in new[]{"ko","en"}){
             Width=size.Width;Height=size.Height;PreviewLanguage(lang);await Idle();UpdateLayout();
             var bar=(ScrollBar)SettingsScroll.Template.FindName("PART_VerticalScrollBar",SettingsScroll);

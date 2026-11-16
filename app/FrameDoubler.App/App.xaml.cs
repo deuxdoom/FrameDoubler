@@ -65,8 +65,10 @@ public partial class App:System.Windows.Application
                             lang=="ko"?$"지금 사용 중인 {FrameDoubler.Core.Updates.Current} 버전이 최신입니다.":$"FrameDoubler {FrameDoubler.Core.Updates.Current} is the latest version.",null,
                             new DialogButton(lang=="ko"?"확인":"OK",DialogChoice.Cancel,"PrimaryButton",true));
                         Render(latest,Path.Combine(e.Args[1],$"up-to-date-{lang}.png"),scale);
-                        foreach(string key in new[]{"general","window","advanced","data","about"})
+                        foreach(string key in new[]{"general","capture","shortcuts","window","advanced","data","about"})
                             Render(new SettingsWindow(window,key,true),Path.Combine(e.Args[1],$"settings-{key}-{lang}.png"),scale);
+                        // The whole shortcuts page (both groups) in one tall image.
+                        Render(new SettingsWindow(window,"shortcuts",true){Height=1500},Path.Combine(e.Args[1],$"settings-shortcuts-full-{lang}.png"),scale);
                         using var tray=window.CreateTrayMenu();
                         tray.CreateControl();tray.Size=tray.GetPreferredSize(System.Drawing.Size.Empty);tray.PerformLayout();
                         using var trayImage=new System.Drawing.Bitmap(tray.Width,tray.Height);

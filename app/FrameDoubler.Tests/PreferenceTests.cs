@@ -37,6 +37,12 @@ internal static class PreferenceTests
             new Preferences{Preset="quality"}.Save();assert(Preferences.Load().Preset=="source","Unknown preset falls back to the source preset");
             new Preferences{Preset="youtube-2160"}.Save();assert(Preferences.Load().Preset=="youtube-2160","Explicit YouTube selection persists");
             assert(new Preferences().MinimizeAction=="taskbar","Minimize defaults to the taskbar");
+            File.WriteAllText(ini,"[FrameDoubler]\nLanguage=\"ko\"\n");
+            assert(Preferences.Load() is {StartPage:"convert",ShortcutRemove:"Delete",ShortcutAddVideos:"Ctrl+O",ShortcutConvertAll:"Ctrl+Enter",ShortcutOpenResult:"Enter"},
+                "New installs start on file conversion with the default conversion shortcuts");
+            new Preferences{StartPage="capture",ShortcutRemove="",ShortcutMoveUp="Ctrl+Shift+Up",ShortcutConvertSelected="F9"}.Save();
+            assert(Preferences.Load() is {StartPage:"capture",ShortcutRemove:"",ShortcutMoveUp:"Ctrl+Shift+Up",ShortcutConvertSelected:"F9",ShortcutSelectAll:"Ctrl+A"},
+                "The last page and changed or cleared conversion shortcuts survive a restart");
             new Preferences{MinimizeAction="ask"}.Save();assert(Preferences.Load().MinimizeAction=="taskbar","Previous implicit ask behavior becomes taskbar minimize");
 
             // One-time migration of settings.json (1.0.0/1.0.1).

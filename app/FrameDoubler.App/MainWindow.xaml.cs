@@ -73,7 +73,7 @@ public partial class MainWindow:Window
     private void Fill(ComboBox box,IEnumerable<Choice> choices,string? value=null){string selected=value??Selected(box);box.ItemsSource=choices.ToArray();Select(box,selected);}
     public MainWindow(){
         InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;Entries.CollectionChanged+=(_,_)=>Renumber();
-        CommandBindings.Add(new CommandBinding(ApplicationCommands.Open,(_,_)=>AddClicked(this,new RoutedEventArgs()),(_,e)=>e.CanExecute=!busy));
+        PreviewKeyDown+=ConvertKeyDown;
         updating=true;SetLanguage(preferences.Language,false);LanguageThumb.SizeChanged+=(_,_)=>MoveLanguageThumb(false);
         Fill(ModelBox,[new("v4.25","RIFE 4.25"),new("v4.26","RIFE 4.26")],preferences.Model);
         // Empty means "beside each source"; say so in the box instead of only in its tooltip.
@@ -163,13 +163,14 @@ public partial class MainWindow:Window
             "RIFE 4.25 (default): recommended by the official project for most scenes.\nRIFE 4.26: the latest release, same architecture with newly trained weights.\nBoth run at the same speed and looked almost identical in our game-recording tests. If a scene looks wrong, try the other one."));
         System.Windows.Automation.AutomationProperties.SetName(ModelHelp,T("RIFE 모델 설명","About RIFE models"));
         HardwareCheck.Content=T("하드웨어 인코딩 사용","Use hardware encoding");VerifyCheck.Content=T("변환 후 구간 검증","Verify output samples");VerifyCheck.ToolTip=T("처음·중간·끝 각 1분만 검사합니다(최대 3분, 겹치면 병합). 전체 메타데이터도 확인하며 검사 밖의 오류는 놓칠 수 있습니다.","Checks one minute each at the start, middle and end (up to three minutes; overlaps merged), plus global metadata. Errors outside the samples may be missed.");
-        RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("일괄 변환","Convert all");SelectedButton.Content=T("선택 변환","Convert selected");StartButton.ToolTip=T("변환하지 않은 영상을 목록 번호순으로 모두 변환합니다.","Converts every remaining video in list order.");SelectedButton.ToolTip=T("목록에서 선택한 영상만 번호순으로 변환합니다. Ctrl·Shift로 여러 개를 고를 수 있습니다.","Converts only the selected videos in list order. Use Ctrl or Shift to select several.");CancelButton.Content=T("취소","Cancel");
+        RemoveButton.Content=T("선택 제거","Remove");StartButton.Content=T("일괄 변환","Convert all");SelectedButton.Content=T("선택 변환","Convert selected");CancelButton.Content=T("취소","Cancel");
         OpenButton.Content=T("결과 열기","Open result");FolderButton.Content=T("폴더 열기","Open folder");UpdatesButton.ToolTip=T("업데이트","Updates");SettingsButton.ToolTip=T("설정","Settings");
         MinimizeButton.ToolTip=T("최소화","Minimize");MaximizeButton.ToolTip=T("최대화 / 복원","Maximize / restore");CloseButton.ToolTip=T("닫기","Close");BrowseButton.ToolTip=T("저장 폴더 선택","Choose output folder");
         foreach(var button in new[]{MinimizeButton,MaximizeButton,CloseButton,BrowseButton,UpdatesButton,SettingsButton})System.Windows.Automation.AutomationProperties.SetName(button,button.ToolTip.ToString());
         System.Windows.Automation.AutomationProperties.SetName(EmptyPanel,T("영상 파일 선택","Choose video files"));
         OutputBox.ToolTip=T("비워 두면 원본 영상과 같은 폴더에 저장합니다.","Leave empty to save beside the source video.");
         OutputHint.Text=T("원본 영상과 같은 폴더","Same folder as the source");
+        RefreshShortcutHints();
         foreach(var (control,name) in new (UIElement,string)[]{(OutputBox,OutputLabel.Text),(FpsBox,FpsLabel.Text),(PresetBox,PresetLabel.Text),(DeviceBox,DeviceLabel.Text),
             (EncoderBox,EncoderLabel.Text),(ModelBox,ModelLabel.Text),(HudBox,HudLabel.Text)})
             System.Windows.Automation.AutomationProperties.SetName(control,name);
@@ -361,7 +362,79 @@ public partial class MainWindow:Window
         return node as ListBoxItem;
     }
     private void CancelClicked(object sender,RoutedEventArgs e){work?.Cancel();estimateCancel?.Cancel();}
-    private void RemoveClicked(object sender,RoutedEventArgs e){if(!busy)foreach(var item in SelectedInListOrder())Entries.Remove(item);RefreshOptions();UpdateControls();}
+    private void RemoveClicked(object sender,RoutedEventArgs e)=>RemoveSelected(false);
+    // From the keyboard the next video is selected, so Delete can be pressed again.
+    private void RemoveSelected(bool selectNext){
+        var selected=SelectedInListOrder();
+        if(!busy&&selected.Length>0){
+            int first=Entries.IndexOf(selected[0]);
+            foreach(var item in selected)Entries.Remove(item);
+            if(selectNext&&Entries.Count>0){QueueList.SelectedItem=Entries[Math.Min(first,Entries.Count-1)];FocusSelected();}
+        }
+        RefreshOptions();UpdateControls();
+    }
+    // Moves the selected videos one place as a block; the first or last one stops at the list edge.
+    private void MoveSelected(int direction){
+        var selected=SelectedInListOrder().ToHashSet();
+        if(busy||selected.Count==0)return;
+        if(direction<0){
+            for(int i=0,limit=0;i<Entries.Count;i++){if(!selected.Contains(Entries[i]))continue;if(i>limit){Entries.Move(i,i-1);limit=i;}else limit=i+1;}
+        }else{
+            for(int i=Entries.Count-1,limit=Entries.Count-1;i>=0;i--){if(!selected.Contains(Entries[i]))continue;if(i<limit){Entries.Move(i,i+1);limit=i;}else limit=i-1;}
+        }
+        FocusSelected();
+    }
+    private void FocusSelected(){
+        if(QueueList.SelectedItem is not QueueEntry entry)return;
+        QueueList.ScrollIntoView(entry);QueueList.UpdateLayout();
+        (QueueList.ItemContainerGenerator.ContainerFromItem(entry) as ListBoxItem)?.Focus();
+    }
+
+    // ---- file conversion shortcuts (Settings → Shortcuts), only on this page and only in this window
+    private void ConvertKeyDown(object sender,KeyEventArgs e){
+        if(e.Handled||page!="convert")return;
+        var key=e.Key==Key.System?e.SystemKey:e.Key;
+        // Holding a move key keeps moving; other actions run once per press.
+        if(e.IsRepeat&&!Shortcut.Matches(preferences.ShortcutMoveUp,Keyboard.Modifiers,key)&&!Shortcut.Matches(preferences.ShortcutMoveDown,Keyboard.Modifiers,key))return;
+        if(HandleConvertShortcut(key,Keyboard.Modifiers))e.Handled=true;
+    }
+    // Keys the focused text box or drop-down list uses itself: typing, Delete, Enter, arrows, the
+    // editing chords (Ctrl+A/C/V/X/Z/Y, Ctrl+arrows) and Alt+Up/Down on a drop-down. Other chords
+    // such as Ctrl+O still reach the shortcuts.
+    private static bool OwnedByFocusedControl(object? focus,Key key,ModifierKeys modifiers){
+        bool chord=(modifiers&(ModifierKeys.Control|ModifierKeys.Alt))!=0;
+        if(focus is System.Windows.Controls.Primitives.TextBoxBase or PasswordBox)
+            return !chord||modifiers.HasFlag(ModifierKeys.Control)&&key is Key.A or Key.C or Key.V or Key.X or Key.Z or Key.Y or Key.Insert
+                or Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.Delete or Key.Back;
+        if(focus is ComboBox or ComboBoxItem)return !chord||modifiers==ModifierKeys.Alt&&key is Key.Up or Key.Down;
+        return false;
+    }
+    internal bool HandleConvertShortcut(Key key,ModifierKeys modifiers){
+        if(OwnedByFocusedControl(Keyboard.FocusedElement,key,modifiers))return false;
+        // A bare Enter or Space presses the focused button; it acts on the list only from inside it.
+        if(modifiers==ModifierKeys.None&&key is Key.Enter or Key.Space&&!QueueList.IsKeyboardFocusWithin)return false;
+        var p=preferences;
+        bool Is(string shortcut)=>Shortcut.Matches(shortcut,modifiers,key);
+        if(Is(p.ShortcutAddVideos)){if(AddButton.IsEnabled)AddClicked(this,new RoutedEventArgs());return true;}
+        if(Is(p.ShortcutRemove)){RemoveSelected(true);return true;}
+        if(Is(p.ShortcutSelectAll)){if(Entries.Count>0){QueueList.SelectAll();FocusSelected();}return true;}
+        if(Is(p.ShortcutMoveUp)){MoveSelected(-1);return true;}
+        if(Is(p.ShortcutMoveDown)){MoveSelected(1);return true;}
+        if(Is(p.ShortcutConvertAll)){if(StartButton.IsEnabled)StartClicked(this,new RoutedEventArgs());return true;}
+        if(Is(p.ShortcutConvertSelected)){if(SelectedButton.IsEnabled)SelectedClicked(this,new RoutedEventArgs());return true;}
+        if(Is(p.ShortcutOpenResult)){if(OpenButton.IsEnabled)OpenClicked(this,new RoutedEventArgs());return true;}
+        return false;
+    }
+    // Button tooltips name the current key, so a changed shortcut is visible where it is used.
+    internal void RefreshShortcutHints(){
+        string Hint(string text,string shortcut)=>Shortcut.Normalize(shortcut) is {Length:>0} key?text+Environment.NewLine+T("단축키 ","Shortcut ")+key:text;
+        var p=preferences;
+        AddButton.ToolTip=Hint(T("영상 파일을 고릅니다. 끌어 놓아도 됩니다.","Choose video files. You can also drop them here."),p.ShortcutAddVideos);
+        RemoveButton.ToolTip=Hint(T("선택한 영상을 목록에서 뺍니다.","Removes the selected videos from the list."),p.ShortcutRemove);
+        StartButton.ToolTip=Hint(T("변환하지 않은 영상을 목록 번호순으로 모두 변환합니다.","Converts every remaining video in list order."),p.ShortcutConvertAll);
+        SelectedButton.ToolTip=Hint(T("목록에서 선택한 영상만 번호순으로 변환합니다. Ctrl·Shift로 여러 개를 고를 수 있습니다.","Converts only the selected videos in list order. Use Ctrl or Shift to select several."),p.ShortcutConvertSelected);
+        OpenButton.ToolTip=Hint(T("선택한 영상의 변환 결과를 엽니다.","Opens the converted file of the selected video."),p.ShortcutOpenResult);
+    }
     private void QueueChanged(object sender,SelectionChangedEventArgs e){UpdateMetrics();UpdateControls();}
     private void UpdateMetrics(){
         var analysis=(QueueList.SelectedItem as QueueEntry)?.Analysis;

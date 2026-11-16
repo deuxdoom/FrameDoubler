@@ -30,7 +30,8 @@ public sealed class SettingsWindow:Window
         Style=(Style)FindResource(typeof(Window));WindowStartupLocation=WindowStartupLocation.CenterOwner;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;
         WindowChrome.SetWindowChrome(this,new WindowChrome{CaptionHeight=48,ResizeBorderThickness=new Thickness(0),GlassFrameThickness=new Thickness(0),CornerRadius=new CornerRadius(12),UseAeroCaptionButtons=false});
         SourceInitialized+=(_,_)=>WindowFrame.Attach(this);
-        PreviewKeyDown+=(_,e)=>{if(e.Key==Key.Escape){Close();e.Handled=true;}};
+        // Esc closes the window, except while a shortcut box is waiting for keys (Esc cancels there).
+        PreviewKeyDown+=(_,e)=>{if(e.Key==Key.Escape&&!capturingShortcut){Close();e.Handled=true;}};
         Closed+=(_,_)=>owner.ReturnAdvanced();
         Build(category??"general");
     }
@@ -138,7 +139,7 @@ public sealed class SettingsWindow:Window
         var bitrate=Choices(owner.Settings.RecordingBitrate.ToString(System.Globalization.CultureInfo.InvariantCulture),
             v=>owner.ChangeSettings(p=>p with{RecordingBitrate=int.Parse(v,System.Globalization.CultureInfo.InvariantCulture)}),rates);
         var start=Choices(owner.Settings.StartPage,v=>owner.ChangeSettings(p=>p with{StartPage=v}),
-            new Choice("capture",T("캡처 미리보기","Capture preview")),new Choice("convert",T("파일 변환","Convert files")));
+            new Choice("convert",T("파일 변환","Convert files")),new Choice("capture",T("캡처 미리보기","Capture preview")));
         stack.Children.Add(Card(
             Row(T("녹화 코덱","Recording codec"),T("화면과 소리를 MP4에 기록합니다. H.264는 조각 MP4, HEVC는 정지 후 파일 저장이 완료됩니다.","Records picture and sound to MP4. H.264 uses fragmented MP4; HEVC finishes saving when stopped."),codec,"SettingRecordCodec"),
             Row(T("녹화 비트레이트","Recording bitrate"),T("자동은 4K60 H.264에서 약 55Mbps입니다.","Automatic is about 55 Mbps for 4K60 H.264."),bitrate,"SettingRecordBitrate"),
@@ -173,48 +174,68 @@ public sealed class SettingsWindow:Window
         body.Children.Add(Note(T("NVIDIA의 영상용 AI 프레임 생성 모델입니다. 용량이 커서 패키지에 넣지 않고, 원할 때만 받습니다.","NVIDIA's AI frame generation model for video. It is large, so it is downloaded only on request.")));
         body.Children.Add(state);body.Children.Add(actions);Buttons();return Card(body);
     }
-    // Capture shortcuts: click a box, then press the keys. Esc cancels, Delete clears.
+    // Shortcuts: click a box, then press the keys. Esc cancels, Backspace clears (Delete is a valid key:
+    // it removes videos from the conversion list). One combination belongs to one action in both groups,
+    // because global capture shortcuts also fire while the conversion page is shown.
     private sealed record ShortcutAction(string Key,string Ko,string En,string HelpKo,string HelpEn,Func<Preferences,string> Get,Func<Preferences,string,Preferences> Set);
+    private static readonly ShortcutAction[] CaptureShortcuts=[
+        new("screenshot","스크린샷","Screenshot","처리된 화면을 PNG로 저장합니다.","Saves the processed picture as PNG.",p=>p.ShortcutScreenshot,(p,v)=>p with{ShortcutScreenshot=v}),
+        new("record","녹화 시작 / 중지","Start / stop recording","처리된 화면과 소리를 MP4로 녹화합니다.","Records the processed picture and sound to MP4.",p=>p.ShortcutRecord,(p,v)=>p with{ShortcutRecord=v}),
+        new("fullscreen","전체 화면","Full screen","Esc로도 빠져나옵니다.","Esc also leaves it.",p=>p.ShortcutFullscreen,(p,v)=>p with{ShortcutFullscreen=v}),
+        new("fg","프레임 생성 켜기 / 끄기","Frame generation on / off","바로 비교해 볼 때 씁니다.","For quick comparisons.",p=>p.ShortcutFrameGeneration,(p,v)=>p with{ShortcutFrameGeneration=v}),
+        new("stats","통계 패널","Statistics panels","신호·GPU·프레임 속도 패널을 접거나 폅니다.","Shows or hides the statistics panels.",p=>p.ShortcutStats,(p,v)=>p with{ShortcutStats=v}),
+        new("original","원본 보기 (누르는 동안)","Show original (while held)","누르고 있는 동안 처리 전 캡처 화면을 보여 줍니다.","Shows the unprocessed capture while held.",p=>p.ShortcutOriginal,(p,v)=>p with{ShortcutOriginal=v})];
+    private static readonly ShortcutAction[] ConvertShortcuts=[
+        new("add","영상 추가","Add videos","파일 선택 창을 엽니다.","Opens the file chooser.",p=>p.ShortcutAddVideos,(p,v)=>p with{ShortcutAddVideos=v}),
+        new("remove","선택 제거","Remove selected","선택한 영상을 목록에서 빼고 다음 영상을 고릅니다.","Removes the selected videos and selects the next one.",p=>p.ShortcutRemove,(p,v)=>p with{ShortcutRemove=v}),
+        new("selectAll","모두 선택","Select all","목록의 영상을 모두 고릅니다.","Selects every video in the list.",p=>p.ShortcutSelectAll,(p,v)=>p with{ShortcutSelectAll=v}),
+        new("moveUp","위로 이동","Move up","선택한 영상의 변환 순서를 한 칸 올립니다.","Moves the selected videos up one place.",p=>p.ShortcutMoveUp,(p,v)=>p with{ShortcutMoveUp=v}),
+        new("moveDown","아래로 이동","Move down","선택한 영상의 변환 순서를 한 칸 내립니다.","Moves the selected videos down one place.",p=>p.ShortcutMoveDown,(p,v)=>p with{ShortcutMoveDown=v}),
+        new("convertAll","일괄 변환","Convert all","변환하지 않은 영상을 목록 순서대로 모두 변환합니다.","Converts every remaining video in list order.",p=>p.ShortcutConvertAll,(p,v)=>p with{ShortcutConvertAll=v}),
+        new("convertSelected","선택 변환","Convert selected","선택한 영상만 변환합니다.","Converts only the selected videos.",p=>p.ShortcutConvertSelected,(p,v)=>p with{ShortcutConvertSelected=v}),
+        new("openResult","결과 열기","Open result","선택한 영상의 변환 결과를 엽니다. 단독 Enter는 목록에서만 동작합니다.","Opens the converted file of the selected video. A bare Enter works only in the list.",p=>p.ShortcutOpenResult,(p,v)=>p with{ShortcutOpenResult=v})];
+    private bool capturingShortcut;
     private UIElement ShortcutsPage(){
         var stack=new StackPanel();
-        var actions=new[]{
-            new ShortcutAction("screenshot","스크린샷","Screenshot","처리된 화면을 PNG로 저장합니다.","Saves the processed picture as PNG.",p=>p.ShortcutScreenshot,(p,v)=>p with{ShortcutScreenshot=v}),
-            new ShortcutAction("record","녹화 시작 / 중지","Start / stop recording","처리된 화면과 소리를 MP4로 녹화합니다.","Records the processed picture and sound to MP4.",p=>p.ShortcutRecord,(p,v)=>p with{ShortcutRecord=v}),
-            new ShortcutAction("fullscreen","전체 화면","Full screen","Esc로도 빠져나옵니다.","Esc also leaves it.",p=>p.ShortcutFullscreen,(p,v)=>p with{ShortcutFullscreen=v}),
-            new ShortcutAction("fg","프레임 생성 켜기 / 끄기","Frame generation on / off","바로 비교해 볼 때 씁니다.","For quick comparisons.",p=>p.ShortcutFrameGeneration,(p,v)=>p with{ShortcutFrameGeneration=v}),
-            new ShortcutAction("stats","통계 패널","Statistics panels","신호·GPU·프레임 속도 패널을 접거나 폅니다.","Shows or hides the statistics panels.",p=>p.ShortcutStats,(p,v)=>p with{ShortcutStats=v}),
-            new ShortcutAction("original","원본 보기 (누르는 동안)","Show original (while held)","누르고 있는 동안 처리 전 캡처 화면을 보여 줍니다.","Shows the unprocessed capture while held.",p=>p.ShortcutOriginal,(p,v)=>p with{ShortcutOriginal=v})};
+        var all=CaptureShortcuts.Concat(ConvertShortcuts).ToArray();
         var boxes=new System.Collections.Generic.Dictionary<string,Button>();
-        void RefreshAll(){foreach(var a in actions)boxes[a.Key].Content=string.IsNullOrEmpty(a.Get(owner.Settings))?T("없음","None"):a.Get(owner.Settings);}
-        var rows=new System.Collections.Generic.List<UIElement>();
-        foreach(var a in actions){
+        void RefreshAll(){foreach(var a in all)boxes[a.Key].Content=Shortcut.Normalize(a.Get(owner.Settings)) is {Length:>0} key?key:T("없음","None");}
+        UIElement[] Rows(ShortcutAction[] actions)=>actions.Select(a=>{
             var box=new Button{Style=(Style)FindResource("SecondaryButton"),MinWidth=150,MinHeight=34,Padding=new Thickness(12,4,12,4),FontFamily=UiFonts.Text};
-            boxes[a.Key]=box;bool capturing=false;
-            box.Click+=(_,_)=>{capturing=true;box.Content=T("키를 누르세요…","Press keys…");box.Focus();};
-            box.LostKeyboardFocus+=(_,_)=>{if(capturing){capturing=false;RefreshAll();}};
+            boxes[a.Key]=box;
+            box.Click+=(_,_)=>{capturingShortcut=true;box.Content=T("키를 누르세요…","Press keys…");box.Focus();};
+            box.LostKeyboardFocus+=(_,_)=>{if(capturingShortcut){capturingShortcut=false;RefreshAll();}};
             box.PreviewKeyDown+=(_,e)=>{
-                if(!capturing)return;
+                if(!capturingShortcut||!box.IsKeyboardFocused)return;
                 var key=e.Key==Key.System?e.SystemKey:e.Key;e.Handled=true;
                 if(Shortcut.IsModifier(key))return;
-                capturing=false;
+                capturingShortcut=false;
                 if(key==Key.Escape){RefreshAll();return;}
-                string value=key is Key.Delete or Key.Back?"":Shortcut.Format(Keyboard.Modifiers,key);
+                string value=key==Key.Back&&Keyboard.Modifiers==ModifierKeys.None?"":Shortcut.Format(Keyboard.Modifiers,key);
                 // One action per combination: a key taken from another action clears it there.
-                owner.ChangeSettings(p=>{foreach(var other in actions)if(other.Key!=a.Key&&value.Length>0&&other.Get(p)==value)p=other.Set(p,"");return a.Set(p,value);});
+                owner.ChangeSettings(p=>{foreach(var other in all)if(other.Key!=a.Key&&value.Length>0&&Shortcut.Normalize(other.Get(p))==value)p=other.Set(p,"");return a.Set(p,value);});
                 RefreshAll();
             };
-            rows.Add(Row(T(a.Ko,a.En),T(a.HelpKo,a.HelpEn),box,"Shortcut"+a.Key));
-        }
-        RefreshAll();
-        stack.Children.Add(Card(rows.ToArray()));
+            return (UIElement)Row(T(a.Ko,a.En),T(a.HelpKo,a.HelpEn),box,"Shortcut"+a.Key);
+        }).ToArray();
+        TextBlock Heading(string text)=>new(){Text=text,FontSize=14,FontWeight=FontWeights.SemiBold,Margin=new Thickness(2,4,0,10)};
+        stack.Children.Add(Heading(T("캡처 미리보기","Capture preview")));
+        stack.Children.Add(Card(Rows(CaptureShortcuts)));
         var global=new CheckBox{IsChecked=owner.Settings.GlobalShortcuts,Content=""};
         global.Checked+=(_,_)=>owner.ChangeSettings(p=>p with{GlobalShortcuts=true});global.Unchecked+=(_,_)=>owner.ChangeSettings(p=>p with{GlobalShortcuts=false});
-        var defaults=ActionButton(T("기본값으로","Restore defaults"),()=>{var d=new Preferences();owner.ChangeSettings(p=>p with{ShortcutScreenshot=d.ShortcutScreenshot,ShortcutRecord=d.ShortcutRecord,
-            ShortcutFullscreen=d.ShortcutFullscreen,ShortcutFrameGeneration=d.ShortcutFrameGeneration,ShortcutStats=d.ShortcutStats,ShortcutOriginal=d.ShortcutOriginal});RefreshAll();});
         stack.Children.Add(Card(Row(T("다른 창에서도 동작","Work in other windows"),T("게임이나 다른 프로그램이 앞에 있어도 스크린샷·녹화·전체 화면·프레임 생성·통계 단축키가 동작합니다. 원본 보기는 누르는 동안 동작해야 해서 FrameDoubler 창에서만 씁니다.",
-            "Screenshot, record, full screen, frame generation and statistics shortcuts also work while a game or another program is in front. Show original needs the key to be held, so it stays in the FrameDoubler window."),global,"SettingGlobalShortcuts"),
-            Row(T("기본 단축키","Default keys"),"F7 · F8 · F11 · F6 · F10 · V",defaults)));
-        stack.Children.Add(Note(T("상자를 누른 뒤 원하는 키 조합을 누르세요. Esc는 취소, Delete는 지우기입니다.","Click a box, then press the key combination. Esc cancels, Delete clears.")));
+            "Screenshot, record, full screen, frame generation and statistics shortcuts also work while a game or another program is in front. Show original needs the key to be held, so it stays in the FrameDoubler window."),global,"SettingGlobalShortcuts")));
+        stack.Children.Add(Heading(T("파일 변환","Convert files")));
+        stack.Children.Add(Card(Rows(ConvertShortcuts)));
+        RefreshAll();
+        var defaults=new Preferences();
+        var restore=ActionButton(T("기본값으로","Restore defaults"),()=>{owner.ChangeSettings(p=>{foreach(var a in all)p=a.Set(p,a.Get(defaults));return p;});RefreshAll();});
+        stack.Children.Add(Card(Row(T("모든 단축키를 기본값으로","Restore every shortcut"),
+            T("캡처 ","Capture ")+Keys(CaptureShortcuts)+"\n"+T("파일 변환 ","Convert ")+Keys(ConvertShortcuts),restore,"ShortcutDefaults")));
+        // Word joiners keep "Ctrl+Enter" on one line.
+        string Keys(ShortcutAction[] actions)=>string.Join(" · ",actions.Select(a=>a.Get(defaults).Replace("+","⁠+⁠")));
+        stack.Children.Add(Note(T("상자를 누른 뒤 원하는 키 조합을 누르세요. Esc는 취소, Backspace는 지우기입니다. 한 키 조합은 한 동작에만 쓰이며, 다른 동작이 쓰던 키를 고르면 그쪽은 비워집니다. 파일 변환 단축키는 파일 변환 화면에서만 동작하고, 글자 입력 칸에서는 동작하지 않습니다.",
+            "Click a box, then press the key combination. Esc cancels, Backspace clears. Each combination belongs to one action; taking a key from another action clears it there. Conversion shortcuts work only on the Convert files page and not while typing in a text box.")));
         return stack;
     }
     private UIElement General(){
