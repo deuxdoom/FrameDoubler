@@ -12,22 +12,30 @@ struct IMFMediaSource;
 namespace fdl {
 class ReaderCallback;
 
-// UYVY: packed U Y0 V Y1 (professional cards). RGB32: B G R X. Compressed (MJPG) modes are not
-// offered and P010 is listed but not selectable, so the engine processes NV12, YUY2, UYVY or RGB32.
+// UYVY: packed U Y0 V Y1 (professional cards). RGB32: B G R X. P010: 10-bit 4:2:0 in 16-bit words
+// (HDR captures), tone mapped to SDR on the GPU. Compressed (MJPG) modes are not offered.
 enum class PixelFormat { Unknown, NV12, YUY2, UYVY, P010, RGB32, I420, YV12, RGB24 };
 // I420/YV12 (three planes, common on webcams and USB sticks) are repacked to NV12 and RGB24 is
 // expanded to RGB32 while the picture is copied, so the GPU path stays the same.
 inline bool planar420(PixelFormat f) { return f == PixelFormat::NV12 || f == PixelFormat::I420 || f == PixelFormat::YV12; }
+// 4:2:0 with the chroma after the luma rows: the 8-bit layouts above and P010 (16-bit words).
+inline bool fourTwoZero(PixelFormat f) { return planar420(f) || f == PixelFormat::P010; }
 inline PixelFormat processingFormat(PixelFormat f) { return f == PixelFormat::I420 || f == PixelFormat::YV12 ? PixelFormat::NV12 : f == PixelFormat::RGB24 ? PixelFormat::RGB32 : f; }
 const char* formatName(PixelFormat f);
 inline bool formatSupported(PixelFormat f) {
     return f == PixelFormat::NV12 || f == PixelFormat::YUY2 || f == PixelFormat::UYVY || f == PixelFormat::RGB32 ||
-           f == PixelFormat::I420 || f == PixelFormat::YV12 || f == PixelFormat::RGB24;
+           f == PixelFormat::I420 || f == PixelFormat::YV12 || f == PixelFormat::RGB24 || f == PixelFormat::P010;
 }
-inline int bytesPerPixel(PixelFormat f) { return f == PixelFormat::RGB32 ? 4 : f == PixelFormat::RGB24 ? 3 : (f == PixelFormat::YUY2 || f == PixelFormat::UYVY) ? 2 : 1; }
+// Bytes per luma sample: P010 rows are 2 * width bytes, its high byte holding the top 8 bits.
+inline int bytesPerPixel(PixelFormat f) { return f == PixelFormat::RGB32 ? 4 : f == PixelFormat::RGB24 ? 3 : (f == PixelFormat::YUY2 || f == PixelFormat::UYVY || f == PixelFormat::P010) ? 2 : 1; }
+// Processing buffer size: 4:2:0 adds half the luma bytes for chroma.
+inline size_t processingBytes(PixelFormat f, int width, int height) {
+    const size_t luma = size_t(width) * height * bytesPerPixel(processingFormat(f));
+    return fourTwoZero(processingFormat(f)) ? luma * 3 / 2 : luma;
+}
 struct FrameView;
 // Colour description the device gives for its YUV pictures (0: not stated).
-struct ColorInfo { int range = 0; /* 1 limited 16-235, 2 full 0-255 */ int matrix = 0; /* 1 BT.709, 2 BT.601 */ };
+struct ColorInfo { int range = 0; /* 1 limited 16-235, 2 full 0-255 */ int matrix = 0; /* 1 BT.709, 2 BT.601, 3 BT.2020 */ int transfer = 0; /* 1 SDR, 2 PQ, 3 HLG */ };
 // DirectShow VIDEOINFOHEADER2::dwControlFlags with AMCONTROL_COLORINFO_PRESENT (0x80): bits 8-31
 // hold DXVA_ExtendedFormat after its 8-bit sample format (chroma 4, nominal range 3, matrix 3).
 inline ColorInfo colorFromDxvaFlags(uint32_t flags) {
@@ -38,11 +46,12 @@ inline ColorInfo colorFromDxvaFlags(uint32_t flags) {
     c.matrix = matrix == 1 ? 1 : matrix == 2 ? 2 : 0;        // DXVA_VideoTransferMatrix_BT709 / _BT601
     return c;
 }
-// Media Foundation MF_MT_VIDEO_NOMINAL_RANGE / MF_MT_YUV_MATRIX values.
-inline ColorInfo colorFromMf(uint32_t nominalRange, uint32_t matrix) {
+// Media Foundation MF_MT_VIDEO_NOMINAL_RANGE / MF_MT_YUV_MATRIX / MF_MT_TRANSFER_FUNCTION values.
+inline ColorInfo colorFromMf(uint32_t nominalRange, uint32_t matrix, uint32_t transfer = 0) {
     ColorInfo c;
     c.range = nominalRange == 2 ? 1 : nominalRange == 1 ? 2 : 0;   // MFNominalRange_16_235 / _0_255
-    c.matrix = matrix == 1 ? 1 : matrix == 2 ? 2 : 0;              // MFVideoTransferMatrix_BT709 / _BT601
+    c.matrix = matrix == 1 ? 1 : matrix == 2 ? 2 : (matrix == 4 || matrix == 5) ? 3 : 0;   // _BT709 / _BT601 / _BT2020_10, _12
+    c.transfer = transfer == 15 ? 2 : transfer == 16 ? 3 : (transfer >= 1 && transfer <= 14) ? 1 : 0;   // MFVideoTransFunc_2084 / _HLG / SDR curves
     return c;
 }
 // Copies a delivered picture into the engine's tightly packed buffer in its processing format

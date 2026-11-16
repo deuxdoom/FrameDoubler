@@ -11,7 +11,7 @@ internal static class LiveTests
         try{
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",root);
             var saved=new Preferences{StartPage="convert",CaptureDevice="Live Gamer \"Ultra\" 2.1-Video",CaptureDeviceId="device-path-2",CaptureMode="3840x2160@60/1 NV12",CaptureAudio="{0.0.1}.{abc}",CaptureAudioOutput="{0.0.0}.{render}",
-                LiveFrameGeneration="vfx",LiveMultiplier=2,LiveAntiAlias=3,LiveDedup=false,LiveRange="full",LiveMatrix="601",LiveVfxQuality=2,LiveVolume=35,LiveMute=true,
+                LiveFrameGeneration="vfx",LiveMultiplier=2,LiveAntiAlias=3,LiveAntiAliasMode="smaa",LiveTransfer="hlg",LiveDedup=false,LiveRange="full",LiveMatrix="2020",LiveVfxQuality=2,LiveVolume=35,LiveMute=true,
                 LiveAudioOffset=-40,LiveStats=false,LiveSync="tearing",LiveAspect="fill",LiveOutputCap="144",LiveHoldOriginal=false,LiveDlssMotion="nvof",LiveEdgeAegis=true,
                 ScreenshotDirectory="F:\\캡처 사진; #1",RecordingDirectory="F:\\녹화 = 영상",RecordingCodec="hevc",RecordingBitrate=80,
                 ShortcutScreenshot="Ctrl+Shift+S",ShortcutRecord="F9",ShortcutFullscreen="",ShortcutFrameGeneration="Alt+G",ShortcutStats="F12",ShortcutOriginal="B",GlobalShortcuts=true};
@@ -64,10 +64,11 @@ internal static class LiveTests
             saved.Save();
             var loaded=Preferences.Load();
             assert(loaded with{}==saved,"Every capture preview setting survives a restart, including quotes, ';', '#', '=' and Korean paths");
-            File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\nStartPage=\"x\"\nLiveFrameGeneration=\"xess\"\nLiveMultiplier=\"9\"\nLiveAntiAlias=\"-1\"\nLiveRange=\"x\"\nLiveSync=\"fast\"\nLiveAspect=\"zoom\"\nLiveOutputCap=\"5\"\nLiveVolume=\"500\"\nRecordingCodec=\"av1\"\n");
+            File.WriteAllText(Path.Combine(root,Preferences.FileName),"[FrameDoubler]\nStartPage=\"x\"\nLiveFrameGeneration=\"xess\"\nLiveMultiplier=\"9\"\nLiveAntiAlias=\"-1\"\nLiveRange=\"x\"\nLiveSync=\"fast\"\nLiveAspect=\"zoom\"\nLiveOutputCap=\"5\"\nLiveVolume=\"500\"\nRecordingCodec=\"av1\"\nLiveAntiAliasMode=\"fxaa\"\nLiveTransfer=\"dolby\"\nLiveMatrix=\"2100\"\n");
             var fixedUp=Preferences.Load();
             assert(fixedUp.StartPage=="capture"&&fixedUp.LiveFrameGeneration=="off"&&fixedUp.LiveMultiplier==4&&fixedUp.LiveAntiAlias==0&&fixedUp.LiveRange=="auto"&&
-                   fixedUp.LiveSync=="auto"&&fixedUp.LiveAspect=="fit"&&fixedUp.LiveOutputCap=="off"&&fixedUp.LiveVolume==100&&fixedUp.RecordingCodec=="h264",
+                   fixedUp.LiveSync=="auto"&&fixedUp.LiveAspect=="fit"&&fixedUp.LiveOutputCap=="off"&&fixedUp.LiveVolume==100&&fixedUp.RecordingCodec=="h264"&&
+                   fixedUp.LiveAntiAliasMode=="edge"&&fixedUp.LiveTransfer=="auto"&&fixedUp.LiveMatrix=="auto",
                 "Unknown or out-of-range capture settings fall back to safe values");
             foreach(int multiplier in new[]{2,3,4}){
                 new Preferences{LiveMultiplier=multiplier}.Save();
@@ -108,6 +109,10 @@ internal static class LiveTests
         assert(new LiveOptions(DlssMotion:"nvof",EdgeAegis:true).Commands(true,true).Split('\n').Contains("edgeAegis=1")&&
             new LiveOptions(DlssMotion:"nvof").Commands(true,true).Split('\n').Contains("dlssMotion=nvof")&&commands.Split('\n').Contains("dlssMotion=none")&&commands.Split('\n').Contains("edgeAegis=0"),
             "DLSS motion options reach the engine; the default costs no external motion work");
+        assert(new LiveOptions(AntiAlias:2,AntiAliasMode:"smaa",Transfer:"pq",Matrix:"2020").Commands(true,true).Split('\n') is var hdr&&hdr.Contains("aaMode=smaa")&&hdr.Contains("transfer=pq")&&hdr.Contains("matrix=2020")&&
+            commands.Split('\n').Contains("aaMode=edge")&&commands.Split('\n').Contains("transfer=auto")&&
+            new LiveOptions(AntiAliasMode:"smaa\nfg=own",Transfer:"pq\nfg=own").Commands(true,true).Split('\n') is var safe&&safe.Contains("aaMode=edge")&&safe.Contains("transfer=auto")&&!safe.Contains("fg=own"),
+            "SMAA and the HDR transfer reach the engine; unknown values fall back to edge tracing and automatic, never injecting commands");
         assert(new LiveOptions(DlssMotion:"nvof\nfg=own",EdgeAegis:true).Commands(true,true).Split('\n').Contains("dlssMotion=none")&&
             new LiveOptions(DlssMotion:"none",EdgeAegis:true).Commands(true,true).Split('\n').Contains("edgeAegis=0"),
             "Unknown motion choices cannot inject commands or enable refinement without NVOF");
@@ -130,6 +135,11 @@ internal static class LiveTests
         var saving=LiveStatus.Parse("{\"running\":true,\"stages\":{},\"totals\":{},\"recording\":{\"active\":false,\"finalizing\":true,\"fps\":120,\"path\":\"record.mp4\"}}");
         assert(!saving.Recording&&saving.RecordingFinalizing&&saving.RecordingFps==120&&saving.RecordingPath=="record.mp4",
             "Saving is distinct from active recording and retains the declared video rate");
+        var hdrStatus=LiveStatus.Parse("{\"running\":true,\"format\":\"P010\",\"colorMatrix\":\"2020\",\"colorMatrixSource\":\"default\",\"colorTransfer\":\"pq\",\"colorTransferSource\":\"default\","+
+            "\"aaMethod\":\"edge\",\"aaWarning\":\"SMAA shader EdgePS: failed\",\"stages\":{},\"totals\":{},\"recording\":{}}");
+        assert(hdrStatus.ColorTransfer=="pq"&&hdrStatus.ColorTransferSource=="default"&&hdrStatus.ColorMatrix=="2020"&&hdrStatus.AaMethod=="edge"&&hdrStatus.AaWarning.StartsWith("SMAA",StringComparison.Ordinal)&&
+               status.ColorTransfer==""&&status.AaMethod=="",
+            "HDR transfer, BT.2020 and the anti-aliasing actually used are read; older engines leave them unknown");
         var starting=LiveStatus.Parse("{\"running\":true,\"stages\":{},\"totals\":{},\"recording\":{\"starting\":true}}");
         assert(starting.RecordingStarting&&!starting.Recording&&!starting.RecordingFinalizing,"A pending start can be cancelled before an active recording exists");
         var limited=LiveStatus.Parse("{\"dlssMaxMultiplier\":2,\"fg\":\"vfx\",\"multiplier\":3,\"stages\":{},\"totals\":{},\"recording\":{}}");

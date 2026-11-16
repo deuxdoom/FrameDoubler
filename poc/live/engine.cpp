@@ -42,6 +42,7 @@ PixelFormat parseFormat(const std::string& s) {
     if (s == "I420") return PixelFormat::I420;
     if (s == "YV12") return PixelFormat::YV12;
     if (s == "RGB24") return PixelFormat::RGB24;
+    if (s == "P010") return PixelFormat::P010;
     return PixelFormat::Unknown;
 }
 
@@ -128,10 +129,12 @@ struct Packet { bool fresh = false; int buffer = -1; int64_t sample = 0, arrival
 struct Options {
     int fg = 0;            // 0 off, 1 own interpolation, 2 NVIDIA VFX
     int multiplier = 2;    // outputs per unique content frame (input frame when dedup is off)
-    int aa = 0;            // 0 off, 1 low, 2 high
+    int aa = 0;            // 0 off, 1 low, 2 medium, 3 high
+    int aaMethod = 0;      // 0 edge tracing, 1 SMAA 1x (AaMethod)
+    int transfer = 0;      // 0 auto, 1 SDR, 2 PQ, 3 HLG
     bool dedup = false;
     int range = 0;         // 0 auto (limited), 1 limited, 2 full
-    int matrix = 0;        // 0 auto, 1 BT.709, 2 BT.601
+    int matrix = 0;        // 0 auto, 1 BT.709, 2 BT.601, 3 BT.2020
     int vfxQuality = 1;
     float volume = 1.f;
     bool mute = false;
@@ -178,7 +181,7 @@ public:
     void feedPacked(const uint8_t* data, int pitch, int64_t time) {
         FrameView v; v.data = data; v.pitch = pitch; v.width = width_; v.height = height_; v.format = format_;
         v.format = inputFormat_;
-        v.chroma = planar420(inputFormat_) ? data + size_t(pitch) * height_ : nullptr;
+        v.chroma = fourTwoZero(inputFormat_) ? data + size_t(pitch) * height_ : nullptr;
         v.sampleTime = time; v.arrival = realtimeReplay_ ? now100ns() : time; v.sequence = ++replaySequence_;
         feed(v);
     }
@@ -365,20 +368,28 @@ private:
 };
 
 // Manual choices first, then what the device states, then the usual convention (limited range,
-// BT.709 from 720 lines up).
+// BT.709 from 720 lines up; a 10-bit source without a stated transfer is HDR10: PQ, BT.2020).
 std::string Session::colorJson() {
     Options o; { std::lock_guard<std::mutex> lock(optionsMutex_); o = options_; }
-    const bool limited = o.range == 1 || (o.range == 0 && device_.range != 2);
-    const bool bt709 = o.matrix == 1 || (o.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
+    const ColorSetup used = color(o);
     auto source = [](int manual, int stated) { return manual ? "manual" : stated ? "device" : "default"; };
-    return std::string(",\"colorRange\":\"") + (limited ? "limited" : "full") + "\",\"colorRangeSource\":\"" + source(o.range, device_.range) +
-           "\",\"colorMatrix\":\"" + (bt709 ? "709" : "601") + "\",\"colorMatrixSource\":\"" + source(o.matrix, device_.matrix) + "\"";
+    return std::string(",\"colorRange\":\"") + (used.limited ? "limited" : "full") + "\",\"colorRangeSource\":\"" + source(o.range, device_.range) +
+           "\",\"colorMatrix\":\"" + (used.bt2020 ? "2020" : used.bt709 ? "709" : "601") + "\",\"colorMatrixSource\":\"" +
+           (o.matrix ? "manual" : used.transfer != 0 && device_.matrix != 3 ? "default" : source(0, device_.matrix)) +
+           "\",\"colorTransfer\":\"" + (used.transfer == 1 ? "pq" : used.transfer == 2 ? "hlg" : "sdr") + "\",\"colorTransferSource\":\"" + source(o.transfer, device_.transfer) + "\"";
 }
 
 ColorSetup Session::color(const Options& o) const {
     ColorSetup c;
     c.limited = o.range == 1 || (o.range == 0 && device_.range != 2);
     c.bt709 = o.matrix == 1 || (o.matrix == 0 && (device_.matrix ? device_.matrix == 1 : height_ >= 720));
+    const bool tenBit = format_ == PixelFormat::P010;
+    const int transfer = o.transfer ? o.transfer : device_.transfer ? device_.transfer : tenBit ? 2 : 1;
+    c.transfer = transfer == 2 ? 1 : transfer == 3 ? 2 : 0;
+    // PQ and HLG are BT.2100 signals, BT.2020 by definition. A Live Gamer Ultra 2.1 states
+    // BT.709 for its P010 modes even with a PS5 HDR10 signal, so the HDR transfer wins in auto.
+    c.bt2020 = o.matrix == 3 || (o.matrix == 0 && (c.transfer != 0 || device_.matrix == 3));
+    if (c.bt2020) c.bt709 = true;
     return c;
 }
 
@@ -391,7 +402,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
     fpsNum_ = uint32_t(getInt(s, "fpsNum", 60)); fpsDen_ = uint32_t(std::max(1, getInt(s, "fpsDen", 1)));
     format_ = parseFormat(get(s, "format", "NV12"));
     if (width_ <= 0 || height_ <= 0 || width_ % 2 || height_ % 2 || !fpsNum_) { error = "invalid picture size or rate"; return false; }
-    if (!formatSupported(format_)) { error = "pixel format not supported (NV12, YUY2, UYVY, RGB32, I420, YV12 or RGB24)"; return false; }
+    if (!formatSupported(format_)) { error = "pixel format not supported (NV12, YUY2, UYVY, RGB32, I420, YV12, RGB24 or P010)"; return false; }
     interval_ = int64_t(10000000.0 * fpsDen_ / fpsNum_);
     applyOptions(s);
     if (!replay) {
@@ -408,6 +419,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
     format_ = processingFormat(format_);
     if (!gpu_.create(error)) return false;
     if (!gpu_.configure(width_, height_, error)) return false;
+    if (format_ == PixelFormat::P010 && !gpu_.prepareP010(error)) return false;
     if (hwnd && !gpu_.attach(hwnd, error)) return false;
     if (!get(s,"pacingTrace").empty()) {
         pacingTrace_ = _wfopen(wide(get(s,"pacingTrace")).c_str(),L"wb");
@@ -424,7 +436,7 @@ bool Session::open(const Settings& s, HWND hwnd, bool replay, std::string& error
         setvbuf(dedupTrace_,nullptr,_IOFBF,65536);
         fputs("arrival,sample,repeat,threshold,maxTileMean,changedTiles,maxSample,samplesOver8,samplesOver2,samplesOver3,samplesOver4,band,samplesOverBand\n",dedupTrace_);
     }
-    const size_t bytes = format_ == PixelFormat::NV12 ? size_t(width_) * height_ * 3 / 2 : size_t(width_) * height_ * bytesPerPixel(format_);
+    const size_t bytes = processingBytes(format_, width_, height_);
     for (auto& b : buffers_) b.resize(bytes);
     timeline_.configure(interval_);
     timer_ = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -456,13 +468,15 @@ void Session::applyOptions(const Settings& s) {
     if (s.count("fg")) { const auto v = get(s, "fg"); options_.fg = v == "off" ? 0 : v == "vfx" ? 2 : v == "own" ? 1 : 3; }
     if (s.count("multiplier")) options_.multiplier = std::clamp(getInt(s, "multiplier", 2), 2, 4);
     if (s.count("aa")) options_.aa = std::clamp(getInt(s, "aa", 0), 0, 3);
+    if (s.count("aaMode")) options_.aaMethod = get(s, "aaMode") == "smaa" ? AaSmaa : AaEdge;
     if (s.count("sync")) { const auto v = get(s, "sync"); options_.sync = v == "vsync" ? 1 : v == "tearing" ? 2 : 0; }
     if (s.count("aspect")) { const auto v = get(s, "aspect"); options_.aspect = v == "fill" ? 1 : v == "stretch" ? 2 : 0; }
     if (s.count("compare")) { const auto v = get(s, "compare"); options_.compare = v == "split" ? 1 : v == "original" ? 2 : 0; }
     if (s.count("outputCap")) { const auto v = get(s, "outputCap"); options_.outputCap = v == "display" ? -1 : v == "off" || v.empty() ? 0 : std::clamp(getInt(s, "outputCap", 0), 24, 480); }
     if (s.count("dedup")) options_.dedup = get(s, "dedup") != "0";
     if (s.count("range")) { const auto v = get(s, "range"); options_.range = v == "limited" ? 1 : v == "full" ? 2 : 0; }
-    if (s.count("matrix")) { const auto v = get(s, "matrix"); options_.matrix = v == "709" ? 1 : v == "601" ? 2 : 0; }
+    if (s.count("matrix")) { const auto v = get(s, "matrix"); options_.matrix = v == "709" ? 1 : v == "601" ? 2 : v == "2020" ? 3 : 0; }
+    if (s.count("transfer")) { const auto v = get(s, "transfer"); options_.transfer = v == "sdr" ? 1 : v == "pq" ? 2 : v == "hlg" ? 3 : 0; }
     if (s.count("vfxQuality")) options_.vfxQuality = std::clamp(getInt(s, "vfxQuality", 1), 0, 2);
     if (s.count("volume")) options_.volume = float(std::clamp(getDouble(s, "volume", 100) / 100.0, 0.0, 1.0));
     if (s.count("mute")) options_.mute = get(s, "mute") == "1";
@@ -584,7 +598,8 @@ void Session::onFrame(const FrameView& v) {
     const int64_t start = now100ns();
     bool analyseScene;
     { std::lock_guard<std::mutex> lock(optionsMutex_); detector_.enabled = options_.dedup; analyseScene = options_.fg != 0; }
-    const uint8_t* luma = v.data + (v.format == PixelFormat::UYVY || v.format == PixelFormat::RGB32 || v.format == PixelFormat::RGB24 ? 1 : 0);
+    // P010: the high byte of each little-endian word carries the top 8 bits of the code.
+    const uint8_t* luma = v.data + (v.format == PixelFormat::UYVY || v.format == PixelFormat::RGB32 || v.format == PixelFormat::RGB24 || v.format == PixelFormat::P010 ? 1 : 0);
     const int step = bytesPerPixel(v.format);
     auto signature = makeSignature(luma, v.pitch, step, v.width, v.height);
     // The detector takes ownership, so extract the tiny scene descriptor first.
@@ -678,8 +693,9 @@ void Session::processFresh(const Packet& p) {
     gpu_.keepOriginals(o.compare != 0, keepError);
     if (!keepError.empty()) log_.add("warning", "comparison view: " + keepError);
     gpu_.timer.mark(gpu_.context(), StageUpload, true);
-    if (format_ == PixelFormat::NV12) gpu_.upload(slot, data, width_, data + size_t(width_) * height_, width_, format_, color(o), o.aa);
-    else gpu_.upload(slot, data, width_ * bytesPerPixel(format_), nullptr, 0, format_, color(o), o.aa);
+    if (format_ == PixelFormat::NV12) gpu_.upload(slot, data, width_, data + size_t(width_) * height_, width_, format_, color(o), o.aa, o.aaMethod);
+    else if (format_ == PixelFormat::P010) gpu_.upload(slot, data, width_ * 2, data + size_t(width_) * height_ * 2, width_ * 2, format_, color(o), o.aa, o.aaMethod);
+    else gpu_.upload(slot, data, width_ * bytesPerPixel(format_), nullptr, 0, format_, color(o), o.aa, o.aaMethod);
     gpu_.timer.mark(gpu_.context(), StageUpload, false);
     slotId_[slot]=uniqueId_+1;
     {
@@ -1088,6 +1104,7 @@ std::string Session::status() {
     const double sec = w.seconds > 0 ? w.seconds : 1;
     auto stage = [&](int i) { return stages[i] < 0 ? std::string("null") : fixed(stages[i]); };
     std::string backend, runtime, dlssMotion, motionWarning; bool edgeAegis=false; int vfxQuality, dlssMaximum, gen; DlssGenerator::Counters dlssCounters;
+    const int aaUsed = gpu_.aaUsed();
     {
         std::lock_guard<std::mutex> lock(vfxMutex_);
         o = effective(o); gen = generator(o);
@@ -1113,6 +1130,9 @@ std::string Session::status() {
         ",\"outputFps\":" + fixed(w.outputs / sec) + ",\"interpolatedFps\":" + fixed(w.interpolated / sec) +
         ",\"presentedFps\":" + fixed(w.presented / sec) + ",\"distinctFps\":" + fixed(w.distinct / sec) + ",\"distinctGeneratedFps\":" + fixed(w.distinctGenerated / sec) + ",\"displayHz\":" + std::to_string(displayHz_.load()) +
         ",\"tearing\":" + (gpu_.tearingSupported() ? "true" : "false") +
+        // Anti-aliasing actually applied; SMAA that could not run falls back to edge tracing.
+        ",\"aaMethod\":" + jsonString(o.aa <= 0 ? "off" : aaUsed == AaSmaa ? "smaa" : aaUsed == AaEdge ? "edge" : o.aaMethod == AaSmaa ? "smaa" : "edge") +
+        ",\"aaWarning\":" + jsonString(o.aa > 0 && o.aaMethod == AaSmaa && aaUsed == AaEdge ? gpu_.aaError() : std::string()) +
         ",\"skipped\":" + std::to_string(w.skipped) + ",\"dedupMs\":" + fixed(w.input ? w.dedupMs / double(w.input) : 0, 3) +
         ",\"latencyMs\":" + (w.latencyCount ? fixed(w.latency / w.latencyCount, 1) : std::string("null")) +
         // Capture callback of an original -> its Present -> the vblank that showed it.
@@ -1603,6 +1623,115 @@ std::string selfTest(const Settings& s) {
                 if (dist > 4 && v != edge[(size_t(y) * w + x) * 4]) ++flatChanged;
             }
             check("anti-aliasing", partial > w / 2 && flatChanged == 0, std::to_string(partial) + " blended edge pixels, " + std::to_string(flatChanged) + " flat pixels changed");
+        }
+        // SMAA 1x (reference shaders and tables): the same slanted edge gains intermediate
+        // values, flat areas stay exact, and SMAA itself ran (not the edge-tracing fallback).
+        {
+            std::vector<uint8_t> edge(size_t(w) * h * 4, 255), aa;
+            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+                const bool dark = y > 0.3 * x + 60;
+                for (int c = 0; c < 3; ++c) edge[(size_t(y) * w + x) * 4 + c] = dark ? 20 : 235;
+            }
+            std::string smaaError;
+            const int64_t compileStart = now100ns();
+            bool compiled = true;
+            for (int strength = 1; strength <= 3; ++strength) compiled = compiled && gpu.smaa().prepare(strength, smaaError);
+            const double compileMs = double(now100ns() - compileStart) / 1e4;
+            bool allBlend = true; int partialHigh = 0, flatChangedAny = 0;
+            for (int strength = 1; strength <= 3 && compiled; ++strength) {
+                gpu.uploadRgba(2, edge.data(), w * 4, strength, AaSmaa);
+                gpu.readback(gpu.frame(2), aa);
+                int partial = 0, flatChanged = 0;
+                for (int y = 4; y < h - 4; ++y) for (int x = 4; x < w - 4; ++x) {
+                    const double dist = std::abs(y - (0.3 * x + 60)) / std::sqrt(1.09);
+                    const uint8_t v = aa[(size_t(y) * w + x) * 4];
+                    if (dist < 1.5 && v > 30 && v < 225) ++partial;
+                    if (dist > 4 && v != edge[(size_t(y) * w + x) * 4]) ++flatChanged;
+                }
+                allBlend = allBlend && gpu.aaUsed() == AaSmaa && partial > w / 2;
+                flatChangedAny += flatChanged;
+                if (strength == 2) partialHigh = partial;
+            }
+            check("smaa", compiled && allBlend && flatChangedAny == 0,
+                  compiled ? std::to_string(partialHigh) + " blended edge pixels (high), " + std::to_string(flatChangedAny) + " flat pixels changed, three presets compiled in " + fixed(compileMs, 1) + " ms"
+                           : smaaError);
+        }
+        // P010 (10-bit) SDR decodes like NV12: the same BT.709 limited picture in both layouts.
+        {
+            std::vector<uint8_t> rgb; texture(rgb, w, h, 0, 0, 1);
+            std::vector<uint8_t> nv12(size_t(w) * h * 3 / 2);
+            std::vector<uint16_t> p010(size_t(w) * h * 3 / 2);
+            const double kr = 0.2126, kb = 0.0722, kg = 1 - kr - kb;
+            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+                const uint8_t* p = &rgb[(size_t(y) * w + x) * 4];
+                const double luma = kr * p[0] / 255.0 + kg * p[1] / 255.0 + kb * p[2] / 255.0;
+                nv12[size_t(y) * w + x] = uint8_t(std::lround(16 + 219 * luma));
+                p010[size_t(y) * w + x] = uint16_t(std::lround(64 + 876 * luma) << 6);
+            }
+            for (int y = 0; y < h / 2; ++y) for (int x = 0; x < w / 2; ++x) {
+                // MPEG-2 siting: the chroma sample sits on column 2x, between rows 2y and 2y + 1.
+                double r = 0, g = 0, b = 0;
+                for (int dy = 0; dy < 2; ++dy) { const uint8_t* p = &rgb[(size_t(2 * y + dy) * w + 2 * x) * 4]; r += p[0] / 510.0; g += p[1] / 510.0; b += p[2] / 510.0; }
+                const double luma = kr * r + kg * g + kb * b, cb = (b - luma) / (2 * (1 - kb)), cr = (r - luma) / (2 * (1 - kr));
+                uint8_t* c8 = &nv12[size_t(w) * h + size_t(y) * w + 2 * x];
+                c8[0] = uint8_t(std::lround(128 + 224 * cb)); c8[1] = uint8_t(std::lround(128 + 224 * cr));
+                uint16_t* c16 = &p010[size_t(w) * h + size_t(y) * w + 2 * x];
+                c16[0] = uint16_t(std::lround(512 + 896 * cb) << 6); c16[1] = uint16_t(std::lround(512 + 896 * cr) << 6);
+            }
+            const ColorSetup sdr;   // limited range, BT.709, SDR
+            const auto* words = reinterpret_cast<const uint8_t*>(p010.data());
+            gpu.upload(0, nv12.data(), w, nv12.data() + size_t(w) * h, w, PixelFormat::NV12, sdr, 0);
+            gpu.upload(1, words, w * 2, words + size_t(w) * h * 2, w * 2, PixelFormat::P010, sdr, 0);
+            std::vector<uint8_t> eight, ten;
+            gpu.readback(gpu.frame(0), eight); gpu.readback(gpu.frame(1), ten);
+            const double db = eight.size() == ten.size() && !eight.empty() ? psnr(eight, ten, w, h, 2) : 0;
+            check("p010-sdr", db > 40, "P010 vs NV12 " + fixed(db, 1) + " dB");
+        }
+        // HDR to SDR: grey ramps in PQ (HDR10, BT.2020) and HLG follow file conversion's chain
+        // (linear light with 1.0 = 100 nits, Hable scaled to a 1000-nit peak, BT.709 transfer):
+        // monotonic, black stays black, each level within 2 codes of the reference formula.
+        {
+            auto hable = [](double x) { const double A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30; return (x * (x * A + B * C) + D * E) / (x * (x * A + B) + D * F) - E / F; };
+            auto expected = [&](double nits) {
+                const double l = std::clamp(hable(std::max(nits / 100.0, 1e-6)) / hable(10.0), 0.0, 1.0);
+                return 255.0 * (l < 0.018 ? 4.5 * l : 1.099 * std::pow(l, 0.45) - 0.099);
+            };
+            auto pqEncode = [](double nits) {
+                const double m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+                const double y = std::pow(std::max(nits, 0.0) / 10000.0, m1);
+                return std::pow((c1 + c2 * y) / (1 + c3 * y), m2);
+            };
+            auto hlgNits = [](double e) {   // inverse OETF, then the 1000-nit OOTF (grey: Ys = scene)
+                const double a = 0.17883277, b = 0.28466892, c = 0.55991073;
+                const double scene = e <= 0.5 ? e * e / 3.0 : (std::exp((e - c) / a) + b) / 12.0;
+                return 1000.0 * std::pow(scene, 1.2);
+            };
+            auto ramp = [&](int transfer, const std::vector<double>& signal, const std::vector<double>& nits, std::string& detail) {
+                const int bands = int(signal.size());
+                std::vector<uint16_t> frame(size_t(w) * h * 3 / 2, uint16_t(512 << 6));
+                for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) frame[size_t(y) * w + x] = uint16_t(std::lround(64 + 876 * signal[size_t(x * bands / w)]) << 6);
+                ColorSetup hdr; hdr.transfer = transfer; hdr.bt2020 = true;
+                const auto* words = reinterpret_cast<const uint8_t*>(frame.data());
+                gpu.upload(0, words, w * 2, words + size_t(w) * h * 2, w * 2, PixelFormat::P010, hdr, 0);
+                std::vector<uint8_t> out; gpu.readback(gpu.frame(0), out);
+                bool ok = !out.empty(); int previous = -1;
+                for (int i = 0; i < bands && ok; ++i) {
+                    const int x = i * w / bands + w / (2 * bands);
+                    const int v = out[(size_t(h / 2) * w + x) * 4], g = out[(size_t(h / 2) * w + x) * 4 + 1];
+                    detail += (i ? ", " : "") + fixed(nits[size_t(i)], 0) + " nits " + std::to_string(v);
+                    ok = v >= previous && std::abs(v - expected(nits[size_t(i)])) <= 2.0 && std::abs(v - g) <= 1;
+                    previous = v;
+                }
+                return ok && previous >= 253;
+            };
+            const std::vector<double> pqNits{0, 1, 10, 100, 203, 400, 1000};
+            std::vector<double> pqSignal; for (double n : pqNits) pqSignal.push_back(pqEncode(n));
+            std::string pqDetail;
+            check("hdr-pq-tonemap", ramp(1, pqSignal, pqNits, pqDetail), pqDetail);
+            const std::vector<double> hlgSignal{0, 0.25, 0.5, 0.75, 1.0};
+            std::vector<double> hlgLevels; for (double e : hlgSignal) hlgLevels.push_back(hlgNits(e));
+            std::string hlgDetail;
+            check("hdr-hlg-tonemap", ramp(2, hlgSignal, hlgLevels, hlgDetail), hlgDetail);
         }
         // RGB -> NV12 (recorder) -> RGB (capture path) round trip.
         {

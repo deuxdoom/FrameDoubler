@@ -9,8 +9,8 @@ see that file for the matrix and procedure.
 
 FrameDoubler opens on the capture preview (switch to "Convert files" in the title bar; the last
 page is remembered). It automatically starts the selected supported capture card, including
-on first launch. Choose another card or exact mode as needed (NV12, YUY2, UYVY, RGB32, RGB24, I420 or YV12;
-compressed MJPG modes are not listed and HDR/P010 remains unavailable). Media Foundation
+on first launch. Choose another card or exact mode as needed (NV12, P010, YUY2, UYVY, RGB32, RGB24, I420 or YV12;
+compressed MJPG modes are not listed). Media Foundation
 is preferred; devices exposed only through DirectShow are also listed. Selections keep the device
 path as well as its name. A failed MF open tries only the same device and exact mode through
 DirectShow; ambiguous identical names never switch to another card. DirectShow entries remain
@@ -40,8 +40,13 @@ when wanted; saved choices are remembered. Actual game fps is shown only with du
   They use extra GPU time; improvement of jelly artifacts depends on the scene. Changes briefly
   restart the preview and are locked during recording countdown, recording and saving. If NVOF
   is unavailable, DLSS keeps its internal motion estimation and the panel reports the fallback.
-- Anti-aliasing (low/medium/high) runs once per unique frame at the source size, before frame
-  generation. Colour range and matrix can be set.
+- Anti-aliasing (edge tracing or SMAA, low/medium/high) runs once per unique frame at the source
+  size, before frame generation. If SMAA fails, edge tracing takes over and the panel reports why.
+- P010 (10-bit) capture supports PQ/HLG HDR input, tone mapped to BT.709 SDR for display and
+  recording using Hable with a 1000-nit reference. The Colour tab offers range, matrix (including
+  BT.2020) and transfer (Auto/SDR/PQ/HLG). Auto follows the device's transfer metadata or assumes
+  PQ for P010 without it; the automatic HDR matrix is BT.2020. Choose SDR if the card already
+  tone maps the signal. Actual applied values and assumptions are shown in the panel.
 - Display: automatic sync (newest frame without tearing), VSync or tearing allowed; fit, fill
   or stretch; split or original-only comparison; hold V to see the original; output cap.
 - Sound from the card's audio input is played with a delay matched to the picture.

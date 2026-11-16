@@ -194,6 +194,13 @@ bool captureIdentitySelfTest() {
 
 void copyToProcessing(const FrameView& v, uint8_t* dst) {
     const size_t w = size_t(v.width), h = size_t(v.height);
+    if (v.format == PixelFormat::P010) {
+        // 16-bit words: luma rows, then interleaved UV rows, each 2 * width bytes.
+        const uint8_t* chroma = v.chroma ? v.chroma : v.data + ptrdiff_t(h) * v.pitch;
+        for (size_t y = 0; y < h; ++y) memcpy(dst + y * w * 2, v.data + ptrdiff_t(y) * v.pitch, w * 2);
+        for (size_t y = 0; y < h / 2; ++y) memcpy(dst + w * h * 2 + y * w * 2, chroma + ptrdiff_t(y) * v.pitch, w * 2);
+        return;
+    }
     if (planar420(v.format)) {
         for (size_t y = 0; y < h; ++y) memcpy(dst + y * w, v.data + ptrdiff_t(y) * v.pitch, w);
         uint8_t* uv = dst + w * h;
@@ -378,9 +385,9 @@ bool VideoCapture::open(const std::string& id, const VideoMode& wanted, std::str
     }
     if (!native) { error = "the requested mode is not offered by this device"; return false; }
     {
-        UINT32 range = 0, matrix = 0;
-        native->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range); native->GetUINT32(MF_MT_YUV_MATRIX, &matrix);
-        color_ = colorFromMf(range, matrix);
+        UINT32 range = 0, matrix = 0, transfer = 0;
+        native->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range); native->GetUINT32(MF_MT_YUV_MATRIX, &matrix); native->GetUINT32(MF_MT_TRANSFER_FUNCTION, &transfer);
+        color_ = colorFromMf(range, matrix, transfer);
     }
     hr = handler->SetCurrentMediaType(native.Get());
     if (FAILED(hr)) { error = "mode rejected by the driver (" + hresult(hr) + ")"; return false; }
@@ -470,20 +477,20 @@ void VideoCapture::run() {
             if (pitch < 0) data += ptrdiff_t(mode_.height - 1) * -ptrdiff_t(pitch);
         }
         DWORD total = 0; buffer->GetCurrentLength(&total);
-        const size_t minimum = planar420(output_) ? size_t(std::abs(pitch)) * mode_.height * 3 / 2 : size_t(std::abs(pitch)) * (mode_.height - 1) + size_t(mode_.width) * packedBytes;
-        const bool valid = std::abs(pitch) >= mode_.width * packedBytes && total >= minimum && (!planar420(output_) || pitch > 0);
+        const size_t minimum = fourTwoZero(output_) ? size_t(std::abs(pitch)) * mode_.height * 3 / 2 : size_t(std::abs(pitch)) * (mode_.height - 1) + size_t(mode_.width) * packedBytes;
+        const bool valid = std::abs(pitch) >= mode_.width * packedBytes && total >= minimum && (!fourTwoZero(output_) || pitch > 0);
         if (valid) {
             FrameView view;
             view.data = data; view.pitch = int(pitch); view.width = mode_.width; view.height = mode_.height;
             view.format = output_;
-            if (output_ == PixelFormat::NV12 && pitch > 0) {
+            if ((output_ == PixelFormat::NV12 || output_ == PixelFormat::P010) && pitch > 0) {
                 // Some drivers pad the luma plane (1080 -> 1088 rows); the chroma plane then
                 // starts after the padded rows. The buffer length tells which.
                 DWORD total = 0; buffer->GetCurrentLength(&total);
                 const DWORD rows = total / DWORD(pitch);
                 const int lumaRows = (rows % 3 == 0 && int(rows / 3 * 2) >= mode_.height) ? int(rows / 3 * 2) : mode_.height;
                 view.chroma = data + size_t(lumaRows) * size_t(pitch);
-            } else if (planar420(output_)) view.chroma = data + size_t(mode_.height) * size_t(pitch);   // U/V planes, half pitch
+            } else if (fourTwoZero(output_)) view.chroma = data + size_t(mode_.height) * size_t(pitch);   // U/V planes, half pitch
             view.sampleTime = time; view.arrival = arrival; view.sequence = ++sequence;
             lastPicture = arrival;
             callback_(view);

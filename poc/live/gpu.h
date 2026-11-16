@@ -2,15 +2,20 @@
 #pragma once
 #include "common.h"
 #include "capture.h"
+#include "smaa.h"
 #include <d3d11.h>
 #include <dxgi1_6.h>
 
 namespace fdl {
 
 struct ColorSetup {
-    bool limited = true;      // studio swing 16..235
+    bool limited = true;      // studio swing 16..235 (64..940 at 10 bits)
     bool bt709 = true;        // otherwise BT.601
+    bool bt2020 = false;      // BT.2020 matrix and primaries (HDR sources)
+    int transfer = 0;         // 0 SDR, 1 PQ (HDR10), 2 HLG: PQ and HLG are tone mapped to SDR BT.709
 };
+// Anti-aliasing methods: the engine's own edge tracing, or SMAA 1x.
+enum AaMethod { AaEdge = 0, AaSmaa = 1 };
 
 enum GpuStage { StageUpload, StageMotion, StageInterpolate, StagePresent, StageEncode, StageCount };
 
@@ -38,6 +43,8 @@ public:
     static constexpr int kSlots = 5;
     bool create(std::string& error);
     bool configure(int width, int height, std::string& error);
+    // Allocate 10-bit planes only for P010 sessions; report failure before capture starts.
+    bool prepareP010(std::string& error);
     ID3D11Device* device() const { return device_.Get(); }
     ID3D11DeviceContext* context() const { return context_.Get(); }
     std::string adapterName() const { return adapterName_; }
@@ -45,9 +52,14 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
 
-    // Converts a captured picture into frame slot `slot`, anti-aliased when aa > 0.
+    // Converts a captured picture into frame slot `slot`, anti-aliased when aa (strength 1..3)
+    // > 0 with `method`. A failing SMAA falls back to edge tracing (see aaUsed/aaError).
     void upload(int slot, const uint8_t* luma, int lumaPitch, const uint8_t* chroma, int chromaPitch,
-                PixelFormat format, const ColorSetup& color, int aa);
+                PixelFormat format, const ColorSetup& color, int aa, int method = AaEdge);
+    // The method the last anti-aliased upload actually used, and why SMAA could not run.
+    int aaUsed() const { return aaUsed_; }
+    std::string aaError() const { std::lock_guard<std::mutex> lock(aaErrorMutex_); return aaError_; }
+    Smaa& smaa() { return smaa_; }
     // Luma pyramid of a slot, then symmetric motion between two slots. The vector
     // field is kept with slot B (the later frame of the pair).
     void pyramid(int slot);
@@ -84,7 +96,7 @@ public:
     // Copies a picture to the CPU as RGBA8 rows (for screenshots and tests).
     bool readback(ID3D11Texture2D* source, std::vector<uint8_t>& rgba);
     // Uploads RGBA8 rows into a slot (self-test and replay of RGB sources).
-    void uploadRgba(int slot, const uint8_t* rgba, int pitch, int aa);
+    void uploadRgba(int slot, const uint8_t* rgba, int pitch, int aa, int method = AaEdge);
     void antiAliasInto(ID3D11ShaderResourceView* source, ID3D11UnorderedAccessView* target, int aa);
     // Diagnostics: the finest vector field of a pair (full-resolution pixels).
     bool readField(int slotB, std::vector<float>& xy, int& gridWidth, int& gridHeight);
@@ -96,9 +108,11 @@ public:
     GpuTimer timer;
     std::mutex& lock() { return mutex_; }   // guards the immediate context across threads
 private:
-    struct Image { ComPtr<ID3D11Texture2D> texture; ComPtr<ID3D11ShaderResourceView> srv; ComPtr<ID3D11UnorderedAccessView> uav; };
+    struct Image { ComPtr<ID3D11Texture2D> texture; ComPtr<ID3D11ShaderResourceView> srv; ComPtr<ID3D11UnorderedAccessView> uav; ComPtr<ID3D11RenderTargetView> rtv; };
     struct Field { Image vectors, cost; };
-    bool image(Image& out, int w, int h, DXGI_FORMAT format, bool uav, std::string& error);
+    bool image(Image& out, int w, int h, DXGI_FORMAT format, bool uav, std::string& error, bool renderTarget = false);
+    // Anti-aliases `source` into frame slot `slot` with the requested method.
+    void antiAliasSlot(ID3D11ShaderResourceView* source, int slot, int aa, int method);
     bool compile(const char* source, const char* profile, ComPtr<ID3DBlob>& blob, std::string& error);
     template <class T> void constants(const T& value);
     void dispatch(ID3D11ComputeShader* shader, int x, int y, int groupX, int groupY);
@@ -118,8 +132,12 @@ private:
     Image originals_[kSlots];
     bool originalValid_[kSlots] = {};
     bool keepOriginals_ = false, tearing_ = false;
-    ComPtr<ID3D11Texture2D> lumaUpload_, chromaUpload_, packedUpload_, rgbUpload_;
-    ComPtr<ID3D11ShaderResourceView> lumaUploadSrv_, chromaUploadSrv_, packedUploadSrv_, rgbUploadSrv_;
+    ComPtr<ID3D11Texture2D> lumaUpload_, chromaUpload_, packedUpload_, rgbUpload_, luma16Upload_, chroma16Upload_;
+    ComPtr<ID3D11ShaderResourceView> lumaUploadSrv_, chromaUploadSrv_, packedUploadSrv_, rgbUploadSrv_, luma16UploadSrv_, chroma16UploadSrv_;
+    Smaa smaa_;
+    std::atomic<int> aaUsed_{-1};   // -1 until the first anti-aliased picture
+    std::string aaError_;
+    mutable std::mutex aaErrorMutex_;
     std::vector<Image> pyramids_[kSlots];          // level 1..levels (index 0 = level 1)
     std::vector<Field> scratch_;                   // per level, coarse to fine work
     Field fields_[kSlots];                         // finest field per pair, keyed by slot B

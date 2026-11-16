@@ -7,7 +7,8 @@
 //                                           raw frames from stdin, summary JSON at the end
 //   --probe --device NAME --width W --height H --fps N/D [--seconds S] [--window] [options]
 //                                           live capture with optional preview window
-// Options: --fg off|own|vfx|dlss --multiplier 2|3|4 --aa 0|1|2 --dedup 0|1 --record DIR
+// Options: --fg off|own|vfx|dlss --multiplier 2|3|4 --aa 0|1|2|3 --aa-mode edge|smaa --dedup 0|1 --record DIR
+//          --format NV12|YUY2|UYVY|RGB32|RGB24|I420|YV12|P010 --transfer auto|sdr|pq|hlg --matrix auto|709|601|2020
 //          --vfx DIR --vfx-quality 0|1|2 --audio auto|none --screenshot DIR
 //          --dlss DIR --dlss-data DIR (NGX logs/cache, separate from the runtime)
 // Compare/selftest: --nvof [--nvof-quality 0|1|2] --dlss-motion none|own|auto|nvof [--dlss-lite]
@@ -57,6 +58,10 @@ std::string commonSettings(int argc, wchar_t** argv) {
     s += "fg=" + arg(argc, argv, L"--fg", "off") + "\n";
     s += "multiplier=" + arg(argc, argv, L"--multiplier", "2") + "\n";
     s += "aa=" + arg(argc, argv, L"--aa", "0") + "\n";
+    s += "aaMode=" + arg(argc, argv, L"--aa-mode", "edge") + "\n";
+    s += "transfer=" + arg(argc, argv, L"--transfer", "auto") + "\n";
+    if (!arg(argc, argv, L"--matrix").empty()) s += "matrix=" + arg(argc, argv, L"--matrix") + "\n";
+    if (!arg(argc, argv, L"--range").empty()) s += "range=" + arg(argc, argv, L"--range") + "\n";
     s += "dedup=" + arg(argc, argv, L"--dedup", "0") + "\n";
     s += "vfxDir=" + arg(argc, argv, L"--vfx") + "\n";
     s += "vfxQuality=" + arg(argc, argv, L"--vfx-quality", "1") + "\n";
@@ -336,9 +341,11 @@ int wmain(int argc, wchar_t** argv) {
         const Settings s = parseSettings(settings.c_str());
         const int w = getInt(s, "width", 0), h = getInt(s, "height", 0);
         const std::string format = get(s, "format");
-        const bool nv12 = format == "NV12" || format == "I420" || format == "YV12";
+        // 4:2:0 input: luma then chroma; P010 uses 16-bit samples (ffmpeg -pix_fmt p010le).
+        const bool nv12 = format == "NV12" || format == "I420" || format == "YV12" || format == "P010";
+        const int sampleBytes = format == "P010" ? 2 : 1;
         const int packedBytes = format == "RGB32" ? 4 : format == "RGB24" ? 3 : 2;
-        const size_t frameBytes = nv12 ? size_t(w) * h * 3 / 2 : size_t(w) * h * packedBytes;
+        const size_t frameBytes = nv12 ? size_t(w) * h * 3 / 2 * sampleBytes : size_t(w) * h * packedBytes;
         const int64_t interval = int64_t(10000000.0 * getInt(s, "fpsDen", 1) / getInt(s, "fpsNum", 60));
         const int limit = std::stoi(arg(argc, argv, L"--limit", "0"));
         _setmode(_fileno(stdin), _O_BINARY);
@@ -358,7 +365,7 @@ int wmain(int argc, wchar_t** argv) {
                 if(!inputBase)inputBase=now100ns()+1000000;
                 if(!pumpUntil(inputBase+index*interval,inputTimer))break;
             }
-            fdl_feed(session, frame.data(), nv12 ? w : w * packedBytes, (realtime?inputBase:10000000) + index * interval);
+            fdl_feed(session, frame.data(), nv12 ? w * sampleBytes : w * packedBytes, (realtime?inputBase:10000000) + index * interval);
             ++index;
             if (limit > 0 && index >= limit) break;
         }

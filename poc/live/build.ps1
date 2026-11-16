@@ -16,7 +16,7 @@ $Windres=Join-Path $CompilerRoot 'bin\x86_64-w64-mingw32-windres.exe'
 if(Test-Path -LiteralPath (Join-Path $PSScriptRoot '../../tools/dev/nvof/include/nvOpticalFlowD3D11.h')) {
     Write-Output 'Hardware optical flow: official SDK headers found (driver capability checked at runtime)'
 } else { Write-Warning 'Official NVOF headers absent: DLSS uses internal motion estimation' }
-$Sources=@('capture.cpp','capture_dshow.cpp','audio.cpp','gpu.cpp','recorder.cpp','vfx.cpp','dlss.cpp','nvof.cpp','edgeaegis.cpp','engine.cpp') | ForEach-Object {Join-Path $PSScriptRoot $_}
+$Sources=@('capture.cpp','capture_dshow.cpp','audio.cpp','gpu.cpp','smaa.cpp','recorder.cpp','vfx.cpp','dlss.cpp','nvof.cpp','edgeaegis.cpp','engine.cpp') | ForEach-Object {Join-Path $PSScriptRoot $_}
 $Common=@('-std=c++20','-O2','-static','-municode','-Wall','-Wno-unused-function','-Wno-missing-braces','-DUNICODE','-D_UNICODE','-D_WIN32_WINNT=0x0A00')
 $Libs=@('-ld3d11','-ld3d12','-ldxgi','-ladvapi32','-ld3dcompiler_47','-lmfplat','-lmfreadwrite','-lmf','-lmfuuid','-lole32','-loleaut32','-luuid','-lavrt','-lwinmm','-lwindowscodecs','-lpropsys','-lshlwapi','-lstrmiids','-luser32','-lgdi32')
 $Resource=Join-Path $LiveScratch 'live-resource.o'

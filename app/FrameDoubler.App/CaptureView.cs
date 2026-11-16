@@ -312,7 +312,7 @@ public sealed class CaptureView:UserControl
         var stack=new StackPanel();stack.Children.Add(header);stack.Children.Add(body);
         return new Border{Background=Brush("#20272B"),CornerRadius=new CornerRadius(12),BorderBrush=Brush("#2E373C"),BorderThickness=new Thickness(1),Padding=new Thickness(14,12,14,14),Margin=new Thickness(0,0,0,12),Child=stack};
     }
-    private readonly TextBlock outputSubtitle=new(),vrrBadgeText=new(),aaSubtitle=new(),aaTime=new(),colorNow=new();
+    private readonly TextBlock outputSubtitle=new(),vrrBadgeText=new(),aaSubtitle=new(),aaTime=new(),colorNow=new(),hdrNow=new();
     private readonly Border vrrBadge=new();
     private readonly ComboBox aspectBox=new(){Width=180,Margin=new Thickness(0)},capBox=new(){Width=96,Margin=new Thickness(8,0,0,0)};
     private Border? aaCardRef,fgCardRef,dedupCardRef,colorCardRef;
@@ -368,15 +368,15 @@ public sealed class CaptureView:UserControl
         // ---- Quality
         var aaToggle=Toggle("aa",options.AntiAlias>0,on=>{int v=on?Math.Max(1,lastAa):0;SetOptions(options with{AntiAlias=v},q=>q with{LiveAntiAlias=v});});
         aaSubtitle.FontSize=11.5;aaSubtitle.Foreground=Faint;aaSubtitle.TextWrapping=TextWrapping.Wrap;
-        var methodChip=new TextBlock();L(t=>methodChip.Text=t,"경계 추적","Edge tracing");
-        var methodChipBox=Chip(methodChip);methodChipBox.Margin=new Thickness(0);
         aaTime.FontFamily=Mono;aaTime.FontSize=12.5;aaTime.Foreground=Good;
         var where=new TextBlock{FontFamily=Mono,FontSize=12.5,Foreground=Brush("#C9D1D6")};L(t=>where.Text=t,"원본 해상도 · 생성 전","Source size · before FG");
         aaCardRef=Card("","안티앨리어싱","Anti-aliasing","","",aaToggle,
             OptionRow("게임 화면의 계단 현상과 UI 선을 부드럽게 합니다.","Smooths jagged edges in game pictures and interface lines.",
                 "고유 프레임마다 원본 해상도에서 한 번 적용한 뒤 프레임 생성에 넘기므로, 생성된 프레임도 함께 깨끗합니다.",
                 "Applied once per unique frame at the source resolution and before frame generation, so generated frames are clean too.",null),
-            OptionRow("방식","Method","휘도 경계를 찾아 경계 길이만큼 다시 표본화합니다.","Finds luma edges and resamples along their length.",methodChipBox),
+            OptionRow("방식","Method","경계 추적은 휘도 경계를 따라 다시 표본화하는 가벼운 방식입니다. SMAA는 계단 모양을 찾아 미리 계산된 면적 표로 섞습니다. 필요한 GPU 시간은 해상도와 강도에 따라 달라집니다.",
+                "Edge tracing is a lightweight resampling pass along luma edges. SMAA finds stair-step patterns and blends them using precomputed area tables. GPU time depends on resolution and strength.",
+                Segments("aaMode",options.AntiAliasMode,v=>SetOptions(options with{AntiAliasMode=v},q=>q with{LiveAntiAliasMode=v}),("edge","경계 추적","Edge tracing"),("smaa","SMAA","SMAA")),stacked:true),
             OptionRow("강도","Strength","강할수록 매끄럽고 작은 글자는 조금 흐려집니다.","Stronger is smoother; small text softens slightly.",
                 Segments("aa",Math.Max(1,options.AntiAlias).ToString(CultureInfo.InvariantCulture),v=>{lastAa=int.Parse(v,CultureInfo.InvariantCulture);if(options.AntiAlias>0)SetOptions(options with{AntiAlias=lastAa},q=>q with{LiveAntiAlias=lastAa});},
                     ("1","낮음","Low"),("2","보통","Medium"),("3","높음","High")),stacked:true),
@@ -391,12 +391,13 @@ public sealed class CaptureView:UserControl
             OptionRow("색 범위","Range","대부분의 콘솔·캡처 카드는 제한 범위(16–235)입니다. 검은색이 회색이거나 뭉개질 때만 바꾸세요.",
                 "Most consoles and cards send limited range (16–235). Change it only if blacks look grey or crushed.",
                 Segments("range",options.Range,v=>SetOptions(options with{Range=v},q=>q with{LiveRange=v}),("auto","자동","Auto"),("limited","제한 16–235","Limited"),("full","전체 0–255","Full")),stacked:true),
-            OptionRow("색 행렬","Matrix","HD 이상은 BT.709, SD는 BT.601이 기본입니다.","BT.709 for HD and above, BT.601 for SD by default.",
-                Segments("matrix",options.Matrix,v=>SetOptions(options with{Matrix=v},q=>q with{LiveMatrix=v}),("auto","자동","Auto"),("709","BT.709","BT.709"),("601","BT.601","BT.601")),stacked:true),colorNow);
-        var hdrBadge=new TextBlock{FontSize=12,Foreground=Warn};L(t=>hdrBadge.Text=t,"SDR만 지원","SDR only");
-        var hdrCard=Card("","HDR 신호","HDR signal","10비트 HDR 캡처","10-bit HDR capture",null,
-            OptionRow("아직 지원하지 않습니다","Not supported yet","10비트 HDR(P010) 캡처는 아직 처리하지 않습니다. 콘솔이나 캡처 카드에서 SDR 출력을 고르세요.",
-                "10-bit HDR (P010) capture is not processed yet. Choose SDR output on the console or capture card.",new Border{Background=Brush("#2A2420"),BorderBrush=Brush("#5A4636"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(8),Padding=new Thickness(10,4,10,4),Child=hdrBadge}));
+            OptionRow("색 행렬","Matrix","자동은 HDR에 BT.2020을 쓰고, SDR은 장치 정보 또는 HD 이상 BT.709·SD BT.601을 씁니다.","Auto uses BT.2020 for HDR; SDR follows the device or defaults to BT.709 for HD and above, BT.601 for SD.",
+                Segments("matrix",options.Matrix,v=>SetOptions(options with{Matrix=v},q=>q with{LiveMatrix=v}),("auto","자동","Auto"),("709","BT.709","BT.709"),("601","BT.601","BT.601"),("2020","BT.2020","BT.2020")),stacked:true),colorNow);
+        hdrNow.FontSize=12;hdrNow.Foreground=Good;hdrNow.TextWrapping=TextWrapping.Wrap;hdrNow.Margin=new Thickness(0,10,0,0);
+        var hdrCard=Card("","HDR 신호","HDR signal","10비트 P010 캡처를 SDR로 톤 매핑","Tone maps 10-bit P010 capture to SDR",null,
+            OptionRow("전달 함수","Transfer function","HDR 원본은 모드에서 P010(10비트)을 고르면 받을 수 있습니다. 자동은 장치가 알려 준 값을 쓰고, 알려 주지 않은 P010은 HDR10(PQ)으로 봅니다. 자동 행렬은 HDR에 BT.2020을 쓰며, 1000니트 기준으로 SDR로 바꿔 표시하고 녹화합니다. 카드가 이미 SDR로 바꿔 보내면 SDR을 고르세요.",
+                "Select a P010 (10-bit) capture mode for HDR input. Auto follows the device; P010 without transfer metadata is assumed to be HDR10 (PQ). The automatic matrix is BT.2020 for HDR. Display and recordings are tone mapped to SDR using a 1000-nit reference. Choose SDR if the card has already converted the signal.",
+                Segments("transfer",options.Transfer,v=>SetOptions(options with{Transfer=v},q=>q with{LiveTransfer=v}),("auto","자동","Auto"),("sdr","SDR","SDR"),("pq","PQ","PQ"),("hlg","HLG","HLG")),stacked:true),hdrNow);
         var colorPage=new StackPanel();colorPage.Children.Add(colorCardRef);colorPage.Children.Add(hdrCard);tabPages["color"]=colorPage;
 
         // ---- Audio
@@ -504,7 +505,7 @@ public sealed class CaptureView:UserControl
         toggles["nvof"].IsChecked=options.DlssMotion=="nvof";toggles["edgeAegis"].IsChecked=options.EdgeAegis;
         void Seg(string key,string value){foreach(var rb in segments[key])rb.IsChecked=(string)rb.Tag==value;}
         Seg("multiplier",options.Multiplier.ToString(CultureInfo.InvariantCulture));Seg("vfxQuality",options.VfxQuality.ToString(CultureInfo.InvariantCulture));
-        Seg("aa",Math.Max(1,options.AntiAlias).ToString(CultureInfo.InvariantCulture));Seg("range",options.Range);Seg("matrix",options.Matrix);
+        Seg("aa",Math.Max(1,options.AntiAlias).ToString(CultureInfo.InvariantCulture));Seg("aaMode",options.AntiAliasMode);Seg("range",options.Range);Seg("matrix",options.Matrix);Seg("transfer",options.Transfer);
         Seg("sync",options.Sync);Seg("compare",options.Compare);Seg("cap",options.OutputCap is "off" or "display"?options.OutputCap:"custom");
         capBox.Visibility=options.OutputCap is "off" or "display"?Visibility.Collapsed:Visibility.Visible;
         aspectBox.SelectedItem=aspectBox.Items.OfType<Choice>().FirstOrDefault(x=>x.Value==options.Aspect);
@@ -829,15 +830,18 @@ public sealed class CaptureView:UserControl
         // The engine reports the colour actually used and where it came from (manual, device, default).
         string Source(string? source)=>source switch{"device"=>T(" (장치)"," (device)"),"default"=>T(" (추정)"," (assumed)"),_=>""};
         string range=(s?.ColorRange is {Length:>0} r?r=="full":options.Range=="full")?T("전체","Full"):T("제한","Limited");
+        string transfer=s?.ColorTransfer??"";
+        string signal=transfer switch{"pq"=>"HDR PQ","hlg"=>"HDR HLG","sdr"=>"SDR",_=>T("색 신호 미확인","Colour unknown")};
+        string matrix=s?.ColorMatrix is {Length:>0} m?m:options.Matrix!="auto"?options.Matrix:(s?.Height??mode?.Height??1080)>=720?"709":"601";
         if(mode is not null){
             string p=mode.Height>=2160?"2160p":mode.Height+"p";
-            signalChip.Text=$"{p}{mode.Fps:0.##} · {mode.Format} · SDR · {range}";
+            signalChip.Text=$"{p}{mode.Fps:0.##} · {mode.Format} · {signal} · {range}";
             double outRate=s?.TargetFps??0;
             string rate=outRate>0?$"{outRate:0.#}fps":options.FrameGeneration=="off"?$"{mode.Fps:0.#}fps":T("감지 중","detecting");
             outputChip.Text=T("출력 ","Output ")+$"{mode.Width}×{mode.Height} · {rate}";
         }else{signalChip.Text=T("신호 없음","No signal");outputChip.Text=T("출력 —","Output —");}
         values["input"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.InputFps:0.00} fps";
-        values["format"].Text=s is null?"—":$"{s.Format} · {range}{Source(s.ColorRangeSource)} · BT.{(s.ColorMatrix is {Length:>0} m?m:s.Height>=720?"709":"601")}{Source(s.ColorMatrixSource)}";
+        values["format"].Text=s is null?"—":$"{s.Format} · {range}{Source(s.ColorRangeSource)} · BT.{matrix}{Source(s.ColorMatrixSource)} · {signal}{Source(s.ColorTransferSource)}";
         values["content"].Text=s is null?"—":options.Dedup?$"{s.ContentFps:0.0} fps"+T(" (중복 제거)"," (deduplicated)"):T("감지 꺼짐","Detection off");
         values["output"].Text=s is null?"—":$"{s.Width}×{s.Height} · {s.OutputFps:0.0} fps";
         string audioState=s?.AudioOutputState switch{"recovering"=>T("출력 재연결 중","Reconnecting output"),"failed"=>T("출력 연결 안 됨","Output disconnected"),"silent"=>T("무음 · 입력 수신 중","Silent · input receiving"),_=>s?.Audio==true?T("통과 · 지연 ","pass-through · ")+s.AudioDelayMs+" ms":T("꺼짐","off")};
@@ -899,10 +903,14 @@ public sealed class CaptureView:UserControl
             :T("DLSS 보정 적용 상태 미확인","DLSS refinement status unavailable");
         motionState.Text=Hangul.KeepWords(motionStatus);motionState.ToolTip=s?.MotionWarning is {Length:>0} mw?mw:motionStatus;
         string[] aaNames={T("낮음","low"),T("보통","medium"),T("높음","high")};
-        aaSubtitle.Text=options.AntiAlias>0?T("경계 추적 AA · ","Edge-tracing AA · ")+aaNames[Math.Clamp(options.AntiAlias,1,3)-1]:T("꺼짐","Off");
+        string aaMethod=s?.AaMethod is {Length:>0} aa?aa:options.AntiAliasMode;
+        bool aaFallback=options.AntiAlias>0&&s?.AaWarning is {Length:>0};
+        aaSubtitle.Text=options.AntiAlias>0&&aaMethod!="off"?(aaMethod=="smaa"?"SMAA · ":T("경계 추적 AA · ","Edge-tracing AA · "))+aaNames[Math.Clamp(options.AntiAlias,1,3)-1]+(aaFallback?T(" · SMAA 대체 적용"," · SMAA fallback"):""):T("꺼짐","Off");
+        aaSubtitle.Foreground=aaFallback?Warn:Faint;aaSubtitle.ToolTip=aaFallback?s?.AaWarning:aaSubtitle.Text;
         aaTime.Text=Ms(s?.Stages.Upload);
-        int height=s?.Height??mode?.Height??1080;
-        colorNow.Text=T("현재: ","Now: ")+(options.Range=="full"?T("전체 범위","full range"):T("제한 범위","limited range"))+" · "+(options.Matrix=="601"||(options.Matrix=="auto"&&height<720)?"BT.601":"BT.709")+" · SDR";
+        colorNow.Text=s is null?T("현재: 신호 대기","Now: waiting for input"):T("현재: ","Now: ")+range+Source(s.ColorRangeSource)+$" · BT.{matrix}"+Source(s.ColorMatrixSource)+" · "+signal;
+        colorNow.TextWrapping=TextWrapping.Wrap;
+        hdrNow.Text=s is null?T("신호를 받으면 적용 상태를 표시합니다.","Applied transfer is shown when input arrives."):signal+Source(s.ColorTransferSource)+(transfer is "pq" or "hlg"?T(" → SDR 톤 매핑 중"," → tone mapping to SDR"):transfer=="sdr"?T(" · 톤 매핑 없음"," · no tone mapping"):"");
         int hz=s?.DisplayHz??0;bool tear=s?.Tearing??false;
         outputSubtitle.Text=(hz>0?T($"모니터 {hz}Hz",$"Display {hz} Hz"):T("모니터 정보는 미리보기 중 표시","Display shown while previewing"))+(s is null?"":" · "+(tear?T("티어링 허용 출력 지원","tearing output supported"):T("티어링 허용 출력 미지원","no tearing output")));
         vrrBadgeText.Text=s is null?T("미확인","unknown"):tear?T("사용 가능","available"):T("사용할 수 없음","unavailable");

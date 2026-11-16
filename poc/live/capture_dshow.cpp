@@ -275,7 +275,8 @@ bool DirectShowCapture::open(const std::string& id, const VideoMode& wanted, std
     if (SUCCEEDED(grabber_->GetConnectedMediaType(&connected))) {
         if (const BITMAPINFOHEADER* h = header(&connected, nullptr)) {
             bottomUp_ = (output_ == PixelFormat::RGB32 || output_ == PixelFormat::RGB24) && h->biHeight > 0;
-            stride_ = planar420(output_) ? std::max(int(h->biWidth), wanted.width) : ((h->biWidth * h->biBitCount / 8 + 3) & ~3);
+            // P010 reports 24 bits per pixel on average; its rows are 2 bytes per sample.
+            stride_ = planar420(output_) ? std::max(int(h->biWidth), wanted.width) : output_ == PixelFormat::P010 ? std::max(int(h->biWidth), wanted.width) * 2 : ((h->biWidth * h->biBitCount / 8 + 3) & ~3);
         }
         freeType(&connected);
     }
@@ -298,7 +299,7 @@ void DirectShowCapture::start(Callback callback, EventLog* log) {
         if (sample->GetMediaType(&type) == S_OK && type) {
             REFERENCE_TIME interval = 0;
             const auto* h = header(type, &interval);
-            const int stride = h ? (planar420(output_) ? h->biWidth : ((h->biWidth * h->biBitCount / 8 + 3) & ~3)) : 0;
+            const int stride = h ? (planar420(output_) ? h->biWidth : output_ == PixelFormat::P010 ? h->biWidth * 2 : ((h->biWidth * h->biBitCount / 8 + 3) & ~3)) : 0;
             const bool compatible = h && h->biWidth == mode_.width && std::abs(h->biHeight) == mode_.height &&
                 fromSubtype(type->subtype) == output_ && stride == stride_ && ((output_ != PixelFormat::RGB32 && output_ != PixelFormat::RGB24) || (h->biHeight > 0) == bottomUp_) &&
                 (!interval || std::llabs(interval - REFERENCE_TIME(10000000.0 * mode_.fpsDen / mode_.fpsNum)) <= 2);
@@ -311,7 +312,7 @@ void DirectShowCapture::start(Callback callback, EventLog* log) {
         v.width = mode_.width; v.height = mode_.height; v.format = output_;
         v.pitch = stride_; v.data = buffer;
         if (bottomUp_) { v.data = buffer + size_t(mode_.height - 1) * size_t(stride_); v.pitch = -stride_; }
-        const size_t need = planar420(output_) ? size_t(stride_) * mode_.height * 3 / 2 : size_t(stride_) * mode_.height;
+        const size_t need = fourTwoZero(output_) ? size_t(stride_) * mode_.height * 3 / 2 : size_t(stride_) * mode_.height;
         if (size_t(length) < need) { fail("capture returned a truncated frame"); return; }
         v.arrival = now100ns(); v.sampleTime = 0; v.sequence = ++sequence_;
         lastPicture_ = v.arrival;

@@ -146,22 +146,26 @@ bool Gpu::create(std::string& error) {
     return true;
 }
 
-bool Gpu::image(Image& out, int w, int h, DXGI_FORMAT format, bool uav, std::string& error) {
+bool Gpu::image(Image& out, int w, int h, DXGI_FORMAT format, bool uav, std::string& error, bool renderTarget) {
     D3D11_TEXTURE2D_DESC d{};
     d.Width = UINT(std::max(1, w)); d.Height = UINT(std::max(1, h)); d.MipLevels = 1; d.ArraySize = 1; d.Format = format;
     d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
-    d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (uav ? D3D11_BIND_UNORDERED_ACCESS : 0);
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (uav ? D3D11_BIND_UNORDERED_ACCESS : 0) | (renderTarget ? D3D11_BIND_RENDER_TARGET : 0);
     out = {};
     HRESULT hr = device_->CreateTexture2D(&d, nullptr, &out.texture);
     if (SUCCEEDED(hr)) hr = device_->CreateShaderResourceView(out.texture.Get(), nullptr, &out.srv);
     if (SUCCEEDED(hr) && uav) hr = device_->CreateUnorderedAccessView(out.texture.Get(), nullptr, &out.uav);
+    if (SUCCEEDED(hr) && renderTarget) hr = device_->CreateRenderTargetView(out.texture.Get(), nullptr, &out.rtv);
     if (FAILED(hr)) { error = "texture " + std::to_string(w) + "x" + std::to_string(h) + " " + hresult(hr); return false; }
     return true;
 }
 
 bool Gpu::configure(int width, int height, std::string& error) {
     width_ = width; height_ = height;
-    for (auto& f : frames_) if (!image(f, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, true, error)) return false;
+    // Frames are also render targets: SMAA's last pass draws into them.
+    for (auto& f : frames_) if (!image(f, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, true, error, true)) return false;
+    smaa_.configure(device_.Get(), width, height);
+    luma16Upload_.Reset(); chroma16Upload_.Reset(); luma16UploadSrv_.Reset(); chroma16UploadSrv_.Reset();
     if (!image(staging_, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, true, error)) return false;
     if (!image(output_, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, true, error)) return false;
     Image upload;
@@ -236,36 +240,72 @@ void Gpu::antiAliasInto(ID3D11ShaderResourceView* source, ID3D11UnorderedAccessV
     dispatch(antiAlias_.Get(), width_, height_, 16, 8);
 }
 
+void Gpu::antiAliasSlot(ID3D11ShaderResourceView* source, int slot, int aa, int method) {
+    if (method == AaSmaa) {
+        std::string error;
+        if (smaa_.apply(context_.Get(), source, frames_[slot].rtv.Get(), aa, error)) { aaUsed_ = AaSmaa; return; }
+        std::lock_guard<std::mutex> lock(aaErrorMutex_);
+        aaError_ = error;
+    }
+    antiAliasInto(source, frames_[slot].uav.Get(), aa);
+    aaUsed_ = AaEdge;
+}
+
+bool Gpu::prepareP010(std::string& error) {
+    Image upload;
+    if (!luma16Upload_) {
+        if (!image(upload, width_, height_, DXGI_FORMAT_R16_UNORM, false, error)) return false;
+        luma16Upload_ = upload.texture; luma16UploadSrv_ = upload.srv;
+    }
+    if (!chroma16Upload_) {
+        if (!image(upload, (width_ + 1) / 2, (height_ + 1) / 2, DXGI_FORMAT_R16G16_UNORM, false, error)) return false;
+        chroma16Upload_ = upload.texture; chroma16UploadSrv_ = upload.srv;
+    }
+    return true;
+}
+
 void Gpu::upload(int slot, const uint8_t* luma, int lumaPitch, const uint8_t* chroma, int chromaPitch,
-                 PixelFormat format, const ColorSetup& color, int aa) {
+                 PixelFormat format, const ColorSetup& color, int aa, int method) {
+    const bool ten = format == PixelFormat::P010;
+    // Sessions prepare these before capture starts; standalone GPU self-tests use this path.
+    if (ten) { std::string error; if (!prepareP010(error)) return; }
     if (format == PixelFormat::NV12) {
         context_->UpdateSubresource(lumaUpload_.Get(), 0, nullptr, luma, UINT(lumaPitch), 0);
         context_->UpdateSubresource(chromaUpload_.Get(), 0, nullptr, chroma, UINT(chromaPitch), 0);
+    } else if (ten) {
+        context_->UpdateSubresource(luma16Upload_.Get(), 0, nullptr, luma, UINT(lumaPitch), 0);
+        context_->UpdateSubresource(chroma16Upload_.Get(), 0, nullptr, chroma, UINT(chromaPitch), 0);
     } else if (format == PixelFormat::RGB32) {
         context_->UpdateSubresource(rgbUpload_.Get(), 0, nullptr, luma, UINT(lumaPitch), 0);
     } else {
         context_->UpdateSubresource(packedUpload_.Get(), 0, nullptr, luma, UINT(lumaPitch), 0);
     }
-    const double kr = color.bt709 ? 0.2126 : 0.299, kb = color.bt709 ? 0.0722 : 0.114, kg = 1 - kr - kb;
-    struct { uint32_t w, h, format, pad0; float yOffset, yScale, cScale, cOffset; float rv, gu, gv, bu; } c{
-        uint32_t(width_), uint32_t(height_), format == PixelFormat::NV12 ? 0u : format == PixelFormat::UYVY ? 2u : format == PixelFormat::RGB32 ? 3u : 1u, 0,
-        color.limited ? 16.f / 255 : 0.f, color.limited ? 255.f / 219 : 1.f, color.limited ? 255.f / 224 : 1.f, 128.f / 255,
-        float(2 * (1 - kr)), float(-2 * kb * (1 - kb) / kg), float(-2 * kr * (1 - kr) / kg), float(2 * (1 - kb))};
+    const double kr = color.bt2020 ? 0.2627 : color.bt709 ? 0.2126 : 0.299, kb = color.bt2020 ? 0.0593 : color.bt709 ? 0.0722 : 0.114, kg = 1 - kr - kb;
+    // 10-bit codes: limited range is 64..940 (luma) and 64..960 around 512 (chroma).
+    const float yOffset = color.limited ? (ten ? 64.f / 1023 : 16.f / 255) : 0.f, yScale = color.limited ? (ten ? 1023.f / 876 : 255.f / 219) : 1.f;
+    const float cScale = color.limited ? (ten ? 1023.f / 896 : 255.f / 224) : 1.f, cOffset = ten ? 512.f / 1023 : 128.f / 255;
+    struct { uint32_t w, h, format, pad0; float yOffset, yScale, cScale, cOffset; float rv, gu, gv, bu; uint32_t transfer, primaries; float peak, pad1; } c{
+        uint32_t(width_), uint32_t(height_), ten ? 4u : format == PixelFormat::NV12 ? 0u : format == PixelFormat::UYVY ? 2u : format == PixelFormat::RGB32 ? 3u : 1u, 0,
+        yOffset, yScale, cScale, cOffset,
+        float(2 * (1 - kr)), float(-2 * kb * (1 - kb) / kg), float(-2 * kr * (1 - kr) / kg), float(2 * (1 - kb)),
+        uint32_t(std::clamp(color.transfer, 0, 2)), color.bt2020 ? 1u : 0u, 1000.f, 0.f};
     constants(c);
-    ID3D11ShaderResourceView* srv[4] = {lumaUploadSrv_.Get(), chromaUploadSrv_.Get(), packedUploadSrv_.Get(), rgbUploadSrv_.Get()};
-    context_->CSSetShaderResources(0, 4, srv);
+    ID3D11ShaderResourceView* srv[6] = {lumaUploadSrv_.Get(), chromaUploadSrv_.Get(), packedUploadSrv_.Get(), rgbUploadSrv_.Get(), luma16UploadSrv_.Get(), chroma16UploadSrv_.Get()};
+    context_->CSSetShaderResources(0, 6, srv);
     Image& before = keepOriginals_ && originals_[slot].uav ? originals_[slot] : staging_;
     ID3D11UnorderedAccessView* target = aa > 0 ? before.uav.Get() : frames_[slot].uav.Get();
     context_->CSSetUnorderedAccessViews(0, 1, &target, nullptr);
     dispatch(convert_.Get(), width_, height_, 16, 8);
-    if (aa > 0) antiAliasInto(before.srv.Get(), frames_[slot].uav.Get(), aa);
+    ID3D11ShaderResourceView* none[6] = {};
+    context_->CSSetShaderResources(0, 6, none);
+    if (aa > 0) antiAliasSlot(before.srv.Get(), slot, aa, method);
     originalValid_[slot] = aa > 0 && &before != &staging_;
 }
 
-void Gpu::uploadRgba(int slot, const uint8_t* rgba, int pitch, int aa) {
+void Gpu::uploadRgba(int slot, const uint8_t* rgba, int pitch, int aa, int method) {
     ID3D11Texture2D* target = aa > 0 ? staging_.texture.Get() : frames_[slot].texture.Get();
     context_->UpdateSubresource(target, 0, nullptr, rgba, UINT(pitch), 0);
-    if (aa > 0) antiAliasInto(staging_.srv.Get(), frames_[slot].uav.Get(), aa);
+    if (aa > 0) antiAliasSlot(staging_.srv.Get(), slot, aa, method);
 }
 
 void Gpu::pyramid(int slot) {

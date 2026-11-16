@@ -31,6 +31,8 @@ public sealed record Preferences
     public string LiveFrameGeneration{get;init;}="off";
     public int LiveMultiplier{get;init;}=2;
     public int LiveAntiAlias{get;init;}=0;
+    public string LiveAntiAliasMode{get;init;}="edge";    // "edge" (edge tracing) or "smaa"
+    public string LiveTransfer{get;init;}="auto";         // HDR input: "auto", "sdr", "pq", "hlg"
     public bool LiveDedup{get;init;}=false;
     public string LiveRange{get;init;}="auto";
     public int LiveVfxQuality{get;init;}=1;
@@ -64,7 +66,7 @@ public sealed record Preferences
     public string EffectiveScreenshotDirectory=>string.IsNullOrWhiteSpace(ScreenshotDirectory)?DefaultScreenshotDirectory:ScreenshotDirectory;
     public string EffectiveRecordingDirectory=>string.IsNullOrWhiteSpace(RecordingDirectory)?DefaultRecordingDirectory:RecordingDirectory;
     public LiveOptions LiveOptions=>new(LiveFrameGeneration,LiveMultiplier,LiveAntiAlias,LiveDedup,LiveRange,LiveMatrix,LiveVfxQuality,LiveVolume,LiveMute,LiveAudioOffset,
-        LiveSync,LiveAspect,"off",LiveOutputCap,LiveDlssMotion,LiveEdgeAegis);
+        LiveSync,LiveAspect,"off",LiveOutputCap,LiveDlssMotion,LiveEdgeAegis,LiveAntiAliasMode,LiveTransfer);
     public static string DirectoryPath=>Environment.GetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR")??AppPaths.InstallationDirectory;
     public const string FileName="settings.ini";
     public static Preferences Load(string? directory=null){
@@ -96,7 +98,9 @@ public sealed record Preferences
         if(value.LiveFrameGeneration is not ("auto" or "dlss" or "vfx" or "off"))value=value with{LiveFrameGeneration="off"};
         if(value.LiveRange is not ("auto" or "limited" or "full"))value=value with{LiveRange="auto"};
         if(value.RecordingCodec is not ("h264" or "hevc"))value=value with{RecordingCodec="h264"};
-        if(value.LiveMatrix is not ("auto" or "709" or "601"))value=value with{LiveMatrix="auto"};
+        if(value.LiveMatrix is not ("auto" or "709" or "601" or "2020"))value=value with{LiveMatrix="auto"};
+        if(value.LiveAntiAliasMode is not ("edge" or "smaa"))value=value with{LiveAntiAliasMode="edge"};
+        if(value.LiveTransfer is not ("auto" or "sdr" or "pq" or "hlg"))value=value with{LiveTransfer="auto"};
         if(value.LiveSync is not ("auto" or "vsync" or "tearing"))value=value with{LiveSync="auto"};
         if(value.LiveAspect is not ("fit" or "fill" or "stretch"))value=value with{LiveAspect="fit"};
         if(value.LiveDlssMotion!="nvof")value=value with{LiveDlssMotion="none",LiveEdgeAegis=false};
@@ -133,6 +137,7 @@ public sealed record Preferences
             CaptureDeviceId=S(nameof(CaptureDeviceId),""),CaptureAudioOutput=S(nameof(CaptureAudioOutput),"default"),
             LiveDlssMotion=S(nameof(LiveDlssMotion),"none"),LiveEdgeAegis=B(nameof(LiveEdgeAegis),false),
             LiveFrameGeneration=S(nameof(LiveFrameGeneration),"off"),LiveMultiplier=I(nameof(LiveMultiplier),2),LiveAntiAlias=I(nameof(LiveAntiAlias),0),LiveDedup=B(nameof(LiveDedup),false),
+            LiveAntiAliasMode=S(nameof(LiveAntiAliasMode),"edge"),LiveTransfer=S(nameof(LiveTransfer),"auto"),
             LiveRange=S(nameof(LiveRange),"auto"),LiveVfxQuality=I(nameof(LiveVfxQuality),1),LiveVolume=I(nameof(LiveVolume),100),LiveMute=B(nameof(LiveMute),false),
             LiveAudioOffset=I(nameof(LiveAudioOffset),0),LiveStats=B(nameof(LiveStats),true),LiveMatrix=S(nameof(LiveMatrix),"auto"),LiveSync=S(nameof(LiveSync),"auto"),
             LiveAspect=S(nameof(LiveAspect),"fit"),LiveOutputCap=S(nameof(LiveOutputCap),"off"),LiveHoldOriginal=B(nameof(LiveHoldOriginal),true),ShortcutOriginal=S(nameof(ShortcutOriginal),"V"),ScreenshotDirectory=S(nameof(ScreenshotDirectory),""),RecordingDirectory=S(nameof(RecordingDirectory),""),
@@ -158,6 +163,7 @@ public sealed record Preferences
         Add(nameof(CaptureDeviceId),CaptureDeviceId);
         Add(nameof(LiveDlssMotion),LiveDlssMotion);Add(nameof(LiveEdgeAegis),LiveEdgeAegis);
         Add(nameof(LiveFrameGeneration),LiveFrameGeneration);Add(nameof(LiveMultiplier),LiveMultiplier);Add(nameof(LiveAntiAlias),LiveAntiAlias);Add(nameof(LiveDedup),LiveDedup);
+        Add(nameof(LiveAntiAliasMode),LiveAntiAliasMode);Add(nameof(LiveTransfer),LiveTransfer);
         Add(nameof(LiveRange),LiveRange);Add(nameof(LiveVfxQuality),LiveVfxQuality);Add(nameof(LiveVolume),LiveVolume);Add(nameof(LiveMute),LiveMute);Add(nameof(LiveAudioOffset),LiveAudioOffset);
         Add(nameof(LiveStats),LiveStats);Add(nameof(LiveMatrix),LiveMatrix);Add(nameof(LiveSync),LiveSync);Add(nameof(LiveAspect),LiveAspect);
         Add(nameof(LiveOutputCap),LiveOutputCap);Add(nameof(LiveHoldOriginal),LiveHoldOriginal);Add(nameof(ShortcutOriginal),ShortcutOriginal);Add(nameof(ScreenshotDirectory),ScreenshotDirectory);Add(nameof(RecordingDirectory),RecordingDirectory);

@@ -1,33 +1,76 @@
 // HLSL sources for the live engine, compiled at start-up with d3dcompiler_47 (part of
-// Windows). Written for FrameDoubler; no third-party shader code.
+// Windows). Written for FrameDoubler; the only third-party shader code is the unmodified SMAA
+// reference (third_party/smaa, MIT), which kSmaaEntry includes.
 #pragma once
 
 namespace fdl::shaders {
 
 // Capture YUV -> gamma-encoded RGB (the working space; the offline converter also
-// interpolates gamma-encoded RGB).
+// interpolates gamma-encoded RGB). HDR sources (PQ or HLG, usually BT.2020 in P010) are tone
+// mapped to SDR BT.709 here, exactly as file conversion does it with FFmpeg: linear light with
+// 1.0 = 100 nits (zscale npl=100), BT.2020 -> BT.709 primaries in linear light, Hable on the
+// brightest component scaled to a 1000-nit peak (tonemap=hable:desat=0, FFmpeg's peak for
+// untagged signals), then the BT.709 transfer curve.
 inline const char* kConvert = R"(
 cbuffer Params : register(b0) {
-    uint2 size; uint format; uint pad0;   // 0 NV12, 1 YUY2, 2 UYVY, 3 BGRA/RGB32
+    uint2 size; uint format; uint pad0;   // 0 NV12, 1 YUY2, 2 UYVY, 3 BGRA/RGB32, 4 P010
     float yOffset; float yScale; float cScale; float cOffset;
     float rv; float gu; float gv; float bu;
+    uint transfer; uint primaries; float peak; float pad1;   // transfer 0 SDR, 1 PQ, 2 HLG; primaries 1 = BT.2020
 };
 Texture2D<float> lumaPlane : register(t0);
 Texture2D<float2> chromaPlane : register(t1);
 Texture2D<float4> packed : register(t2);
 Texture2D<float4> rgbFrame : register(t3);
+Texture2D<float> luma16 : register(t4);
+Texture2D<float2> chroma16 : register(t5);
 SamplerState linearClamp : register(s0);
 RWTexture2D<unorm float4> outFrame : register(u0);
 float3 toRgb(float y, float2 c) {
     y = (y - yOffset) * yScale; c = (c - cOffset) * cScale;
     return saturate(float3(y + rv * c.y, y + gu * c.x + gv * c.y, y + bu * c.x));
 }
+float3 pqToNits(float3 e) {   // SMPTE ST 2084
+    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+    float3 p = pow(saturate(e), 1.0 / m2);
+    return 10000.0 * pow(max(p - c1, 0) / (c2 - c3 * p), 1.0 / m1);
+}
+float3 hlgToNits(float3 e) {  // BT.2100 HLG inverse OETF, then the OOTF of a 1000-nit display (system gamma 1.2)
+    const float a = 0.17883277, b = 0.28466892, c = 0.55991073;
+    float3 scene = e <= 0.5 ? e * e / 3.0 : (exp((e - c) / a) + b) / 12.0;
+    float ys = dot(scene, float3(0.2627, 0.6780, 0.0593));
+    return 1000.0 * scene * pow(max(ys, 1e-6), 0.2);
+}
+float3 bt709ToLinear(float3 v) { return v < 0.081 ? v / 4.5 : pow(max(v + 0.099, 0) / 1.099, 1.0 / 0.45); }
+float3 linearToBt709(float3 l) { return l < 0.018 ? 4.5 * l : 1.099 * pow(l, 0.45) - 0.099; }
+float hable(float x) {
+    const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+    return (x * (x * A + B * C) + D * E) / (x * (x * A + B) + D * F) - E / F;
+}
+float3 toWorkingSpace(float3 rgb) {
+    if (transfer == 0 && primaries == 0) return rgb;
+    float3 l = transfer == 1 ? pqToNits(rgb) / 100.0 : transfer == 2 ? hlgToNits(rgb) / 100.0 : bt709ToLinear(rgb);
+    if (primaries == 1) l = mul(float3x3(1.6605, -0.5876, -0.0728, -0.1246, 1.1329, -0.0083, -0.0182, -0.1006, 1.1187), l);
+    if (transfer != 0) {
+        float sig = max(max(max(l.r, l.g), l.b), 1e-6);
+        l *= (hable(sig) / hable(peak / 100.0)) / sig;
+    }
+    return linearToBt709(saturate(l));
+}
 [numthreads(16, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= size)) return;
     if (format == 3) { outFrame[id.xy] = float4(rgbFrame.Load(int3(id.xy, 0)).rgb, 1); return; }
     float y; float2 c;
-    if (format == 0) {
+    if (format == 4) {
+        // P010: the 10-bit code sits in the top of each 16-bit word, so R16_UNORM reads
+        // code * 64 / 65535; rescale to code / 1023 and site the chroma as for NV12.
+        const float toCode = 65535.0 / 64.0 / 1023.0;
+        y = luma16.Load(int3(id.xy, 0)) * toCode;
+        float2 chromaSize = float2(size) * 0.5;
+        float2 uv = float2(id.x * 0.5 + 0.5, id.y * 0.5 + 0.25) / chromaSize;
+        c = chroma16.SampleLevel(linearClamp, uv, 0) * toCode;
+    } else if (format == 0) {
         y = lumaPlane.Load(int3(id.xy, 0));
         // MPEG-2 ("left") chroma siting, the 4:2:0 default: sample (i, j) sits on luma
         // column 2i and between rows 2j and 2j+1. Luma pixel (x, y) therefore maps to chroma
@@ -44,8 +87,49 @@ void main(uint3 id : SV_DispatchThreadID) {
             c = format == 2 ? 0.5 * (float2(p.r, p.b) + float2(q.r, q.b)) : 0.5 * (float2(p.g, p.a) + float2(q.g, q.a));
         } else c = format == 2 ? float2(p.r, p.b) : float2(p.g, p.a);
     }
-    outFrame[id.xy] = float4(toRgb(y, c), 1);
+    outFrame[id.xy] = float4(toWorkingSpace(toRgb(y, c)), 1);
 }
+)";
+
+// Entry points around the unmodified SMAA reference ("SMAA.hlsl", supplied by an include
+// handler), for D3D11 through SMAA_CUSTOM_SL: two samplers at fixed registers, the picture size
+// from a constant buffer, and a full-screen triangle per pass. The preset macro is added at
+// compile time (MEDIUM, HIGH or ULTRA).
+inline const char* kSmaaEntry = R"(
+#define SMAA_CUSTOM_SL 1
+SamplerState LinearSampler : register(s0);
+SamplerState PointSampler : register(s1);
+#define SMAATexture2D(tex) Texture2D tex
+#define SMAATexturePass2D(tex) tex
+#define SMAASampleLevelZero(tex, coord) tex.SampleLevel(LinearSampler, coord, 0)
+#define SMAASampleLevelZeroPoint(tex, coord) tex.SampleLevel(PointSampler, coord, 0)
+#define SMAASampleLevelZeroOffset(tex, coord, offset) tex.SampleLevel(LinearSampler, coord, 0, offset)
+#define SMAASample(tex, coord) tex.Sample(LinearSampler, coord)
+#define SMAASamplePoint(tex, coord) tex.Sample(PointSampler, coord)
+#define SMAASampleOffset(tex, coord, offset) tex.Sample(LinearSampler, coord, offset)
+#define SMAA_FLATTEN [flatten]
+#define SMAA_BRANCH [branch]
+cbuffer SmaaParams : register(b0) { float4 smaaRtMetrics; };   // 1/width, 1/height, width, height
+#define SMAA_RT_METRICS smaaRtMetrics
+#include "SMAA.hlsl"
+
+Texture2D texture0 : register(t0);
+Texture2D texture1 : register(t1);
+Texture2D texture2 : register(t2);
+float2 FullscreenUv(uint id) { return float2((id << 1) & 2, id & 2); }
+float4 FullscreenPosition(float2 uv) { return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); }
+
+struct EdgeVertex { float4 position : SV_Position; float2 uv : TEXCOORD0; float4 offset[3] : TEXCOORD1; };
+EdgeVertex EdgeVS(uint id : SV_VertexID) { EdgeVertex o; o.uv = FullscreenUv(id); o.position = FullscreenPosition(o.uv); SMAAEdgeDetectionVS(o.uv, o.offset); return o; }
+float2 EdgePS(EdgeVertex i) : SV_Target { return SMAALumaEdgeDetectionPS(i.uv, i.offset, texture0); }
+
+struct WeightVertex { float4 position : SV_Position; float2 uv : TEXCOORD0; float2 pixel : TEXCOORD1; float4 offset[3] : TEXCOORD2; };
+WeightVertex WeightVS(uint id : SV_VertexID) { WeightVertex o; o.uv = FullscreenUv(id); o.position = FullscreenPosition(o.uv); SMAABlendingWeightCalculationVS(o.uv, o.pixel, o.offset); return o; }
+float4 WeightPS(WeightVertex i) : SV_Target { return SMAABlendingWeightCalculationPS(i.uv, i.pixel, i.offset, texture0, texture1, texture2, float4(0, 0, 0, 0)); }
+
+struct BlendVertex { float4 position : SV_Position; float2 uv : TEXCOORD0; float4 offset : TEXCOORD1; };
+BlendVertex BlendVS(uint id : SV_VertexID) { BlendVertex o; o.uv = FullscreenUv(id); o.position = FullscreenPosition(o.uv); SMAANeighborhoodBlendingVS(o.uv, o.offset); return o; }
+float4 BlendPS(BlendVertex i) : SV_Target { return SMAANeighborhoodBlendingPS(i.uv, i.offset, texture0, texture1); }
 )";
 
 // Half-resolution luma from the RGB frame, then further halvings: the motion pyramid.
