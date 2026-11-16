@@ -259,11 +259,26 @@ pwsh scripts/build.ps1                                        # dist/FrameDouble
 
 빌드 도구는 프로젝트의 `tools/dev`, 중간 파일은 `build`에 두며 저장소에는 포함하지 않습니다. 모델의 최초 변환에만 필요한 최소 Python 코드는 [`poc/ncnn-rife`](poc/ncnn-rife/README.md)에 격리했으며 제품에는 포함하지 않습니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 
+<a id="license"></a>
+
 <a id="licenses"></a>
 
-## 📄 출처와 라이선스
+## 📜 라이선스 및 저작권
 
-FrameDoubler는 [MIT 라이선스](LICENSE)로 배포하는 독립 프로젝트입니다. Video2X와 Flowframes는 기술 분석의 참고 자료일 뿐이며, 소스 코드나 모델 자산을 복사하거나 이식하지 않았습니다.
+**Copyright © 2026 SAKURA.**
+
+| 항목 | 내용 |
+| --- | --- |
+| 배포 형태 | 오픈소스 (MIT 라이선스) |
+| 소스 코드 | 공개 |
+
+- **허용:** 누구나 무료로 사용·복제·수정·배포할 수 있으며, 상업적으로 이용할 수도 있습니다.
+- **조건:** 소프트웨어의 사본이나 주요 부분을 배포할 때는 저작권 표시와 MIT 라이선스 전문을 함께 넣어야 합니다. 소프트웨어는 어떠한 보증 없이 있는 그대로 제공됩니다.
+- **전문:** [LICENSE](LICENSE)
+
+### 제3자 구성 요소
+
+함께 배포하는 제3자 구성 요소는 각자의 라이선스를 따르며, 위 조건은 그 라이선스가 부여하는 권리를 제한하지 않습니다. 구성 요소별 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 있습니다.
 
 - 프레임 보간: [Practical-RIFE](https://github.com/hzwer/Practical-RIFE)의 공식 가중치를 ncnn 형식으로 변환 (MIT, Copyright (c) 2021 hzwer)
 - 추론: [Tencent ncnn](https://github.com/Tencent/ncnn) (BSD-3-Clause)과 glslang
@@ -271,4 +286,8 @@ FrameDoubler는 [MIT 라이선스](LICENSE)로 배포하는 독립 프로젝트�
 - 앱: Microsoft .NET / Windows Desktop 런타임 (MIT)
 - 디코딩과 인코딩: [FFmpeg](https://ffmpeg.org) (BtbN LGPL 빌드, 교체 가능한 별도 실행 파일)
 
-구성 요소별 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 있습니다. 비교 영상은 개발자가 직접 녹화한 게임 화면이며, 게임 화면의 저작권은 해당 권리자에게 있습니다.
+Video2X와 Flowframes는 기술 분석의 참고 자료일 뿐이며, 소스 코드나 모델 자산을 복사하거나 이식하지 않았습니다.
+
+### 상표
+
+NVIDIA, DLSS, YouTube는 각 소유자의 상표입니다. FrameDoubler는 독립적으로 만든 비공식 프로그램이며, 해당 기업과 제휴하거나 승인을 받지 않았습니다. 비교 영상은 개발자가 직접 녹화한 게임 화면이며, 게임 화면의 저작권은 해당 권리자에게 있습니다.
