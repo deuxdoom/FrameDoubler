@@ -81,11 +81,14 @@ public static class OutputPresets
     }
     // Keyframe interval in seconds for the target.
     public static double GopSeconds(string platform)=>.5;
-    // Output frame size: the source size, or the requested height with an even width keeping the aspect ratio.
+    // Output frame size: the source size, or the preset size ("1080p") on the short side with an even
+    // long side keeping the aspect ratio. A portrait 1080×1920 video therefore stays 1080p.
     public static (int Width,int Height) OutputSize(int width,int height,int? target){
-        if(target is not int h||h<=0||h==height)return (width,height);
-        int w=(int)Math.Round(width*(double)h/height/2)*2;
-        return (Math.Max(2,w),h-(h%2));
+        bool portrait=width<height;
+        int shortSide=portrait?width:height,longSide=portrait?height:width;
+        if(target is not int size||size<=0||size==shortSide)return (width,height);
+        int other=Math.Max(2,(int)Math.Round(longSide*(double)size/shortSide/2)*2),side=size-(size%2);
+        return portrait?(side,other):(other,side);
     }
     public static ConversionOptions Apply(OutputPreset preset,ConversionOptions options)=>options with{
         Platform=preset.Platform=="none"?null:preset.Platform,

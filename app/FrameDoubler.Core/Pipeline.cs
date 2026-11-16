@@ -202,7 +202,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         catch(Exception ex){progress?.Report(new("error",0,total,watch.Elapsed.TotalSeconds,ex.Message));throw;}
         finally{left?.Dispose();if(engine is not null)await engine.DisposeAsync();if(File.Exists(temp))File.Delete(temp);}
         EnginePool CreateEngine()=>new(workers,choice,
-            device=>new NativeEngine(paths,options.Model,source.Width,source.Height,device,source.Height>1440?.5:1,source.BitDepth>8),
+            device=>new NativeEngine(paths,options.Model,source.Width,source.Height,device,source.MotionScale,source.BitDepth>8),
             options.Device=="auto",(device,count)=>{
                 choice=device;
                 progress?.Report(new("fallback",0,total,watch.Elapsed.TotalSeconds,device.Explanation+$" · 추론 엔진 {count}개"));
@@ -218,7 +218,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
             try{
                 var candidate=DevicePolicy.Choose([gpu],$"gpu:{gpu.Index}",required);
                 if(source.BitDepth>8)candidate=candidate with{HalfStorage=false};
-                await using var worker=new NativeEngine(paths,model,source.Width,source.Height,candidate,source.Height>1440?.5:1,source.BitDepth>8);
+                await using var worker=new NativeEngine(paths,model,source.Width,source.Height,candidate,source.MotionScale,source.BitDepth>8);
                 await worker.InterpolateAsync(first.Memory,second.Memory,.5f,cancel);
                 var watch=Stopwatch.StartNew();await worker.InterpolateAsync(first.Memory,second.Memory,.5f,cancel);
                 tested.Add(gpu with{MeasuredMilliseconds=watch.Elapsed.TotalMilliseconds});

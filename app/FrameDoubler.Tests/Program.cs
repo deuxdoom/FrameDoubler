@@ -95,6 +95,16 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
         Assert(opt.Platform=="youtube"&&opt.Codec=="h264"&&!opt.QualityOnly&&encoded.Bitrate==(id=="youtube-2160"?"45M":"10M"),"YouTube uses requested fixed bitrate, H264 and AAC: "+id);
     }
     Assert(OutputPresets.OutputSize(3840,2160,1080)==(1920,1080)&&OutputPresets.OutputSize(720,480,null)==(720,480),"Source size or proportional preset resize");
+    Assert(OutputPresets.OutputSize(2160,3840,1080)==(1080,1920)&&OutputPresets.OutputSize(1080,1920,1080)==(1080,1920)&&OutputPresets.OutputSize(480,720,1080)==(1080,1620),
+        "Portrait presets size the short side, like landscape");
+    Assert((src with{Width=1080,Height=1920}).MotionScale==1&&(src with{Width=2160,Height=3840}).MotionScale==.5&&(src with{Width=3840,Height=2160}).MotionScale==.5&&(src with{Width=2560,Height=1440}).MotionScale==1,
+        "RIFE half-scale motion follows the short side");
+    foreach(var (json,expected) in new[]{("{\"side_data_list\":[{\"side_data_type\":\"Display Matrix\",\"rotation\":-90}]}",90),("{\"side_data_list\":[{\"rotation\":90}]}",270),
+        ("{\"side_data_list\":[{\"rotation\":180}]}",180),("{\"side_data_list\":[{\"rotation\":-89.6}]}",90),("{\"side_data_list\":[{\"rotation\":45}]}",0),
+        ("{\"tags\":{\"rotate\":\"90\"}}",90),("{\"tags\":{\"rotate\":\"-90\"}}",270),("{}",0)}){
+        using var rotation=System.Text.Json.JsonDocument.Parse(json);
+        Assert(MediaProbe.DisplayRotation(rotation.RootElement)==expected,"Display rotation "+json+" -> "+expected);
+    }
     Assert(OutputPresets.SourceCodec(src,[h264],true)=="h264"&&OutputPresets.SourceCodec(src with{Codec="vp9"},[h264],true) is null,"Keep source codec only when encodable here");
     Assert(OutputPresets.ParseBitrate("3219186")==3_219_186&&OutputPresets.ParseBitrate("12M")==12_000_000&&OutputPresets.FindExact("quality") is null,"Removed presets cannot silently select a different bitrate");
     var audio=new AudioInfo(0,"aac",2,48000,0,1,new Rational(1,48000));

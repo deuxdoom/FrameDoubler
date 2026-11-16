@@ -36,6 +36,31 @@ internal static class PipelineTests
         var scaledInfo=await MediaProbe.ReadAsync(paths,scaled.Output);
         assert(scaledInfo.Width==160&&scaledInfo.Height==90&&scaled.Verification?.Ok==true&&scaledInfo.Audio.Length==1&&scaledInfo.Audio[0].Codec=="aac","Preset height scales the output; Twitch delivery encodes AAC");
         assert(normal.Frames==120&&normal.Interpolated==59&&normal.Verification?.Ok==true,"True 30 to 60 inference and audio verification");
+        // Portrait phone recording: a quarter-turn display matrix makes FFmpeg decode upright 180×320
+        // frames. Reading them as 320×180 used to shear the picture into three striped copies.
+        string landscape=Path.Combine(root,"landscape.mp4"),rotated=Path.Combine(root,"portrait-rotated.mp4");
+        await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=1","-c:v","libopenh264","-b:v","2M",landscape);
+        await FF("-display_rotation","90","-i",landscape,"-c","copy",rotated);
+        var rotatedInfo=await MediaProbe.ReadAsync(paths,rotated);
+        assert(rotatedInfo.Width==180&&rotatedInfo.Height==320&&rotatedInfo.Rotation==270,"Rotated input reports the upright picture size");
+        var upright=await pipeline.RunAsync(rotated,Path.Combine(root,"portrait60.mp4"),options);
+        var uprightInfo=await MediaProbe.ReadAsync(paths,upright.Output);
+        var psnr=await ProcessRunner.RunAsync(paths.FFmpeg,["-hide_banner","-v","info","-nostdin","-i",upright.Output,"-i",rotated,"-filter_complex",
+            "[0:v]trim=end_frame=1[a];[1:v]trim=end_frame=1[b];[a][b]psnr","-f","null","-"]);
+        var average=System.Text.RegularExpressions.Regex.Match(psnr.Error,@"average:(\S+)");
+        double firstFrameDb=average.Success?average.Groups[1].Value=="inf"?99:double.Parse(average.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture):0;
+        assert(psnr.ExitCode==0&&firstFrameDb>30&&uprightInfo.Width==180&&uprightInfo.Height==320&&uprightInfo.Rotation==0&&upright.Frames==60&&upright.Verification?.Ok==true,
+            $"Portrait output is upright without a second rotation tag (first frame {firstFrameDb:0.0}dB)");
+        // Losslessly trimmed clip: the MP4 edit list starts after the key frame, so the packets before the cut
+        // are flagged discard and never output. Counting them made the decoder wait for frames that never came.
+        string keyed=Path.Combine(root,"gop30.mp4"),trimmed=Path.Combine(root,"trimmed.mp4");
+        await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=2","-f","lavfi","-i","sine=frequency=500:sample_rate=48000:duration=2",
+            "-c:v","libopenh264","-b:v","2M","-g","30","-c:a","aac","-shortest",keyed);
+        await FF("-ss","0.5","-i",keyed,"-t","1","-c","copy",trimmed);
+        var trimmedInfo=await MediaProbe.ReadAsync(paths,trimmed);
+        var trimmedResult=await pipeline.RunAsync(trimmed,Path.Combine(root,"trimmed60.mp4"),options);
+        assert(trimmedInfo.Pts.Length==30&&trimmedResult.Frames==60&&trimmedResult.Verification?.Ok==true,
+            $"Losslessly trimmed clip skips edit-list discard packets ({trimmedInfo.Pts.Length} frames, {trimmedResult.Frames} out, {string.Join("; ",trimmedResult.Verification?.Problems??[])})");
         string small=Path.Combine(root,"small.mp4");
         await FF("-f","lavfi","-i","color=s=128x128:r=30:d=0.4","-c:v","libopenh264","-b:v","1M",small);
         var fallback=await pipeline.RunAsync(small,Path.Combine(root,"small60.mp4"),options);
@@ -94,6 +119,29 @@ internal static class PipelineTests
         var hlgOut=await MediaProbe.ReadAsync(paths,hlgResult.Output);
         assert(hlgOut.HdrInput is null&&hlgOut.BitDepth==8&&hlgOut.ColorTransfer=="bt709"&&hlgOut.ColorPrimaries=="bt709"&&hlgOut.ColorSpace=="bt709"&&hlgOut.ColorRange=="tv"
             &&hlgResult.Fps==60&&hlgResult.Verification?.Ok==true,"HLG converts to verified SDR BT.709 60fps");
+        // Portrait phone HDR (HLG with a quarter-turn display matrix): rotation and tone mapping together.
+        string hlgPortrait=Path.Combine(root,"hlg-portrait.mp4");
+        await FF("-display_rotation","90","-i",hlg,"-c","copy",hlgPortrait);
+        var hlgPortraitInfo=await MediaProbe.ReadAsync(paths,hlgPortrait);
+        assert(hlgPortraitInfo is {Width:180,Height:320,Rotation:270,BitDepth:8,HdrInput.Name:"HLG"},"Rotated HLG input reports the upright size and is processed as SDR");
+        var hlgPortraitResult=await pipeline.RunAsync(hlgPortrait,Path.Combine(root,"hlg-portrait60.mp4"),options);
+        var hlgPortraitOut=await MediaProbe.ReadAsync(paths,hlgPortraitResult.Output);
+        string tonemapped=Path.Combine(root,"hlg-portrait-sdr.png"),untouched=Path.Combine(root,"hlg-portrait-raw.png");
+        await FF("-i",hlgPortrait,"-vf",ToneMap.Filter(hlgPortraitInfo.HdrInput!),"-frames:v","1",tonemapped);
+        await FF("-i",hlgPortrait,"-frames:v","1",untouched);
+        async Task<double> FirstFramePsnr(string a,string b){
+            // Luma only: the encoded output is 4:2:0, the PNG references are full-colour RGB.
+            var r=await ProcessRunner.RunAsync(paths.FFmpeg,["-hide_banner","-v","info","-nostdin","-i",a,"-i",b,"-filter_complex","[0:v]trim=end_frame=1,format=rgb24,format=gray[x];[1:v]trim=end_frame=1,format=rgb24,format=gray[y];[x][y]psnr","-f","null","-"]);
+            var m=System.Text.RegularExpressions.Regex.Match(r.Error,@"average:(\S+)");
+            return r.ExitCode!=0||!m.Success?0:m.Groups[1].Value=="inf"?99:double.Parse(m.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture);
+        }
+        double toTonemapped=await FirstFramePsnr(hlgPortraitResult.Output,tonemapped),toUntouched=await FirstFramePsnr(hlgPortraitResult.Output,untouched);
+        assert(hlgPortraitOut is {Width:180,Height:320,Rotation:0,BitDepth:8,ColorTransfer:"bt709",ColorPrimaries:"bt709",HdrInput:null}&&hlgPortraitResult.Verification?.Ok==true
+            &&toTonemapped>35&&toTonemapped>toUntouched+10,
+            $"Rotated HLG becomes upright tone-mapped SDR (first frame {toTonemapped:0.0}dB to the tone-mapped reference, {toUntouched:0.0}dB to the untouched picture)");
+        var hlgThumb=await Thumbnail.CaptureAsync(paths,hlgPortraitInfo,128);
+        int thumbWidth=System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(hlgThumb.AsSpan(16)),thumbHeight=System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(hlgThumb.AsSpan(20));
+        assert(thumbWidth==128&&thumbHeight>thumbWidth,$"Rotated HDR thumbnail is upright ({thumbWidth}x{thumbHeight})");
         // A folder name ending in Hangul followed by '(' broke ffprobe JSON decoded with the ANSI code page.
         string hangulFolder=Path.Combine(root,"한글 시리즈");Directory.CreateDirectory(hangulFolder);
         string hangulInput=Path.Combine(hangulFolder,"(시험) 입력.mkv");await FF("-i",source,"-c","copy",hangulInput);

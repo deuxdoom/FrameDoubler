@@ -17,6 +17,12 @@ public sealed record MediaInfo(string Path,int Width,int Height,string Codec,str
 {
     public HdrSource? HdrInput{get;init;}
     public bool Hdr=>HdrInput is not null;
+    // Clockwise display rotation from the container (0, 90, 180 or 270). FFmpeg turns decoded frames
+    // upright by default, so Width and Height already describe the upright (displayed) picture.
+    public int Rotation{get;init;}
+    // RIFE motion estimation runs at half resolution only for footage larger than 1440p. The short
+    // side decides, so a portrait phone video is treated like the same landscape resolution.
+    public double MotionScale=>Math.Min(Width,Height)>1440?.5:1;
     public int FrameBytes=>checked(Width*Height*3*(BitDepth>8?2:1));
     public Rational Start=>Pts.Length>0?(Rational)Pts[0]*TimeBase:ReportedStart;
     public Rational ReportedStart{get;init;}
@@ -49,10 +55,12 @@ public static class MediaProbe
             return Create(path,video,streams,Rate(video,"time_base"),metadataRate,nominalRate,nominalRate>0&&metadataRate!=nominalRate,length,[],format);
         }
         var packets=await ProcessRunner.RunAsync(paths.FFprobe,["-v","error","-select_streams",Number(video,"index").ToString(),
-            "-show_entries","packet=pts,duration","-of","json",path],cancel,TimeSpan.FromMinutes(5));
+            "-show_entries","packet=pts,duration,flags","-of","json",path],cancel,TimeSpan.FromMinutes(5));
         if(packets.ExitCode!=0)throw new IOException(packets.Error);
         using var packetDoc=JsonDocument.Parse(packets.Output);
-        var timed=packetDoc.RootElement.GetProperty("packets").EnumerateArray().Where(x=>x.TryGetProperty("pts",out _))
+        // Packets flagged D (discard) lie outside the MP4/MOV edit list, e.g. the key frame before the
+        // cut point of a losslessly trimmed clip: they are decoded for reference but never output.
+        var timed=packetDoc.RootElement.GetProperty("packets").EnumerateArray().Where(x=>x.TryGetProperty("pts",out _)&&!(Text(x,"flags")??"").Contains('D'))
             .Select(x=>(Pts:Long(x,"pts"),Duration:Long(x,"duration"))).OrderBy(x=>x.Pts).ToArray();
         if(timed.Length==0)throw new IOException("No timestamped video frames");
         Rational timeBase=Rate(video,"time_base"),nominal=Rate(video,"r_frame_rate");
@@ -78,10 +86,31 @@ public static class MediaProbe
         HdrSource? hdr=HdrSource.Is(transfer)?new(transfer!,primaries,space,range,depth):null;
         // HDR is converted to SDR when decoding (see ToneMap), so downstream stages work on 8-bit BT.709.
         if(hdr is not null){space=primaries=transfer="bt709";range="tv";depth=8;}
-        return new(path,(int)Number(video,"width"),(int)Number(video,"height"),Text(video,"codec_name")??"",pixel,depth,timeBase,fps,nominal,vfr,duration,pts,
-            space,range,primaries,transfer,audio){HdrInput=hdr,
+        // A quarter-turn display matrix (portrait phone recordings) swaps the decoded frame size.
+        int rotation=DisplayRotation(video),width=(int)Number(video,"width"),height=(int)Number(video,"height");
+        if(rotation is 90 or 270)(width,height)=(height,width);
+        return new(path,width,height,Text(video,"codec_name")??"",pixel,depth,timeBase,fps,nominal,vfr,duration,pts,
+            space,range,primaries,transfer,audio){HdrInput=hdr,Rotation=rotation,
                 VideoBitrate=PositiveBitrate(video),OverallBitrate=PositiveBitrate(format)??(long?)Math.Round(new FileInfo(path).Length*8/duration.ToDouble()),
                 OverallBitrateEstimated=PositiveBitrate(format) is null,ReportedStart=video.TryGetProperty("start_pts",out _)?Number(video,"start_pts")*timeBase:Rate(video,"start_time"),ReportedFrames=Number(video,"nb_frames") is >0 and var count?count:null};
+    }
+    // FFmpeg's decoder applies the display matrix only for right angles (autorotate); other angles stay
+    // unrotated, so they report 0 here. ffprobe prints the matrix angle counter-clockwise; older files
+    // may only carry the clockwise "rotate" tag.
+    public static int DisplayRotation(JsonElement video){
+        double? clockwise=null;
+        if(video.TryGetProperty("side_data_list",out var list)&&list.ValueKind==JsonValueKind.Array)
+            foreach(var item in list.EnumerateArray())
+                if(item.ValueKind==JsonValueKind.Object&&item.TryGetProperty("rotation",out var value)&&Degrees(value) is double angle){clockwise=-angle;break;}
+        if(clockwise is null&&video.TryGetProperty("tags",out var tags)&&tags.ValueKind==JsonValueKind.Object&&tags.TryGetProperty("rotate",out var tag))clockwise=Degrees(tag);
+        if(clockwise is not double degrees||!double.IsFinite(degrees))return 0;
+        double quarter=Math.Round(degrees/90);
+        if(Math.Abs(degrees-quarter*90)>1)return 0;
+        return (int)(((long)quarter%4+4)%4)*90;
+        static double? Degrees(JsonElement value)=>value.ValueKind switch{
+            JsonValueKind.Number=>value.GetDouble(),
+            JsonValueKind.String when double.TryParse(value.GetString(),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out double parsed)=>parsed,
+            _=>null};
     }
     public static long? PositiveBitrate(JsonElement element)=>Number(element,"bit_rate") is >0 and var value?value:null;
     private static string? Text(JsonElement e,string name)=>e.TryGetProperty(name,out var value)?value.ToString():null;

@@ -77,7 +77,7 @@ public sealed partial class ConversionPipeline
         if(first is null)throw new IOException("No sample available for time estimate");second??=first;
         double infer=0;
         // Measure real full-size transfer/inference; the tiny startup probe is not a speed forecast.
-        await using(var pool=new EnginePool(workers,device,d=>new NativeEngine(paths,options.Model,source.Width,source.Height,d,source.Height>1440?.5:1,source.BitDepth>8),options.Device=="auto")){
+        await using(var pool=new EnginePool(workers,device,d=>new NativeEngine(paths,options.Model,source.Width,source.Height,d,source.MotionScale,source.BitDepth>8),options.Device=="auto")){
             Task<byte[]>[] Batch()=>Enumerable.Range(0,workers).Select(_=>pool.InterpolateAsync(first,second,.5f,cancel)).ToArray();
             await Task.WhenAll(Batch());
             workers=pool.Count;device=pool.Choice;
