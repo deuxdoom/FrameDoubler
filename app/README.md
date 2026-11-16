@@ -92,6 +92,7 @@ selected only the selected ones (Ctrl/Shift multi-select). Existing files are pr
 Keyboard: Delete removes the selection, Ctrl+A selects all, Alt+Up/Alt+Down move the selection,
 Ctrl+Enter converts all, Ctrl+Shift+Enter converts the selection and Enter (in the list) opens the
 result. All keys, including Ctrl+O, can be changed under Settings → Shortcuts → Convert files.
+Double-clicking a converted video in the list plays the result in the default player.
 Four fixed export presets: Source (keep bitrate, default), Source (bitrate scales with fps), YouTube 4K, YouTube 1080p. Both Source modes keep the source size/codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). YouTube uses H.264 High VBR at 45 Mbps for 4K and 10 Mbps for 1080p, plus AAC-LC 48 kHz (256 kbps when the source is at least 256 kbps; otherwise 192 kbps, including unknown source bitrate). HDR is tone-mapped to SDR at the same bitrate. The 4K/1080p sizes apply to the short side, so a portrait 1080×1920 video stays 1080p. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
 Each queued video shows a representative thumbnail (FFmpeg thumbnail filter).
 The Settings button (gear) opens General, Window and tray, Advanced, Data and About pages:

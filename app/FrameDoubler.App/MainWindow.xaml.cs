@@ -73,7 +73,7 @@ public partial class MainWindow:Window
     private void Fill(ComboBox box,IEnumerable<Choice> choices,string? value=null){string selected=value??Selected(box);box.ItemsSource=choices.ToArray();Select(box,selected);}
     public MainWindow(){
         InitializeComponent();Style=(Style)FindResource(typeof(Window));QueueList.ItemsSource=Entries;Entries.CollectionChanged+=(_,_)=>Renumber();
-        PreviewKeyDown+=ConvertKeyDown;
+        PreviewKeyDown+=ConvertKeyDown;QueueList.MouseDoubleClick+=QueueDoubleClicked;
         updating=true;SetLanguage(preferences.Language,false);LanguageThumb.SizeChanged+=(_,_)=>MoveLanguageThumb(false);
         Fill(ModelBox,[new("v4.25","RIFE 4.25"),new("v4.26","RIFE 4.26")],preferences.Model);
         // Empty means "beside each source"; say so in the box instead of only in its tooltip.
@@ -433,7 +433,7 @@ public partial class MainWindow:Window
         RemoveButton.ToolTip=Hint(T("선택한 영상을 목록에서 뺍니다.","Removes the selected videos from the list."),p.ShortcutRemove);
         StartButton.ToolTip=Hint(T("변환하지 않은 영상을 목록 번호순으로 모두 변환합니다.","Converts every remaining video in list order."),p.ShortcutConvertAll);
         SelectedButton.ToolTip=Hint(T("목록에서 선택한 영상만 번호순으로 변환합니다. Ctrl·Shift로 여러 개를 고를 수 있습니다.","Converts only the selected videos in list order. Use Ctrl or Shift to select several."),p.ShortcutConvertSelected);
-        OpenButton.ToolTip=Hint(T("선택한 영상의 변환 결과를 엽니다.","Opens the converted file of the selected video."),p.ShortcutOpenResult);
+        OpenButton.ToolTip=Hint(T("선택한 영상의 변환 결과를 엽니다. 목록에서 변환이 끝난 영상을 두 번 클릭해도 됩니다.","Opens the converted file of the selected video. You can also double-click a converted video in the list."),p.ShortcutOpenResult);
     }
     private void QueueChanged(object sender,SelectionChangedEventArgs e){UpdateMetrics();UpdateControls();}
     private void UpdateMetrics(){
@@ -442,7 +442,15 @@ public partial class MainWindow:Window
         MotionMetric.Text=analysis?.MotionFps is { } fps?fps.ToString("0.##"):"—";
     }
     private void ChooseFolder(object sender,RoutedEventArgs e){var dialog=new OpenFolderDialog();if(dialog.ShowDialog(this)==true)OutputBox.Text=dialog.FolderName;}
-    private static void Open(string path)=>Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
+    // Diagnostics replace the shell so a check never starts a player or Explorer.
+    internal Action<string>? Opener{get;set;}
+    private void Open(string path){if(Opener is not null)Opener(path);else Process.Start(new ProcessStartInfo(path){UseShellExecute=true});}
+    // Double-clicking a converted video plays the result in the default player. Videos that are not
+    // converted yet (or whose result was moved away) do nothing; the scroll bar is not an item.
+    private void QueueDoubleClicked(object sender,MouseButtonEventArgs e){
+        if(e.ChangedButton!=MouseButton.Left||ItemAt(e.OriginalSource)?.DataContext is not QueueEntry{Output:{} output}||!File.Exists(output))return;
+        Open(output);e.Handled=true;
+    }
     private void OpenClicked(object sender,RoutedEventArgs e){if(QueueList.SelectedItem is QueueEntry{Output:not null} item)Open(item.Output);}
     private void OpenFolderClicked(object sender,RoutedEventArgs e){string? folder=(QueueList.SelectedItem as QueueEntry)?.Output is { } output?Path.GetDirectoryName(output):OutputBox.Text;if(!string.IsNullOrEmpty(folder)&&Directory.Exists(folder))Open(folder);}
     private async void UpdatesClicked(object sender,RoutedEventArgs e)=>await ShowUpdatesAsync();

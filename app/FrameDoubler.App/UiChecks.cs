@@ -61,6 +61,18 @@ public partial class MainWindow
         Check(!HandleConvertShortcut(Key.Delete,ModifierKeys.None)&&Order()=="a,b"&&HandleConvertShortcut(Key.Enter,ModifierKeys.Control|ModifierKeys.Shift)==false&&HandleConvertShortcut(Key.Enter,ModifierKeys.Control),
             "A cleared shortcut does nothing; an older Return spelling still matches Enter");
         preferences=saved;Entries.Clear();UpdateControls();
+        // Double-clicking a converted video plays its result; an unconverted one does nothing.
+        string played=System.IO.Path.Combine(System.IO.Path.GetTempPath(),$"fd-ui-{Guid.NewGuid():N}.mp4");System.IO.File.WriteAllBytes(played,[0]);
+        try{
+            var opened=new List<string>();Opener=opened.Add;
+            Entries.Add(new QueueEntry(System.IO.Path.Combine(@"X:\ui-check","done.mp4"),T){Output=played,State="unverified"});
+            Entries.Add(new QueueEntry(System.IO.Path.Combine(@"X:\ui-check","pending.mp4"),T));
+            await Idle();UpdateLayout();
+            MouseButtonEventArgs DoubleClick(QueueEntry entry)=>new(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=System.Windows.Controls.Control.MouseDoubleClickEvent,
+                Source=QueueList.ItemContainerGenerator.ContainerFromItem(entry)};
+            QueueList.RaiseEvent(DoubleClick(Entries[1]));QueueList.RaiseEvent(DoubleClick(Entries[0]));
+            Check(opened.SequenceEqual([played]),"Double-clicking a converted video plays its result; an unconverted one does nothing");
+        }finally{Opener=null;Entries.Clear();UpdateControls();System.IO.File.Delete(played);}
         foreach(var size in new[]{new Size(1180,800),new Size(900,640),new Size(820,480)})foreach(string lang in new[]{"ko","en"}){
             Width=size.Width;Height=size.Height;PreviewLanguage(lang);await Idle();UpdateLayout();
             var bar=(ScrollBar)SettingsScroll.Template.FindName("PART_VerticalScrollBar",SettingsScroll);
