@@ -63,7 +63,7 @@ public static class OutputPresets
     public static (string Codec,string? Bitrate) Encoding(MediaInfo source,ConversionOptions options,IEnumerable<EncoderCapability> encoders,Rational fps){
         string codec=options.Codec??(options.MatchSource?SourceCodec(source,encoders,options.HardwareEncoding):null)
             ??EncoderPolicy.DefaultCodec(encoders,options.Youtube,source.BitDepth>8,options.HardwareEncoding);
-        var size=OutputSize(source.Width,source.Height,options.OutputHeight);
+        var size=OutputSize(source.Width,source.Height,options.OutputHeight,source.SampleAspect);
         string? bitrate=options.Bitrate??(options.MatchSource?SourceBitrate(source,fps,options.ScaleSourceBitrate):options.QualityOnly?null:PlatformBitrate(options.Platform,size.Width,size.Height,fps));
         return (codec,bitrate);
     }
@@ -82,12 +82,17 @@ public static class OutputPresets
     // Keyframe interval in seconds for the target.
     public static double GopSeconds(string platform)=>.5;
     // Output frame size: the source size, or the preset size ("1080p") on the short side with an even
-    // long side keeping the aspect ratio. A portrait 1080×1920 video therefore stays 1080p.
-    public static (int Width,int Height) OutputSize(int width,int height,int? target){
-        bool portrait=width<height;
-        int shortSide=portrait?width:height,longSide=portrait?height:width;
-        if(target is not int size||size<=0||size==shortSide)return (width,height);
-        int other=Math.Max(2,(int)Math.Round(longSide*(double)size/shortSide/2)*2),side=size-(size%2);
+    // long side keeping the aspect ratio. A portrait 1080×1920 video therefore stays 1080p. An anamorphic
+    // source is sized by its displayed shape and comes out with square pixels: 1920×1080 stored with
+    // 81:256 pixels (shown 9:16) becomes 1080×1920.
+    public static (int Width,int Height) OutputSize(int width,int height,int? target,Rational? sampleAspect=null){
+        if(target is not int size||size<=0)return (width,height);
+        bool square=sampleAspect is not { } sar||sar<=0||sar==1;
+        double shown=square?width:width*sampleAspect!.Value.ToDouble();
+        bool portrait=shown<height;
+        double shortSide=portrait?shown:height,longSide=portrait?height:shown;
+        if(square&&size==(portrait?width:height))return (width,height);
+        int other=Math.Max(2,(int)Math.Round(longSide*size/shortSide/2)*2),side=size-(size%2);
         return portrait?(side,other):(other,side);
     }
     public static ConversionOptions Apply(OutputPreset preset,ConversionOptions options)=>options with{

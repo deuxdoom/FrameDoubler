@@ -20,6 +20,13 @@ public sealed record MediaInfo(string Path,int Width,int Height,string Codec,str
     // Clockwise display rotation from the container (0, 90, 180 or 270). FFmpeg turns decoded frames
     // upright by default, so Width and Height already describe the upright (displayed) picture.
     public int Rotation{get;init;}
+    // Shape of one stored pixel (sample aspect ratio) of the upright picture; 1 for square pixels.
+    // Anamorphic video, e.g. 1920×1080 stored with 81:256 pixels and shown as a 9:16 portrait, keeps its
+    // stored size through decoding and interpolation and passes this ratio on to the output.
+    public Rational SampleAspect{get;init;}=1;
+    public bool Anamorphic=>SampleAspect!=1;
+    // Displayed width ÷ height.
+    public double DisplayAspect=>Width*SampleAspect.ToDouble()/Height;
     // RIFE motion estimation runs at half resolution only for footage larger than 1440p. The short
     // side decides, so a portrait phone video is treated like the same landscape resolution.
     public double MotionScale=>Math.Min(Width,Height)>1440?.5:1;
@@ -88,9 +95,11 @@ public static class MediaProbe
         if(hdr is not null){space=primaries=transfer="bt709";range="tv";depth=8;}
         // A quarter-turn display matrix (portrait phone recordings) swaps the decoded frame size.
         int rotation=DisplayRotation(video),width=(int)Number(video,"width"),height=(int)Number(video,"height");
-        if(rotation is 90 or 270)(width,height)=(height,width);
+        // Turning the frame upright also turns its pixels, so FFmpeg inverts the sample aspect ratio too.
+        Rational sampleAspect=SampleAspectRatio(video);
+        if(rotation is 90 or 270){(width,height)=(height,width);sampleAspect=1/sampleAspect;}
         return new(path,width,height,Text(video,"codec_name")??"",pixel,depth,timeBase,fps,nominal,vfr,duration,pts,
-            space,range,primaries,transfer,audio){HdrInput=hdr,Rotation=rotation,
+            space,range,primaries,transfer,audio){HdrInput=hdr,Rotation=rotation,SampleAspect=sampleAspect,
                 VideoBitrate=PositiveBitrate(video),OverallBitrate=PositiveBitrate(format)??(long?)Math.Round(new FileInfo(path).Length*8/duration.ToDouble()),
                 OverallBitrateEstimated=PositiveBitrate(format) is null,ReportedStart=video.TryGetProperty("start_pts",out _)?Number(video,"start_pts")*timeBase:Rate(video,"start_time"),ReportedFrames=Number(video,"nb_frames") is >0 and var count?count:null};
     }
@@ -111,6 +120,14 @@ public static class MediaProbe
             JsonValueKind.Number=>value.GetDouble(),
             JsonValueKind.String when double.TryParse(value.GetString(),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out double parsed)=>parsed,
             _=>null};
+    }
+    // ffprobe prints "num:den"; "0:1", "N/A" or a missing value means square pixels. Ratios beyond 16:1 are
+    // treated as broken metadata rather than stretching the picture that far.
+    public static Rational SampleAspectRatio(JsonElement video){
+        string[] parts=(Text(video,"sample_aspect_ratio")??"").Split(':');
+        if(parts.Length!=2||!long.TryParse(parts[0],out long num)||!long.TryParse(parts[1],out long den)||num<=0||den<=0)return 1;
+        var ratio=new Rational(num,den);
+        return ratio<new Rational(1,16)||ratio>16?1:ratio;
     }
     public static long? PositiveBitrate(JsonElement element)=>Number(element,"bit_rate") is >0 and var value?value:null;
     private static string? Text(JsonElement e,string name)=>e.TryGetProperty(name,out var value)?value.ToString():null;

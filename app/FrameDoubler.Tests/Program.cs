@@ -97,6 +97,18 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     Assert(OutputPresets.OutputSize(3840,2160,1080)==(1920,1080)&&OutputPresets.OutputSize(720,480,null)==(720,480),"Source size or proportional preset resize");
     Assert(OutputPresets.OutputSize(2160,3840,1080)==(1080,1920)&&OutputPresets.OutputSize(1080,1920,1080)==(1080,1920)&&OutputPresets.OutputSize(480,720,1080)==(1080,1620),
         "Portrait presets size the short side, like landscape");
+    Assert(OutputPresets.OutputSize(1920,1080,1080,new Rational(81,256))==(1080,1920)&&OutputPresets.OutputSize(1920,1080,null,new Rational(81,256))==(1920,1080)
+        &&OutputPresets.OutputSize(720,480,1080,new Rational(32,27))==(1920,1080)&&OutputPresets.OutputSize(1920,1080,1080,1)==(1920,1080),
+        "Anamorphic presets size the displayed shape with square pixels; the source preset keeps the stored size");
+    foreach(var (json,expected) in new[]{("{\"sample_aspect_ratio\":\"81:256\"}",new Rational(81,256)),("{\"sample_aspect_ratio\":\"32:27\"}",new Rational(32,27)),
+        ("{\"sample_aspect_ratio\":\"1:1\"}",(Rational)1),("{\"sample_aspect_ratio\":\"0:1\"}",(Rational)1),("{\"sample_aspect_ratio\":\"N/A\"}",(Rational)1),
+        ("{\"sample_aspect_ratio\":\"1:100\"}",(Rational)1),("{}",(Rational)1)}){
+        using var sar=System.Text.Json.JsonDocument.Parse(json);
+        Assert(MediaProbe.SampleAspectRatio(sar.RootElement)==expected,"Sample aspect ratio "+json+" -> "+expected);
+    }
+    var anamorphicSource=src with{Width=1920,Height=1080,SampleAspect=new Rational(81,256)};
+    Assert(Thumbnail.Filter(anamorphicSource,256).Contains("scale=256:456:flags=lanczos,setsar=1")&&Thumbnail.Filter(src,256).Contains("scale=256:-2:flags=lanczos,format")
+        &&anamorphicSource.MotionScale==1,"Anamorphic thumbnail uses the displayed shape; square pixels keep the stored proportions");
     Assert((src with{Width=1080,Height=1920}).MotionScale==1&&(src with{Width=2160,Height=3840}).MotionScale==.5&&(src with{Width=3840,Height=2160}).MotionScale==.5&&(src with{Width=2560,Height=1440}).MotionScale==1,
         "RIFE half-scale motion follows the short side");
     foreach(var (json,expected) in new[]{("{\"side_data_list\":[{\"side_data_type\":\"Display Matrix\",\"rotation\":-90}]}",90),("{\"side_data_list\":[{\"rotation\":90}]}",270),

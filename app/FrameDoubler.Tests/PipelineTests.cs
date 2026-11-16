@@ -51,6 +51,40 @@ internal static class PipelineTests
         double firstFrameDb=average.Success?average.Groups[1].Value=="inf"?99:double.Parse(average.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture):0;
         assert(psnr.ExitCode==0&&firstFrameDb>30&&uprightInfo.Width==180&&uprightInfo.Height==320&&uprightInfo.Rotation==0&&upright.Frames==60&&upright.Verification?.Ok==true,
             $"Portrait output is upright without a second rotation tag (first frame {firstFrameDb:0.0}dB)");
+        // Anamorphic portrait: 320×180 stored with 81:256 pixels is shown as 9:16. The raw RGB pipe dropped the
+        // pixel shape, so the output played as a stretched 16:9 picture.
+        async Task<double> LumaPsnr(string a,string b,string referenceFilter=""){
+            var r=await ProcessRunner.RunAsync(paths.FFmpeg,["-hide_banner","-v","info","-nostdin","-i",a,"-i",b,"-filter_complex",
+                $"[0:v]trim=end_frame=1,format=gray[x];[1:v]trim=end_frame=1{referenceFilter},format=gray[y];[x][y]psnr","-f","null","-"]);
+            var m=System.Text.RegularExpressions.Regex.Match(r.Error,@"average:(\S+)");
+            return r.ExitCode!=0||!m.Success?0:m.Groups[1].Value=="inf"?99:double.Parse(m.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture);
+        }
+        string anamorphic=Path.Combine(root,"anamorphic.mp4"),anamorphicRotated=Path.Combine(root,"anamorphic-rotated.mp4");
+        await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=1","-vf","setsar=sar=81/256:max=256","-c:v","libopenh264","-b:v","2M",anamorphic);
+        var anamorphicInfo=await MediaProbe.ReadAsync(paths,anamorphic);
+        assert(anamorphicInfo is {Width:320,Height:180,Anamorphic:true}&&anamorphicInfo.SampleAspect==new Rational(81,256)&&Math.Abs(anamorphicInfo.DisplayAspect-9/16.0)<1e-9,
+            "Anamorphic input keeps the stored size and reports its 81:256 pixels");
+        var kept=await pipeline.RunAsync(anamorphic,Path.Combine(root,"anamorphic60.mp4"),options);
+        var keptInfo=await MediaProbe.ReadAsync(paths,kept.Output);
+        double keptDb=await LumaPsnr(kept.Output,anamorphic);
+        assert(keptInfo is {Width:320,Height:180}&&keptInfo.SampleAspect==new Rational(81,256)&&kept.Frames==60&&kept.Verification?.Ok==true&&keptDb>30,
+            $"Anamorphic output keeps the stored pixels and their 81:256 shape ({keptDb:0.0}dB)");
+        var squared=await pipeline.RunAsync(anamorphic,Path.Combine(root,"anamorphic-square.mp4"),options with{OutputHeight=180});
+        var squaredInfo=await MediaProbe.ReadAsync(paths,squared.Output);
+        double squaredDb=await LumaPsnr(squared.Output,anamorphic,",scale=180:320:flags=lanczos");
+        assert(squaredInfo is {Width:180,Height:320,Anamorphic:false}&&squared.Verification?.Ok==true&&squaredDb>30,
+            $"Preset resize turns anamorphic pixels square at the displayed 9:16 shape ({squaredDb:0.0}dB)");
+        await FF("-display_rotation","90","-i",anamorphic,"-c","copy",anamorphicRotated);
+        var anamorphicRotatedInfo=await MediaProbe.ReadAsync(paths,anamorphicRotated);
+        var turned=await pipeline.RunAsync(anamorphicRotated,Path.Combine(root,"anamorphic-rotated60.mp4"),options);
+        var turnedInfo=await MediaProbe.ReadAsync(paths,turned.Output);
+        double turnedDb=await LumaPsnr(turned.Output,anamorphicRotated);
+        assert(anamorphicRotatedInfo is {Width:180,Height:320,Rotation:270}&&anamorphicRotatedInfo.SampleAspect==new Rational(256,81)
+            &&turnedInfo is {Width:180,Height:320,Rotation:0}&&turnedInfo.SampleAspect==new Rational(256,81)&&turned.Verification?.Ok==true&&turnedDb>30,
+            $"A rotated anamorphic input turns its pixel shape with the picture ({turnedDb:0.0}dB)");
+        var anamorphicThumb=await Thumbnail.CaptureAsync(paths,anamorphicInfo,128);
+        int anamorphicThumbWidth=System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(anamorphicThumb.AsSpan(16)),anamorphicThumbHeight=System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(anamorphicThumb.AsSpan(20));
+        assert(anamorphicThumbWidth==128&&anamorphicThumbHeight==228,$"Anamorphic thumbnail has the displayed 9:16 shape ({anamorphicThumbWidth}x{anamorphicThumbHeight})");
         // Losslessly trimmed clip: the MP4 edit list starts after the key frame, so the packets before the cut
         // are flagged discard and never output. Counting them made the decoder wait for frames that never came.
         string keyed=Path.Combine(root,"gop30.mp4"),trimmed=Path.Combine(root,"trimmed.mp4");

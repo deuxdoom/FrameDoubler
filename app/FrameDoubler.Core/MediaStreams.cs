@@ -91,8 +91,9 @@ public sealed class VideoEncoder:IAsyncDisposable
         var origin=source.Audio.Select(x=>x.Start).Append(videoStart).Min();
         string matrix=source.ColorSpace is "bt2020nc" or "bt2020ncl"?"bt2020":source.ColorSpace??"";
         // Optional resize to the preset height (Lanczos), done in the same scale step as the RGB→YUV conversion.
-        var (outWidth,outHeight)=OutputPresets.OutputSize(source.Width,source.Height,height);
-        string resize=outWidth!=source.Width||outHeight!=source.Height?$"w={outWidth}:h={outHeight}:flags=lanczos:":"";
+        var (outWidth,outHeight)=OutputPresets.OutputSize(source.Width,source.Height,height,source.SampleAspect);
+        bool resized=outWidth!=source.Width||outHeight!=source.Height;
+        string resize=resized?$"w={outWidth}:h={outHeight}:flags=lanczos:":"";
         string filter=$"scale={resize}out_range={(source.ColorRange=="pc"?"pc":"tv")}";
         if(Meaningful(matrix))filter+=":out_color_matrix="+matrix;
         string pixel=source.BitDepth>8?"p010le":"yuv420p";
@@ -106,6 +107,13 @@ public sealed class VideoEncoder:IAsyncDisposable
             colour.AddRange([flag,value!]);parameters.Add(name+"="+(name=="range"?(value=="pc"?"full":"limited"):value));
         }
         if(parameters.Count>0)filter+=",setparams="+string.Join(':',parameters);
+        // Raw RGB on the pipe carries no pixel shape, so anamorphic output would play stretched to the
+        // stored size. Keep the source ratio, or square pixels after a preset resize to the displayed shape.
+        // setsar rounds to terms up to "max" (100 by default), which would distort ratios such as 81:256.
+        if(source.Anamorphic){
+            var sar=resized?(Rational)1:source.SampleAspect;
+            filter+=$",setsar=sar={sar.Numerator}/{sar.Denominator}:max={System.Numerics.BigInteger.Max(sar.Numerator,sar.Denominator)}";
+        }
         var args=new List<string>{"-y","-nostdin","-v","error","-copyts","-f","rawvideo","-pix_fmt",source.BitDepth>8?"rgb48le":"rgb24",
             "-s",$"{source.Width}x{source.Height}","-framerate",fps.ToString(),"-itsoffset",(videoStart-origin).Seconds(),"-i","-",
             "-itsoffset",((Rational)0-origin).Seconds(),"-i",source.Path,"-map","0:v:0","-map","1:a?","-vf",filter};

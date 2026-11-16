@@ -4,8 +4,11 @@ namespace FrameDoubler.Core;
 // average histogram of a short run, which skips black or flash frames; HDR is tone-mapped first.
 public static class Thumbnail
 {
+    // Anamorphic pixels are drawn at their displayed shape (-2 would keep the stored proportions) and the
+    // PNG gets square pixels so the queue shows it as the player does.
     public static string Filter(MediaInfo info,int width)=>
-        (info.HdrInput is { } hdr?ToneMap.Filter(hdr)+",":"")+$"thumbnail=n=24,scale={width}:-2:flags=lanczos,format=rgb24";
+        (info.HdrInput is { } hdr?ToneMap.Filter(hdr)+",":"")+"thumbnail=n=24,"+
+        (info.Anamorphic?$"scale={width}:{Math.Max(2,(int)Math.Round(width/info.DisplayAspect/2)*2)}:flags=lanczos,setsar=1":$"scale={width}:-2:flags=lanczos")+",format=rgb24";
     public static double Position(MediaInfo info){
         double duration=info.Duration.ToDouble();
         return duration<4?0:Math.Max(0,Math.Min(duration/3,duration-3));
