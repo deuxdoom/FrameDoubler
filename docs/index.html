@@ -286,7 +286,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <a class="brand" href="#top"><img src="img/symbol.svg" alt="">FrameDoubler</a>
     <nav>
-      <a class="opt" href="#new" data-i18n="nav.new">2.0.2</a>
+      <a class="opt" href="#new" data-i18n="nav.new">2.0.3</a>
       <a class="opt" href="#why" data-i18n="nav.why">왜 필요한가</a>
       <a class="opt" href="#how" data-i18n="nav.how">작동 방식</a>
       <a class="opt" href="#features" data-i18n="nav.features">기능</a>
@@ -305,14 +305,14 @@ footer a { color: var(--muted); }
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 2.0.2</b><span data-i18n="news.text">세로 영상 변환 · 단축키 · 시작 화면</span><i aria-hidden="true">→</i></a>
+      <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 2.0.3</b><span data-i18n="news.text">화소 비율 보존 · 원본 프리셋 정리</span><i aria-hidden="true">→</i></a>
       <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">캡처 미리보기와 영상 파일 변환</p>
       <h1 class="rise" style="--i:2;margin-top:12px"><span data-i18n="hero.title1">게임 화면을</span><span class="shine" data-i18n="hero.title2">더 부드럽게</span></h1>
       <p class="lead rise" style="--i:3" data-i18n="hero.lead"><span class="s">캡처 카드를 연결해 게임 화면을 실시간으로 보세요.</span> <span class="s"><b>DLSS·VFX 프레임 생성</b>과 중복 제거를 적용합니다.</span> <span class="s">처리된 화면과 소리를 그대로 녹화할 수 있습니다.</span> <span class="s">녹화 파일은 RIFE로 부드럽게 변환합니다.</span></p>
       <div class="cta rise" style="--i:4">
-        <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.2/FrameDoubler_v202.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="hero.download">다운로드</span></a>
+        <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.3/FrameDoubler_v203.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="hero.download">다운로드</span></a>
         <a class="btn" href="#why" data-i18n="hero.why">무엇이 다른가요</a>
-        <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.2</span></a>
+        <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.3</span></a>
       </div>
       <div class="badges rise" style="--i:5"><span data-i18n="badge.gpu">실시간 DLSS · VFX</span><span>RIFE 4.25 · 4.26</span><span>NVENC · AMF · QSV</span><span data-i18n="badge.hdr">PNG · MP4 녹화</span><span data-i18n="badge.portable">설치 없이 압축만 풀기</span><span data-i18n="badge.license">MIT 라이선스</span></div>
     </div>
@@ -339,13 +339,13 @@ footer a { color: var(--muted); }
 
 <section id="new">
   <div class="wrap">
-    <p class="eyebrow reveal" data-i18n="new.eyebrow">2.0.2 새 기능</p>
-    <h2 class="reveal" data-i18n="new.title">세로 영상 변환과 키보드 단축키</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">휴대폰으로 찍은 세로 영상도 바른 방향으로 변환합니다.</span> <span class="s">파일 변환 목록을 키보드로 다룰 수 있습니다.</span> <span class="s">프로그램은 파일 변환 화면으로 시작합니다.</span></p>
+    <p class="eyebrow reveal" data-i18n="new.eyebrow">2.0.3 새 기능</p>
+    <h2 class="reveal" data-i18n="new.title">어떤 영상이든 보이는 모양 그대로</h2>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="new.lead"><span class="s">화소가 정사각형이 아닌 세로 영상도 원본과 같은 모양으로 변환합니다.</span> <span class="s">출력 프리셋은 원본 프리셋 두 가지로 정리했습니다.</span> <span class="s">세로·가로·HDR 영상 모두 목표 fps로 바꿉니다.</span></p>
     <div class="tiles">
-      <article class="tile reveal" style="--i:0"><span class="ico"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span><h3 data-i18n="new1.title">세로 영상 변환 수정</h3><p data-i18n="new1.text">회전 정보가 있는 세로 영상이 세 갈래 줄무늬로 깨지던 문제를 고쳤습니다. 보이는 방향 그대로 세워서 변환하며, 회전된 HDR 영상도 SDR로 톤 매핑합니다.</p></article>
-      <article class="tile reveal" style="--i:1"><span class="ico"><svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h1M10 10h1M14 10h1M18 10h0M7 14h10"/></svg></span><h3 data-i18n="new2.title">파일 변환 단축키</h3><p data-i18n="new2.text">Delete로 선택한 영상을 빼고, Alt+↑·↓로 순서를 바꾸고, Ctrl+Enter로 변환을 시작합니다. 변환이 끝난 영상은 두 번 클릭하면 바로 재생하며, 단축키는 설정 › 단축키에서 바꿉니다.</p></article>
-      <article class="tile reveal" style="--i:2"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M10 13.5l4 2.5-4 2.5z"/></svg></span><h3 data-i18n="new3.title">파일 변환으로 시작</h3><p data-i18n="new3.text">처음 실행하면 파일 변환 화면이 열리고, 이후에는 마지막 화면을 기억합니다. 캡처 미리보기는 「미리보기 시작」을 눌러야 시작합니다.</p></article>
+      <article class="tile reveal" style="--i:0"><span class="ico"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span><h3 data-i18n="new1.title">화소 비율 보존</h3><p data-i18n="new1.text">1920×1080으로 저장하고 9:16 세로로 보이는 영상처럼 화소가 정사각형이 아닌 영상이 가로로 늘어나던 문제를 고쳤습니다. 원본의 화소 비율을 결과 파일에 그대로 넣고, 목록 썸네일도 보이는 비율로 표시합니다.</p></article>
+      <article class="tile reveal" style="--i:1"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9h10M7 13h10M7 17h6"/></svg></span><h3 data-i18n="new2.title">원본 프리셋 두 가지</h3><p data-i18n="new2.text">YouTube 4K·1080p 프리셋을 없앴습니다. 원본 비트레이트를 유지하거나 fps에 비례해 늘리는 두 프리셋만 남았고, 저장돼 있던 YouTube 프리셋은 원본(비트레이트 유지)으로 바뀝니다.</p></article>
+      <article class="tile reveal" style="--i:2"><span class="ico"><svg viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></span><h3 data-i18n="new3.title">오디오는 그대로</h3><p data-i18n="new3.text">모든 프리셋이 오디오를 다시 인코딩하지 않고 그대로 복사합니다. YouTube 프리셋에만 있던 60fps 상한도 없어져 어느 프리셋에서든 120fps 출력을 고를 수 있습니다.</p></article>
     </div>
   </div>
 </section>
@@ -456,10 +456,10 @@ footer a { color: var(--muted); }
       <div class="panel main reveal">
         <div class="panel-head">
           <h3 data-i18n="start.title">시작하기</h3>
-          <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.2</span></a>
+          <a class="ver" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest" title="릴리스 정보" data-i18n-attr="title:download.notes"><span class="dot" aria-hidden="true"></span><span data-i18n="ver.latest">최신</span><span data-latest-version>v2.0.3</span></a>
         </div>
         <div class="cta">
-          <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.2/FrameDoubler_v202.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download.button">다운로드</span></a>
+          <a class="btn primary" data-download-zip href="https://github.com/deuxdoom/FrameDoubler/releases/download/v2.0.3/FrameDoubler_v203.zip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="download.button">다운로드</span></a>
           <a class="btn" data-release-notes href="https://github.com/deuxdoom/FrameDoubler/releases/latest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span data-i18n="download.release">릴리스 페이지</span></a>
         </div>
         <ol>
@@ -477,7 +477,7 @@ footer a { color: var(--muted); }
           <li data-i18n="req.sdr">캡처는 SDR·P010 HDR 입력과 하드웨어 H.264·HEVC 녹화를 지원합니다. HDR(HLG·PQ)은 캡처와 파일 변환 모두 SDR로 바꿉니다.</li>
         </ul>
         <h3 style="margin-top:22px" data-i18n="verify.title">파일 검증</h3>
-        <pre>Get-FileHash <b data-zip-name>FrameDoubler_v202.zip</b> -Algorithm SHA256</pre>
+        <pre>Get-FileHash <b data-zip-name>FrameDoubler_v203.zip</b> -Algorithm SHA256</pre>
         <p class="note" data-i18n="verify.note">SHA-256 값은 릴리스 페이지의 설명에서 확인합니다.</p>
       </div>
     </div>
@@ -500,8 +500,8 @@ footer a { color: var(--muted); }
   const EN = {
     "meta.title": "FrameDoubler · Live capture, frame generation and recording",
     "meta.description": "Windows capture card preview with DLSS/VFX frame generation, deduplication and MP4 recording, plus RIFE conversion for recorded files.",
-    "nav.new": "2.0.2", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
-    "news.badge": "New 2.0.2", "news.text": "Portrait videos · shortcuts · start page",
+    "nav.new": "2.0.3", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
+    "news.badge": "New 2.0.3", "news.text": "Pixel aspect kept · source presets",
     "hero.eyebrow": "Live capture preview and video file conversion",
     "hero.title1": "Your game, live", "hero.title2": "with smoother motion",
     "hero.lead": "<span class=\"s\">Connect a capture card and preview your game live.</span> <span class=\"s\">Apply <b>DLSS/VFX frame generation</b> and deduplication.</span> <span class=\"s\">Record the processed picture together with its sound.</span> <span class=\"s\">Convert recorded files with RIFE interpolation.</span>",
@@ -513,11 +513,11 @@ footer a { color: var(--muted); }
     "tag.output": "FrameDoubler<small>file 60fps · motion 60fps</small>",
     "demo.note": s("The same section of a 4K Fire Emblem Fortune’s Weave recording.", "If the difference is hard to see, slow it down.",
                    "At real speed the difference shows on 60Hz or faster displays."),
-    "new.eyebrow": "New in 2.0.2", "new.title": "Portrait videos and keyboard shortcuts",
-    "new.lead": "<span class=\"s\">Portrait phone videos now convert the right way up.</span> <span class=\"s\">The conversion list works from the keyboard.</span> <span class=\"s\">The app now starts on the file conversion page.</span>",
-    "new1.title": "Portrait video fix", "new1.text": "Videos with rotation metadata no longer turn into three striped copies. They are converted upright as they are displayed, and rotated HDR videos are tone-mapped to SDR as well.",
-    "new2.title": "Conversion shortcuts", "new2.text": "Delete removes the selected videos, Alt+↑/↓ reorders them and Ctrl+Enter starts converting. Double-click a converted video to play it. Keys can be changed in Settings › Shortcuts.",
-    "new3.title": "Starts on file conversion", "new3.text": "A first launch opens the file conversion page; later the last page is remembered. The capture preview starts only when you press Start preview.",
+    "new.eyebrow": "New in 2.0.3", "new.title": "Every video keeps its shape",
+    "new.lead": "<span class=\"s\">Portrait videos with non-square pixels now keep their shape.</span> <span class=\"s\">Export presets are now the two source presets.</span> <span class=\"s\">Portrait, landscape and HDR videos all convert to the target fps.</span>",
+    "new1.title": "Pixel aspect kept", "new1.text": "Videos with non-square pixels, such as 1920×1080 shown as 9:16 portrait, no longer come out stretched. The source pixel aspect ratio is written to the result, and list thumbnails use the displayed shape.",
+    "new2.title": "Two source presets", "new2.text": "The YouTube 4K/1080p presets are gone. Keep the source bitrate or scale it with fps; a saved YouTube preset becomes Source (keep bitrate).",
+    "new3.title": "Audio passed through", "new3.text": "Every preset copies the audio without re-encoding. The 60fps limit of the YouTube presets is gone as well, so 120fps output works with any preset.",
     "why.eyebrow": "File conversion · duplicate frames", "why.title": "A 60fps file can hold every picture twice",
     "why.lead1": s("When a console game runs at 30fps, the capture card receives each picture twice and saves a 60fps file.",
                    "The file says 60fps, but the motion is still 30fps.", "As it is, it never looks any smoother."),
