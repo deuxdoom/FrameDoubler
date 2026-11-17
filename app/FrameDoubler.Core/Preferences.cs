@@ -86,8 +86,7 @@ public sealed record Preferences
             string legacy=Path.Combine(directory,"settings.json");
             if(File.Exists(legacy)){
                 string text=File.ReadAllText(legacy);var value=JsonSerializer.Deserialize<Preferences>(text)??new();
-                using var document=JsonDocument.Parse(text);
-                value=Normalize(value,document.RootElement.TryGetProperty(nameof(PresetDefaultsVersion),out _));
+                value=Normalize(value);
                 // Keep the old file until the new INI has been written atomically.
                 try{value.Save(directory);File.Delete(legacy);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){}
                 return value;
@@ -95,9 +94,8 @@ public sealed record Preferences
         }catch(Exception ex)when(ex is IOException or JsonException or UnauthorizedAccessException or FormatException){}
         return new();
     }
-    private static Preferences Normalize(Preferences value,bool defaultsVersion){
-        if(!defaultsVersion&&value.Preset=="youtube")value=value with{Preset="source"};
-        if(value.Preset is "youtube" or "youtube-1440")value=value with{Preset="youtube-2160"};
+    private static Preferences Normalize(Preferences value){
+        // Removed presets (YouTube 4K/1080p and older YouTube ids) fall back to the default source preset.
         if(OutputPresets.FindExact(value.Preset) is null)value=value with{Preset="source"};
         if(value.MinimizeAction!="tray")value=value with{MinimizeAction="taskbar"};
         if(value.Accelerator is not ("auto" or "vulkan" or "rtx"))value=value with{Accelerator="auto"};
@@ -156,7 +154,7 @@ public sealed record Preferences
             ShortcutAddVideos=S(nameof(ShortcutAddVideos),"Ctrl+O"),ShortcutRemove=S(nameof(ShortcutRemove),"Delete"),ShortcutSelectAll=S(nameof(ShortcutSelectAll),"Ctrl+A"),
             ShortcutMoveUp=S(nameof(ShortcutMoveUp),"Alt+Up"),ShortcutMoveDown=S(nameof(ShortcutMoveDown),"Alt+Down"),ShortcutConvertAll=S(nameof(ShortcutConvertAll),"Ctrl+Enter"),
             ShortcutConvertSelected=S(nameof(ShortcutConvertSelected),"Ctrl+Shift+Enter"),ShortcutOpenResult=S(nameof(ShortcutOpenResult),"Enter")};
-        return Normalize(result,values.ContainsKey(nameof(PresetDefaultsVersion)));
+        return Normalize(result);
     }
     public void Save(string? directory=null){
         directory??=DirectoryPath;System.IO.Directory.CreateDirectory(directory);

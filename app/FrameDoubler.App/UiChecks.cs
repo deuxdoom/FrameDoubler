@@ -123,14 +123,11 @@ public partial class MainWindow
         foreach(string lang in new[]{"ko","en"}){PreviewLanguage(lang);var help=(ModelHelp.ToolTip as string)?.Replace("⁠","")??"";
             Check(help.Contains("4.25")&&help.Contains("4.26")&&ModelHelp.Cursor==Cursors.Help,$"RIFE model help explains 4.25 and 4.26 {lang}");}
         PreviewLanguage("ko");
-        Check(PresetBox.Items.Count==4,"Exactly four output presets");
-        Select(PresetBox,"youtube-1080");await Idle();var mapped=CurrentOptions();
-        Check(mapped.Platform=="youtube"&&mapped.OutputHeight==1080&&mapped.Codec=="h264"&&!mapped.QualityOnly,"YouTube 1080p uses recommended H264 bitrate and AAC");
-        Select(PresetBox,"youtube-2160");await Idle();Check(CurrentOptions().OutputHeight==2160,"YouTube 4K output height");
+        Check(PresetBox.Items.Count==2,"Exactly two output presets (no YouTube presets)");
         Select(PresetBox,"source");await Idle();var plain=CurrentOptions();
-        Check(plain.MatchSource&&!plain.ScaleSourceBitrate&&plain.Platform is null&&plain.Codec is null&&plain.OutputHeight is null,"Source keeps bitrate and copies audio");
+        Check(plain.MatchSource&&!plain.ScaleSourceBitrate&&plain.Codec is null&&plain.OutputHeight is null,"Source keeps bitrate and copies audio");
         Select(PresetBox,"source-scaled");await Idle();var scaled=CurrentOptions();
-        Check(scaled.MatchSource&&scaled.ScaleSourceBitrate&&scaled.Platform is null,"Source scaled bitrate still copies audio");
+        Check(scaled.MatchSource&&scaled.ScaleSourceBitrate&&scaled.OutputHeight is null,"Source scaled bitrate still copies audio");
         Select(PresetBox,"source");await Idle();
         // Queue order: numbers follow the list, dragging (MoveEntry) reorders, selection runs in list order.
         var first=new QueueEntry(@"C:\queue.mp4",T);var second=new QueueEntry(@"C:\queue.mp4",T);var third=new QueueEntry(@"C:\queue\c.mp4",T);

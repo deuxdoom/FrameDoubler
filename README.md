@@ -15,8 +15,8 @@
   <img src="https://img.shields.io/badge/ENCODER-NVENC%20%C2%B7%20AMF%20%C2%B7%20QSV%20%C2%B7%20SOFTWARE-64748B" alt="NVENC · AMF · QSV · Software">
 </p>
 
-<p align="center"><b>30fps 게임 녹화를 60fps로 바꾸고, 캡처 카드 화면도 부드럽게 표시·녹화하는 Windows 프로그램</b><br>
-RIFE 기반 녹화 파일 변환과 실시간 DLSS·VFX 프레임 생성을 제공합니다.</p>
+<p align="center"><b>30fps 이하 영상을 60fps 같은 목표 프레임레이트로 바꾸고, 캡처 카드 화면도 부드럽게 표시·녹화하는 Windows 프로그램</b><br>
+RIFE 기반 영상 파일 변환과 실시간 DLSS·VFX 프레임 생성을 제공합니다.</p>
 
 <p align="center">
   <img src="docs/img/screen-empty.png" alt="FrameDoubler 파일 변환 화면" width="900"><br>
@@ -53,11 +53,11 @@ RIFE 기반 녹화 파일 변환과 실시간 DLSS·VFX 프레임 생성을 제�
 
 ## 📌 소개
 
-녹화 파일을 추가하면 중복 프레임을 걷어 내 실제 움직임을 복원한 뒤 60fps로 변환합니다. 캡처 카드를 연결하면 실시간 미리보기에서 화면과 소리를 확인하고 처리 결과를 녹화할 수 있습니다. 제목 표시줄에서 파일 변환과 캡처 미리보기를 전환합니다. 처음 실행하면 파일 변환 화면이 열리고, 그다음부터는 마지막으로 쓴 화면으로 시작합니다.
+게임 녹화든 일반 영상이든 파일을 추가하면 중복 프레임을 걷어 내 실제 움직임을 복원한 뒤 목표 프레임레이트(기본 60fps)로 변환합니다. 세로·가로 영상, 화소가 정사각형이 아닌 영상, HDR 영상(SDR로 변환)도 플레이어에 보이는 모양 그대로 변환합니다. 캡처 카드를 연결하면 실시간 미리보기에서 화면과 소리를 확인하고 처리 결과를 녹화할 수 있습니다. 제목 표시줄에서 파일 변환과 캡처 미리보기를 전환합니다. 처음 실행하면 파일 변환 화면이 열리고, 그다음부터는 마지막으로 쓴 화면으로 시작합니다.
 
 ### 녹화 파일 변환
 
-콘솔 게임이 30fps로 동작하면 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다. 파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps이므로, 유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.
+콘솔 게임이 30fps로 동작하면 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다. 파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps이므로 60fps의 부드러움은 나오지 않습니다.
 
 일반적인 보간 프로그램은 이 파일을 그대로 2배로 늘리기 때문에 똑같은 두 프레임 사이를 보간하게 됩니다. FrameDoubler는 먼저 **중복 프레임을 걷어 내어 실제 움직임을 복원**한 뒤에, 남은 프레임 사이를 [Practical-RIFE](https://github.com/hzwer/Practical-RIFE) 모델로 보간합니다.
 
@@ -133,7 +133,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 ### 🎥 인코딩과 검증
 
 - NVENC, AMF, QSV, 소프트웨어 인코더를 짧게 실제로 인코딩해 보고, 성공한 H.264·HEVC·AV1 조합만 메뉴에 보여 줍니다. 추론 GPU와 인코더는 서로 달라도 됩니다.
-- **출력 프리셋**: `원본 (비트레이트 유지)`(기본값), `원본 (fps 비례 비트레이트)`, `YouTube 4K`, `YouTube 1080p` 네 가지입니다. 원본 프리셋 둘 다 해상도·가능한 원본 코덱을 유지하고 오디오는 패스스루합니다. 두 번째는 입력 파일 대비 출력 fps 비율만큼 비트레이트를 늘립니다(60fps 파일을 60fps로 변환하면 증가 없음). YouTube는 H.264 High·VBR로 4K 45Mbps·1080p 10Mbps를 쓰며, 오디오는 AAC-LC 48kHz(원본 256kbps 이상: 256kbps, 미만·정보 없음: 192kbps)로 인코딩합니다. HDR 입력은 SDR로 톤 매핑하며 같은 비트레이트를 적용합니다. VBR이므로 실제 평균 비트레이트와 파일 크기는 달라질 수 있습니다.
+- **출력 프리셋**: `원본 (비트레이트 유지)`(기본값)와 `원본 (fps 비례 비트레이트)` 두 가지입니다. 두 프리셋 모두 해상도·화면 모양(세로 영상, 화소가 정사각형이 아닌 영상 포함)·가능한 원본 코덱을 유지하고 오디오는 패스스루합니다. 두 번째는 입력 파일 대비 출력 fps 비율만큼 비트레이트를 늘립니다(60fps 파일을 60fps로 변환하면 증가 없음). HDR 입력은 SDR로 톤 매핑합니다. VBR이므로 실제 평균 비트레이트와 파일 크기는 달라질 수 있습니다.
 - 영상 길이와 오디오 시작 시각·싱크를 유지합니다. SDR의 색상 정보를 보존하고 HDR은 SDR로 변환합니다.
 - HDR(HLG·PQ) 영상은 톤 매핑하여 SDR(BT.709, 8비트)로 변환합니다. 영상 목록에 `HDR(HLG) → SDR`처럼 표시합니다.
 - `변환 후 구간 검증`을 켜면 처음·중간·끝 각 1분의 중복 프레임과 오디오 동기를 검사합니다(최대 3분, 겹침 병합). 전체 메타데이터의 fps·길이·색상·오디오 트랙도 확인합니다. 검사 밖의 오류는 놓칠 수 있으며, 기본으로 꺼져 있습니다. 예상 시간에 이 구간 검증 비용도 반영합니다.
@@ -165,7 +165,7 @@ FrameDoubler   A  A½ B  B½ C  C½     파일 60fps · 움직임 60fps
 | 입력 중복 비율 | 50.31% (움직이는 프레임의 절반이 중복) |
 | 처리 시간 (기본 Vulkan·검증 해제) | 변환 약 82초, 분석 포함 약 89초 |
 
-처리 시간과 결과는 영상의 내용과 장치에 따라 달라집니다. YouTube 1080p의 10Mbps 설정에서는 복잡한 장면에 압축 흔적이 남을 수 있습니다. 비교 영상과 위 수치는 RIFE 파일 변환 결과이며 실시간 DLSS·VFX 성능 측정이 아닙니다.
+처리 시간과 결과는 영상의 내용과 장치에 따라 달라집니다. 비교 영상과 위 수치는 RIFE 파일 변환 결과이며 실시간 DLSS·VFX 성능 측정이 아닙니다.
 
 <a id="screenshots"></a>
 
@@ -207,7 +207,7 @@ Get-FileHash FrameDoubler_v202.zip -Algorithm SHA256
 | 59.94fps (움직임 30fps) | 59.94fps |
 | 60fps (움직임 30fps) | 60fps |
 
-영상·오디오 인코딩 값은 네 가지 프리셋으로 정하고, 추론 장치, 인코더, RIFE 모델, 고정 HUD는 설정(⚙)의 `고급`에서 바꿉니다. YouTube 프리셋은 60fps까지이며 120fps 출력은 두 원본 프리셋에서 선택합니다. 닫기 버튼을 누르면 종료할지 확인합니다. 종료하면 진행 중인 작업을 취소하고 미완성 파일과 처리 프로세스를 정리합니다. 설정의 `창과 트레이`에서 닫기·최소화 버튼이 트레이로 최소화하도록 정하면 작업이 트레이에서 계속됩니다.
+영상 비트레이트는 두 가지 프리셋으로 정하고(오디오는 그대로 복사), 추론 장치, 인코더, RIFE 모델, 고정 HUD는 설정(⚙)의 `고급`에서 바꿉니다. 120fps 출력도 두 프리셋 모두에서 고를 수 있습니다. 닫기 버튼을 누르면 종료할지 확인합니다. 종료하면 진행 중인 작업을 취소하고 미완성 파일과 처리 프로세스를 정리합니다. 설정의 `창과 트레이`에서 닫기·최소화 버튼이 트레이로 최소화하도록 정하면 작업이 트레이에서 계속됩니다.
 
 설정(`settings.ini`), 성능 기록(`performance.json`), 작업 파일(`work`)은 모두 `FrameDoubler.exe`가 있는 폴더에 저장합니다. 폴더를 통째로 옮겨도 설정이 그대로 이어집니다. `settings.ini`는 UTF-8 텍스트이며, 1.0.1까지 쓰던 `settings.json`은 처음 실행할 때 한 번 `settings.ini`로 옮깁니다.
 
@@ -244,8 +244,8 @@ Get-FileHash FrameDoubler_v202.zip -Algorithm SHA256
 FrameDoubler.Cli hardware                                   이 PC의 장치와 인코더
 FrameDoubler.Cli analyze video.mp4                          형식, 비트레이트, 실제 움직임 fps
 FrameDoubler.Cli estimate video.mp4 --preset source          예상 소요 시간 (--verify: 검증 포함)
-FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset youtube-2160
-FrameDoubler.Cli run -i video.mp4 --preset youtube-1080           (source, source-scaled, youtube-2160)
+FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset source
+FrameDoubler.Cli run -i video.mp4 --preset source-scaled         (source, source-scaled)
 FrameDoubler.Cli run -i video.mp4 --device gpu:1 --encoder qsv --codec hevc
 FrameDoubler.Cli run -i video.mp4 --device cpu --software --codec h264
 FrameDoubler.Cli run -i video.mp4 --fps 120 --model v4.26
@@ -300,4 +300,4 @@ Video2X와 Flowframes는 기술 분석의 참고 자료일 뿐이며, 소스 코
 
 ### 상표
 
-NVIDIA, DLSS, YouTube는 각 소유자의 상표입니다. FrameDoubler는 독립적으로 만든 비공식 프로그램이며, 해당 기업과 제휴하거나 승인을 받지 않았습니다. 비교 영상은 개발자가 직접 녹화한 게임 화면이며, 게임 화면의 저작권은 해당 권리자에게 있습니다.
+NVIDIA, DLSS는 각 소유자의 상표입니다. FrameDoubler는 독립적으로 만든 비공식 프로그램이며, 해당 기업과 제휴하거나 승인을 받지 않았습니다. 비교 영상은 개발자가 직접 녹화한 게임 화면이며, 게임 화면의 저작권은 해당 권리자에게 있습니다.

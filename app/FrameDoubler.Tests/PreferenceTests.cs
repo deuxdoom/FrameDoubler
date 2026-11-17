@@ -12,30 +12,32 @@ internal static class PreferenceTests
             string config=Fresh("round trip");
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",config);
             string tricky="F:\\한글 출력\\a=b; \"따옴표\" #해시";
-            new Preferences{Language="en",OutputDirectory=tricky,Preset="youtube-1080",Fps="60000/1001",DeviceName="GPU \"0\" = RTX; # test",Verify=true,HardwareEncoding=false,CheckUpdates=false,CloseAction="tray",MinimizeAction="tray"}.Save();
+            new Preferences{Language="en",OutputDirectory=tricky,Preset="source-scaled",Fps="60000/1001",DeviceName="GPU \"0\" = RTX; # test",Verify=true,HardwareEncoding=false,CheckUpdates=false,CloseAction="tray",MinimizeAction="tray"}.Save();
             string ini=Path.Combine(config,Preferences.FileName);
             byte[] bytes=File.ReadAllBytes(ini);
             assert(bytes.Length>3&&!(bytes[0]==0xEF&&bytes[1]==0xBB&&bytes[2]==0xBF)&&Encoding.UTF8.GetString(bytes).Contains("[FrameDoubler]")&&!File.Exists(Path.Combine(config,"settings.json")),
                 "Settings are written as UTF-8 settings.ini with a [FrameDoubler] section");
             var loaded=Preferences.Load();
-            assert(loaded.Language=="en"&&loaded.OutputDirectory==tricky&&loaded.Preset=="youtube-1080"&&loaded.Fps=="60000/1001"&&loaded.DeviceName=="GPU \"0\" = RTX; # test",
+            assert(loaded.Language=="en"&&loaded.OutputDirectory==tricky&&loaded.Preset=="source-scaled"&&loaded.Fps=="60000/1001"&&loaded.DeviceName=="GPU \"0\" = RTX; # test",
                 "Restart keeps Unicode, spaces, equals signs, quotes, ';' and '#' exactly");
             assert(loaded.Verify&&!loaded.HardwareEncoding&&!loaded.CheckUpdates&&loaded.CloseAction=="tray"&&loaded.MinimizeAction=="tray","Booleans and window actions survive a restart");
             bool multiline=false;try{new Preferences{OutputDirectory="a\nb"}.Save();}catch(FormatException){multiline=true;}
             assert(multiline&&Preferences.Load().OutputDirectory==tricky,"A value that cannot fit on one line is refused without touching the saved file");
 
             // Hand-edited file: BOM, CRLF, comments, other sections, unquoted values and boolean spellings.
-            File.WriteAllText(ini,"; edited\r\n[Other]\r\nLanguage=en\r\n\r\n[FrameDoubler]\r\n# comment\r\nLanguage = en \r\nVerify=1\r\nHardwareEncoding=no\r\nCheckUpdates=FALSE\r\nUnknown=ignored\r\nPreset=\"youtube-2160\"\r\n",new UTF8Encoding(true));
+            File.WriteAllText(ini,"; edited\r\n[Other]\r\nLanguage=en\r\n\r\n[FrameDoubler]\r\n# comment\r\nLanguage = en \r\nVerify=1\r\nHardwareEncoding=no\r\nCheckUpdates=FALSE\r\nUnknown=ignored\r\nPreset=\"source-scaled\"\r\n",new UTF8Encoding(true));
             loaded=Preferences.Load();
-            assert(loaded.Language=="en"&&loaded.Verify&&!loaded.HardwareEncoding&&!loaded.CheckUpdates&&loaded.Preset=="youtube-2160"&&loaded.Model=="v4.25",
+            assert(loaded.Language=="en"&&loaded.Verify&&!loaded.HardwareEncoding&&!loaded.CheckUpdates&&loaded.Preset=="source-scaled"&&loaded.Model=="v4.25",
                 "Hand-edited INI (BOM, CRLF, comments, other sections, 1/no/FALSE) reads only the [FrameDoubler] section; missing keys use defaults");
             File.WriteAllText(ini,"[FrameDoubler]\nLanguage=\"en\nVerify=true\n");
             assert(Preferences.Load() is {Language:"ko",Verify:false},"A broken INI value falls back to defaults instead of failing to start");
 
             // Normalization of removed or implicit values, read through the INI.
-            new Preferences{Preset="youtube-1440"}.Save();assert(Preferences.Load().Preset=="youtube-2160","Removed 1440p preset falls back to YouTube 4K");
+            foreach(string removed in new[]{"youtube-2160","youtube-1080","youtube-1440","youtube"}){
+                new Preferences{Preset=removed}.Save();assert(Preferences.Load().Preset=="source","Removed YouTube preset falls back to the source preset: "+removed);
+            }
             new Preferences{Preset="quality"}.Save();assert(Preferences.Load().Preset=="source","Unknown preset falls back to the source preset");
-            new Preferences{Preset="youtube-2160"}.Save();assert(Preferences.Load().Preset=="youtube-2160","Explicit YouTube selection persists");
+            new Preferences{Preset="source-scaled"}.Save();assert(Preferences.Load().Preset=="source-scaled","Explicit preset selection persists");
             assert(new Preferences().MinimizeAction=="taskbar","Minimize defaults to the taskbar");
             File.WriteAllText(ini,"[FrameDoubler]\nLanguage=\"ko\"\n");
             assert(Preferences.Load() is {StartPage:"convert",ShortcutRemove:"Delete",ShortcutAddVideos:"Ctrl+O",ShortcutConvertAll:"Ctrl+Enter",ShortcutOpenResult:"Enter"},
@@ -67,10 +69,10 @@ internal static class PreferenceTests
 
             config=Fresh("save failure");
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",config);
-            File.WriteAllText(Path.Combine(config,"settings.json"),"{\"Language\":\"en\",\"PresetDefaultsVersion\":1,\"Preset\":\"youtube-1080\"}");
+            File.WriteAllText(Path.Combine(config,"settings.json"),"{\"Language\":\"en\",\"PresetDefaultsVersion\":1,\"Preset\":\"source-scaled\"}");
             Directory.CreateDirectory(Path.Combine(config,Preferences.FileName));   // the INI cannot be written here
             loaded=Preferences.Load();
-            assert(loaded.Language=="en"&&loaded.Preset=="youtube-1080"&&File.Exists(Path.Combine(config,"settings.json")),"If settings.ini cannot be written, settings.json is kept and still used");
+            assert(loaded.Language=="en"&&loaded.Preset=="source-scaled"&&File.Exists(Path.Combine(config,"settings.json")),"If settings.ini cannot be written, settings.json is kept and still used");
         }finally{Environment.SetEnvironmentVariable("FRAMEDOUBLER_CONFIG_DIR",previous);}
 
         // Update preservation: settings.ini and performance.json move to the new version; settings.json only when never migrated.

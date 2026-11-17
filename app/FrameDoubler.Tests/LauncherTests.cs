@@ -87,7 +87,7 @@ internal static class LauncherTests
         // replaces the folder → new version restarts and confirms → settings and history carried over.
         string install=Path.Combine(root,"설치 위치","FrameDoubler");Copy(package,install);
         File.WriteAllText(Path.Combine(install,"old-marker.txt"),"previous installation");
-        new Preferences{Language="en",OutputDirectory=Path.Combine(root,"결과 폴더"),Preset="youtube-1080",CloseAction="tray"}.Save(install);
+        new Preferences{Language="en",OutputDirectory=Path.Combine(root,"결과 폴더"),Preset="source-scaled",CloseAction="tray"}.Save(install);
         File.WriteAllText(Path.Combine(install,"performance.json"),"[]");
         byte[] performance=File.ReadAllBytes(Path.Combine(install,"performance.json"));
         string updateReport=Path.Combine(root,"update-test.txt");
@@ -110,7 +110,7 @@ internal static class LauncherTests
         assert(!File.Exists(Path.Combine(install,"old-marker.txt"))&&File.Exists(Path.Combine(backup,"old-marker.txt"))&&!Directory.EnumerateDirectories(parent,".FrameDoubler-update-*").Any(),
             "The installation folder was replaced and the previous one kept as a backup");
         var carried=Preferences.Load(install);
-        assert(carried.Language=="en"&&carried.OutputDirectory==Path.Combine(root,"결과 폴더")&&carried.Preset=="youtube-1080"&&carried.CloseAction=="tray"
+        assert(carried.Language=="en"&&carried.OutputDirectory==Path.Combine(root,"결과 폴더")&&carried.Preset=="source-scaled"&&carried.CloseAction=="tray"
             &&File.ReadAllBytes(Path.Combine(install,"performance.json")).SequenceEqual(performance),"settings.ini and performance.json carried over to the new version");
         int pid;using(var booted=JsonDocument.Parse(File.ReadAllText(Path.Combine(workspace,"booted.json"))))pid=booted.RootElement.GetProperty("Pid").GetInt32();
         using(var restarted=Process.GetProcessById(pid)){

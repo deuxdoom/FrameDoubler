@@ -45,9 +45,10 @@ public sealed partial class ConversionPipeline
         return TimeEstimates.Key("estimate-v6-backends",backendFingerprint,runtimeFingerprint,device.Device=="cpu"?"ncnn-cpu":device.Backend,workers,hardware?.CpuModel,hardware?.LogicalProcessors,gpu?.DeviceId,gpu?.DriverVersion,
             // Tone-mapped HDR decodes slower; mark only those keys so existing SDR history stays valid.
             device.Device,device.HalfStorage,source.Width,source.Height,source.BitDepth,source.HdrInput is { } hdr?$"{source.Codec}+tonemap-{hdr.Name}":source.Codec,source.Fps.ToString(),fps.ToString(),
-            // Platform/size/quality-only are folded into the encoder part so existing YouTube and quality keys stay valid.
-            options.Model,encoder.Name+(options.Platform is "twitch" or "chzzk"?"/"+options.Platform:"")+(options.OutputHeight is int h?"@"+h:"")+(options.QualityOnly&&options.Platform is not null?"+cq":"")+(options.MatchSource?"+src":""),
-            options.Quality,options.Bitrate,options.Youtube,options.Deduplicate,options.Hud.Length,options.ScaleSourceBitrate,source.VideoBitrate,source.OverallBitrate,string.Join(' ',EncoderPolicy.Arguments(encoder,options.Quality,options.Bitrate)));
+            // Size and source policy are folded into the encoder part. The constant false stands where the removed
+            // YouTube delivery flag was, so existing estimate history for the source presets stays valid.
+            options.Model,encoder.Name+(options.OutputHeight is int h?"@"+h:"")+(options.MatchSource?"+src":""),
+            options.Quality,options.Bitrate,false,options.Deduplicate,options.Hud.Length,options.ScaleSourceBitrate,source.VideoBitrate,source.OverallBitrate,string.Join(' ',EncoderPolicy.Arguments(encoder,options.Quality,options.Bitrate)));
     }
     public async Task<TimeEstimate> EstimateAsync(AnalysisResult analysis,ConversionOptions options,CancellationToken cancel=default,bool refresh=false){
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancel);deadline.CancelAfter(TimeSpan.FromSeconds(45));
@@ -57,7 +58,7 @@ public sealed partial class ConversionPipeline
     private async Task<TimeEstimate> MeasureEstimateAsync(AnalysisResult analysis,ConversionOptions options,CancellationToken cancel,bool refresh=false){
         var source=analysis.Source;var devices=await HardwareAsync(cancel);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
-        if(fps<=0||fps>1000||options.Platform is not null&&fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
+        if(fps<=0||fps>1000)throw new ArgumentException("Invalid output frame rate");
         ulong required=EngineWorkerPolicy.RequiredGpuBytes(source);
         var device=DevicePolicy.Choose(devices.Hardware.Gpus,options.Device,required);
         if(source.BitDepth>8)device=device with{HalfStorage=false};
@@ -94,7 +95,7 @@ public sealed partial class ConversionPipeline
             var header=source with{Pts=[0],Audio=[]};var clock=Stopwatch.StartNew();double warm=0;
             await using(var writer=new VideoEncoder(paths,Path.Combine(folder,"probe.mp4"),header,fps,encoder,options.Quality,
                 bitrate,
-                options.Platform,(Rational)24/fps,options.OutputHeight)){
+                (Rational)24/fps,options.OutputHeight)){
                 for(int i=0;i<24;i++){await writer.WriteAsync(i%2==0?first:second,cancel);if(i==3)warm=clock.Elapsed.TotalSeconds;}
                 await writer.CompleteAsync(cancel);encode=Math.Max(.000001,(clock.Elapsed.TotalSeconds-warm)/20);
             }

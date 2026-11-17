@@ -212,7 +212,7 @@ public partial class MainWindow:Window
         PresetBox.ToolTip=OutputPresets.Describe(preset,English);
         string? codec=preset.Codec is "auto" or "source"?null:preset.Codec;
         if(preset.Codec=="source"&&(QueueList.SelectedItem as QueueEntry)?.Analysis?.Source is {} source)codec=OutputPresets.SourceCodec(source,encoders,hw);
-        try{codec??=EncoderPolicy.DefaultCodec(encoders,preset.Platform!="none",deep,hw);}catch(InvalidOperationException){}
+        try{codec??=EncoderPolicy.DefaultCodec(encoders,deep,hw);}catch(InvalidOperationException){}
         Fill(EncoderBox,new[]{new Choice("auto",T("자동 선택","Automatic"))}.Concat(encoders.Where(x=>x.Available&&x.Codec==codec&&(!deep||x.TenBit)&&(hw||!x.Hardware))
             .Select(x=>new Choice(x.Name,EncoderName(x)))));
         updating=old;

@@ -85,7 +85,7 @@ public sealed class VideoEncoder:IAsyncDisposable
     private bool completed;
     public long FramesWritten{get;private set;}
     public VideoEncoder(AppPaths paths,string output,MediaInfo source,Rational fps,EncoderCapability encoder,
-        int quality,string? bitrate,string? platform,Rational duration,int? height=null)
+        int quality,string? bitrate,Rational duration,int? height=null)
     {
         var videoStart=source.Start;
         var origin=source.Audio.Select(x=>x.Start).Append(videoStart).Min();
@@ -121,19 +121,8 @@ public sealed class VideoEncoder:IAsyncDisposable
         var bitstream=ColourBitstream(encoder.Codec,source);
         if(bitstream is not null)args.AddRange(["-bsf:v",bitstream]);
         args.AddRange(["-fps_mode","passthrough","-enc_time_base:v",((Rational)1/fps).ToString()]);
-        if(platform is not null){
-            if(fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
-            args.AddRange(["-g",Math.Max(1,(int)Math.Round(fps.ToDouble()*OutputPresets.GopSeconds(platform))).ToString(),"-flags","+cgop",
-                "-c:a","aac","-profile:a","aac_low","-ar:a","48000","-af","aresample=async=1:first_pts=0"]);
-            if(encoder.Codec=="h264")args.AddRange(["-profile:v","high","-bf","2"]);
-            for(int i=0;i<source.Audio.Length;i++){
-                // App audio policy: 256k, or 192k for source tracks below 256k/unknown.
-                if(platform=="youtube"){
-                    int count=source.Audio[i].Channels is 1 or 2 or 6?source.Audio[i].Channels:2;
-                    args.AddRange([$"-ac:a:{i}",count.ToString(),$"-b:a:{i}",OutputPresets.AudioBitrate(source.Audio[i]).ToString()]);
-                }else args.AddRange([$"-ac:a:{i}","2",$"-b:a:{i}","160000"]);
-            }
-        }else args.AddRange(["-c:a","copy"]);
+        // Audio is always passed through unchanged; only the video gains frames.
+        args.AddRange(["-c:a","copy"]);
         args.AddRange(["-t",(videoStart-origin+duration).Seconds(),"-movflags","+faststart"]);
         if(encoder.Codec=="hevc")args.AddRange(["-tag:v","hvc1"]);
         args.Add(output);

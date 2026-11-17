@@ -6,13 +6,13 @@ Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancel.Cancel();};
 try{
     var paths=AppPaths.Discover();var pipeline=new ConversionPipeline(paths);
     if(args.Length==0){Console.WriteLine("FrameDoubler: hardware | analyze FILE | estimate FILE [--verify] | run -i FILE [-o FILE] | verify INPUT OUTPUT | batch FOLDER\n"+
-        "  --preset source|source-scaled|youtube-2160|youtube-1080  --height N  --accelerator auto|vulkan|rtx\n  accel status|install --accept-licenses|remove (optional runtime from official PyPI)");return 0;}
+        "  --preset source|source-scaled  --height N  --accelerator auto|vulkan|rtx\n  accel status|install --accept-licenses|remove (optional runtime from official PyPI)");return 0;}
     string? Get(string name){int i=Array.IndexOf(args,name);if(i<0)return null;if(i+1>=args.Length)throw new ArgumentException("Missing value: "+name);return args[i+1];}
     bool Has(string name)=>args.Contains(name);
     var json=new JsonSerializerOptions{WriteIndented=true};
     void Print(object value)=>Console.WriteLine(JsonSerializer.Serialize(value,json));
     var progress=new Progress<ConversionProgress>(x=>{if(!Has("--quiet"))Console.Error.WriteLine($"{x.Stage} {x.Frames}/{x.Total} {x.Message}");});
-    // Four fixed presets, source by default. CLI overrides remain explicit.
+    // Two fixed source presets, source by default. CLI overrides remain explicit.
     ConversionOptions Options(){
         string? key=Get("--preset");
         var preset=key is null?OutputPresets.Find("source"):OutputPresets.FindExact(key)??throw new ArgumentException("Unknown preset: "+key);
@@ -25,7 +25,7 @@ try{
                 int[] values=args[x.i+1].Split(',').Select(int.Parse).ToArray();
                 if(values.Length!=4)throw new ArgumentException("HUD must be X,Y,W,H");return new HudRegion(values[0],values[1],values[2],values[3]);}).ToArray()});
         if(Get("--codec") is { } codec)options=options with{Codec=codec};
-        if(Get("--quality") is { } quality)options=options with{Quality=int.Parse(quality),QualityOnly=true,MatchSource=false};
+        if(Get("--quality") is { } quality)options=options with{Quality=int.Parse(quality),MatchSource=false};
         if(Get("--bitrate") is { } bitrate)options=options with{Bitrate=bitrate};
         if(Get("--height") is { } height)options=options with{OutputHeight=int.Parse(height)};
         return options;

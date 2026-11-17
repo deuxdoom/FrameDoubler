@@ -12,15 +12,8 @@ public sealed record ConversionOptions
     public string Encoder{get;init;}="auto";
     public string? Codec{get;init;}
     public bool Deduplicate{get;init;}=true;
-    private string? platform;
-    // YouTube delivery, or null for a plain MP4 with the audio copied.
-    public string? Platform{get=>platform;init=>platform=value;}
-    // Kept for callers that mean "YouTube delivery" (CLI, tests).
-    public bool Youtube{get=>platform is not null;init=>platform=value?(platform??"youtube"):null;}
     // Output height (width follows the aspect ratio); null keeps the source size.
     public int? OutputHeight{get;init;}
-    // Quality (CQ/CRF) instead of the platform's recommended bitrate.
-    public bool QualityOnly{get;init;}
     // Source codec when encodable, and original bitrate (optionally scaled to file fps).
     public bool MatchSource{get;init;}
     public bool ScaleSourceBitrate{get;init;}
@@ -87,7 +80,6 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         foreach(var roi in options.Hud)roi.Validate(source);
         Rational fps=options.Fps??Timeline.DefaultRate(source.IsVfr?source.NominalFps:source.Fps);
         if(fps<=0||fps>1000)throw new ArgumentException("Invalid output frame rate");
-        if(options.Platform is not null&&fps>60)throw new ArgumentException("선택한 플랫폼 프리셋은 60fps까지 지원합니다.");
         int limit=Math.Min(options.MaxFrames??source.Pts.Length,source.Pts.Length);
         Rational duration=limit<source.Pts.Length?(Rational)(source.Pts[limit]-source.Pts[0])*source.TimeBase:source.Duration;
         long total=(duration*fps).Ceiling();
@@ -113,7 +105,7 @@ public sealed partial class ConversionPipeline(AppPaths paths)
         int interpolated=0,cuts=0,duplicates=0;var watch=Stopwatch.StartNew();double lastReport=-1;
         VerificationReport? verification=null;
         try {
-            await using(var writer=new VideoEncoder(paths,temp,source,fps,encoder.Encoder,options.Quality,bitrate,options.Platform,duration,options.OutputHeight)) {
+            await using(var writer=new VideoEncoder(paths,temp,source,fps,encoder.Encoder,options.Quality,bitrate,duration,options.OutputHeight)) {
               try{
                 await foreach(var item in LabelledAsync(source,limit,options.Deduplicate,cancel)){
                     var frame=item.Frame;bool retained=false;

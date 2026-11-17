@@ -77,8 +77,8 @@ public static class EncoderDetector
 
 public static class EncoderPolicy
 {
-    public static string DefaultCodec(IEnumerable<EncoderCapability> encoders,bool youtube,bool tenBit,bool hardwareAllowed=true){
-        var order=youtube?new[]{"h264","hevc","av1"}:new[]{"hevc","h264","av1"};
+    public static string DefaultCodec(IEnumerable<EncoderCapability> encoders,bool tenBit,bool hardwareAllowed=true){
+        var order=new[]{"hevc","h264","av1"};
         return order.FirstOrDefault(codec=>encoders.Any(x=>x.Available&&x.Codec==codec&&(!tenBit||x.TenBit)&&(hardwareAllowed||!x.Hardware)))
             ??throw new InvalidOperationException("No tested encoder supports this input bit depth");
     }

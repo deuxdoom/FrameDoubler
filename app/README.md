@@ -85,7 +85,8 @@ paths are not included.
 
 Run `FrameDoubler.exe` in `dist/FrameDoubler`. Click the drop area or use Ctrl+O
 to select videos; dropping files works too. Videos with rotation metadata (portrait phone
-recordings) are converted upright, as players show them, without a rotation tag in the output. Review file and estimated motion fps,
+recordings) are converted upright, as players show them, without a rotation tag in the output. Videos with
+non-square pixels (e.g. 1920×1080 stored, shown as 9:16) keep their stored pixels and pixel aspect ratio. Review file and estimated motion fps,
 select an output folder/preset and convert. Queue items are numbered and can be
 dragged to reorder; Convert all runs every remaining item in that order, Convert
 selected only the selected ones (Ctrl/Shift multi-select). Existing files are protected.
@@ -93,7 +94,7 @@ Keyboard: Delete removes the selection, Ctrl+A selects all, Alt+Up/Alt+Down move
 Ctrl+Enter converts all, Ctrl+Shift+Enter converts the selection and Enter (in the list) opens the
 result. All keys, including Ctrl+O, can be changed under Settings → Shortcuts → Convert files.
 Double-clicking a converted video in the list plays the result in the default player.
-Four fixed export presets: Source (keep bitrate, default), Source (bitrate scales with fps), YouTube 4K, YouTube 1080p. Both Source modes keep the source size/codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). YouTube uses H.264 High VBR at 45 Mbps for 4K and 10 Mbps for 1080p, plus AAC-LC 48 kHz (256 kbps when the source is at least 256 kbps; otherwise 192 kbps, including unknown source bitrate). HDR is tone-mapped to SDR at the same bitrate. The 4K/1080p sizes apply to the short side, so a portrait 1080×1920 video stays 1080p. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
+Two fixed export presets: Source (keep bitrate, default) and Source (bitrate scales with fps). Both keep the source size, picture shape and codec when available and pass audio through. The second multiplies video bitrate by output/input file fps (an already-60fps capture does not double). HDR is tone-mapped to SDR. Actual VBR average and file size may vary. Device/encoder/model/HUD options are under Settings → Advanced; activity logs are collapsible.
 Each queued video shows a representative thumbnail (FFmpeg thumbnail filter).
 The Settings button (gear) opens General, Window and tray, Advanced, Data and About pages:
 update check at startup, close/minimize button actions, advanced device/encoder/model/HUD options, data folder,
@@ -152,7 +153,7 @@ decoded; 8-bit and 10-bit SDR paths are kept as they are.
 ```text
 FrameDoubler.Cli hardware
 FrameDoubler.Cli analyze video.mp4
-FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset youtube-2160
+FrameDoubler.Cli run -i video.mp4 -o smooth.mp4 --preset source-scaled
 FrameDoubler.Cli run -i video.mp4 --device cpu --software --codec h264
 FrameDoubler.Cli run -i video.mp4 --device gpu:1 --encoder qsv --codec hevc
 FrameDoubler.Cli run -i video.mp4 --fps 120 --model v4.26
@@ -163,7 +164,8 @@ FrameDoubler.Cli batch recordings -o converted --recursive
 `--no-verify` skips output validation. `--overwrite` explicitly allows replacement.
 `--hud-region X,Y,W,H` may be repeated. `--quality 1..51` or `--bitrate 24M`
 controls encoding; quality scales differ by encoder. The automatic codec respects
-input bit depth and available encoders. YouTube defaults to H.264 when available.
+input bit depth and available encoders (HEVC first, then H.264 and AV1). `--height N`
+resizes to N on the short side with square pixels.
 For >60fps output, low-motion/low-resolution footage can raise a heuristic quality
 warning; a completed file is kept for review and the CLI returns 2. Structural
 timing/audio/color errors stop finalization. Actual duplicates at input-proven
@@ -177,7 +179,7 @@ to `settings.ini` once. `FrameDoubler.exe` and `FrameDoubler.Cli.exe` are small 
 launchers; the self-contained .NET runtime and the application assemblies are in `dll/`.
 Keep the whole folder together. AppData is not used. Output verification is off by default in the GUI and
 included in the time estimate when enabled; `run` in the CLI verifies unless
-`--no-verify` is given. `estimate FILE [--preset youtube-2160] [--verify]` prints the
+`--no-verify` is given. `estimate FILE [--preset source-scaled] [--verify]` prints the
 sampled analysis and a point estimate with its uncertainty range for the selected device/settings. Close (and tray Exit)
 asks before exiting, which cancels active work and cleans up. Minimize goes to the
 taskbar by default; hiding to the tray requires an explicit setting. The tray menu

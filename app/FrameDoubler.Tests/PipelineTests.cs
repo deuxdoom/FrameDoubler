@@ -31,10 +31,10 @@ internal static class PipelineTests
         assert(matchedInfo.Codec==info.Codec&&matchedInfo.Width==info.Width&&matched.Verification?.Ok==true&&matched.Fps==60,"Match-source preset keeps codec and size");
         async Task<string> AudioHash(string path){var result=await ProcessRunner.RunAsync(paths.FFmpeg,["-v","error","-i",path,"-map","0:a:0","-c:a","copy","-f","hash","-hash","sha256","-"]);if(result.ExitCode!=0)throw new IOException(result.Error);return result.Output.Trim();}
         assert(await AudioHash(source)==await AudioHash(matched.Output),"Source preset audio packets are passed through unchanged");
-        // Export preset: output height 90 with Twitch delivery (AAC audio, 2 s keyframes) and verification.
-        var scaled=await pipeline.RunAsync(source,Path.Combine(root,"scaled-twitch.mp4"),options with{Platform="twitch",OutputHeight=90});
+        // Requested output height (CLI --height 90) with verification; the audio is still copied unchanged.
+        var scaled=await pipeline.RunAsync(source,Path.Combine(root,"scaled90.mp4"),options with{OutputHeight=90});
         var scaledInfo=await MediaProbe.ReadAsync(paths,scaled.Output);
-        assert(scaledInfo.Width==160&&scaledInfo.Height==90&&scaled.Verification?.Ok==true&&scaledInfo.Audio.Length==1&&scaledInfo.Audio[0].Codec=="aac","Preset height scales the output; Twitch delivery encodes AAC");
+        assert(scaledInfo.Width==160&&scaledInfo.Height==90&&scaled.Verification?.Ok==true&&await AudioHash(source)==await AudioHash(scaled.Output),"Requested height scales the output and keeps the audio packets");
         assert(normal.Frames==120&&normal.Interpolated==59&&normal.Verification?.Ok==true,"True 30 to 60 inference and audio verification");
         // Portrait phone recording: a quarter-turn display matrix makes FFmpeg decode upright 180×320
         // frames. Reading them as 320×180 used to shear the picture into three striped copies.
@@ -141,7 +141,7 @@ internal static class PipelineTests
             "-bsf:v","hevc_metadata=colour_primaries=9:transfer_characteristics=16:matrix_coefficients=9",pq);
         var pqInfo=await MediaProbe.ReadAsync(paths,pq);
         assert(pqInfo.HdrInput?.Name=="PQ"&&pqInfo.BitDepth==8&&pqInfo.ColorTransfer=="bt709"&&pqInfo.ColorPrimaries=="bt709","PQ input is processed as tone-mapped BT.709");
-        // HLG 10-bit AV1, as in YouTube 4K HDR uploads: converted to verified 8-bit BT.709 SDR.
+        // HLG 10-bit AV1: converted to verified 8-bit BT.709 SDR.
         string hlg=Path.Combine(root,"hlg.mp4");
         await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=1,format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc:range=tv",
             "-f","lavfi","-i","sine=frequency=500:sample_rate=48000:duration=1","-c:v","libsvtav1","-preset","10","-svtav1-params","lp=2","-pix_fmt","yuv420p10le",
@@ -184,8 +184,8 @@ internal static class PipelineTests
         string delayed=Path.Combine(root,"late-audio.mp4");
         await FF("-f","lavfi","-i","testsrc2=size=320x180:rate=30:duration=2.4","-itsoffset","0.25","-f","lavfi","-i","sine=duration=2:sample_rate=48000",
             "-c:v","libopenh264","-b:v","2M","-c:a","aac","-shortest",delayed);
-        var sync=await pipeline.RunAsync(delayed,Path.Combine(root,"late-audio60.mp4"),options with{Youtube=true});
-        assert(sync.Verification?.Ok==true,"Delayed audio and AAC synchronization");
+        var sync=await pipeline.RunAsync(delayed,Path.Combine(root,"late-audio60.mp4"),options);
+        assert(sync.Verification?.Ok==true,"Delayed audio stays synchronized when copied");
         string? old=Environment.GetEnvironmentVariable("FRAMEDOUBLER_DISABLE_VULKAN");
         try{
             Environment.SetEnvironmentVariable("FRAMEDOUBLER_DISABLE_VULKAN","1");

@@ -79,27 +79,28 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
 }
 
 {
-    Assert(OutputPresets.BuiltIns.Select(x=>x.Id).SequenceEqual(new[]{"source","source-scaled","youtube-2160","youtube-1080"}),"Only the four requested presets are offered");
+    Assert(OutputPresets.BuiltIns.Select(x=>x.Id).SequenceEqual(new[]{"source","source-scaled"}),"Only the two source presets are offered (YouTube presets removed)");
     var src=new MediaInfo("",720,480,"h264","yuv420p",8,1,30,30,false,1,[0],null,null,null,null,[]){VideoBitrate=3_219_186};
     var h264=new EncoderCapability("h264_nvenc","h264","nvenc",true,false,null);
     var unchanged=OutputPresets.Apply(OutputPresets.Find("source"),new ConversionOptions());
     var scaled=OutputPresets.Apply(OutputPresets.Find("source-scaled"),new ConversionOptions());
-    Assert(unchanged.MatchSource&&!unchanged.ScaleSourceBitrate&&unchanged.Platform is null&&unchanged.OutputHeight is null,"Default preserves source size, codec and audio passthrough");
+    Assert(unchanged.MatchSource&&!unchanged.ScaleSourceBitrate&&unchanged.OutputHeight is null,"Default preserves source size, codec and audio passthrough");
     Assert(OutputPresets.Encoding(src,unchanged,[h264],60)==("h264","3219186")&&OutputPresets.Encoding(src,unchanged,[h264],120).Bitrate=="3219186","Source bitrate stays exact at 60 and 120fps; never platform 12M");
-    Assert(OutputPresets.Encoding(src,scaled,[h264],60).Bitrate=="6438372"&&OutputPresets.Encoding(src,scaled,[h264],120).Bitrate=="12876744"&&scaled.Platform is null,"Optional source multiplier follows fps with audio passthrough and no 2x cap");
+    Assert(OutputPresets.Encoding(src,scaled,[h264],60).Bitrate=="6438372"&&OutputPresets.Encoding(src,scaled,[h264],120).Bitrate=="12876744"&&scaled.OutputHeight is null,"Optional source multiplier follows fps with audio passthrough and no 2x cap");
     Assert(OutputPresets.SourceBitrate(src with{Fps=60},60,true)=="3219186","Already-60fps game capture does not double the file bitrate");
     Assert(OutputPresets.SourceBitrate(src with{VideoBitrate=null,OverallBitrate=null},60) is null,"Unknown bitrate has an explicit quality fallback");
-    foreach(var id in new[]{"youtube-2160","youtube-1080"}){
-        var opt=OutputPresets.Apply(OutputPresets.Find(id),new ConversionOptions());
-        var encoded=OutputPresets.Encoding(src,opt,[h264],60);
-        Assert(opt.Platform=="youtube"&&opt.Codec=="h264"&&!opt.QualityOnly&&encoded.Bitrate==(id=="youtube-2160"?"45M":"10M"),"YouTube uses requested fixed bitrate, H264 and AAC: "+id);
+    var hevc=new EncoderCapability("hevc_nvenc","hevc","nvenc",true,false,null);
+    foreach(var id in new[]{"youtube-2160","youtube-1080","youtube-1440","youtube"}){
+        Assert(OutputPresets.FindExact(id) is null&&OutputPresets.Find(id).Id=="source","Removed YouTube preset falls back to the source preset: "+id);
     }
-    Assert(OutputPresets.OutputSize(3840,2160,1080)==(1920,1080)&&OutputPresets.OutputSize(720,480,null)==(720,480),"Source size or proportional preset resize");
+    Assert(OutputPresets.Encoding(src with{Codec="vp9",VideoBitrate=null,OverallBitrate=null},new ConversionOptions{MatchSource=true},[h264,hevc],60)==("hevc",null)
+        &&EncoderPolicy.DefaultCodec([h264,hevc],false)=="hevc","Without a source codec or bitrate: HEVC first, quality-based");
+    Assert(OutputPresets.OutputSize(3840,2160,1080)==(1920,1080)&&OutputPresets.OutputSize(720,480,null)==(720,480),"Source size or proportional resize to a requested height");
     Assert(OutputPresets.OutputSize(2160,3840,1080)==(1080,1920)&&OutputPresets.OutputSize(1080,1920,1080)==(1080,1920)&&OutputPresets.OutputSize(480,720,1080)==(1080,1620),
-        "Portrait presets size the short side, like landscape");
+        "A requested height sizes the short side of portrait video, like landscape");
     Assert(OutputPresets.OutputSize(1920,1080,1080,new Rational(81,256))==(1080,1920)&&OutputPresets.OutputSize(1920,1080,null,new Rational(81,256))==(1920,1080)
         &&OutputPresets.OutputSize(720,480,1080,new Rational(32,27))==(1920,1080)&&OutputPresets.OutputSize(1920,1080,1080,1)==(1920,1080),
-        "Anamorphic presets size the displayed shape with square pixels; the source preset keeps the stored size");
+        "A requested height sizes anamorphic video by its displayed shape with square pixels; no height keeps the stored size");
     foreach(var (json,expected) in new[]{("{\"sample_aspect_ratio\":\"81:256\"}",new Rational(81,256)),("{\"sample_aspect_ratio\":\"32:27\"}",new Rational(32,27)),
         ("{\"sample_aspect_ratio\":\"1:1\"}",(Rational)1),("{\"sample_aspect_ratio\":\"0:1\"}",(Rational)1),("{\"sample_aspect_ratio\":\"N/A\"}",(Rational)1),
         ("{\"sample_aspect_ratio\":\"1:100\"}",(Rational)1),("{}",(Rational)1)}){
@@ -119,8 +120,6 @@ using(var a=new VideoFrame(12,0,0))using(var b=new VideoFrame(12,1,1)){
     }
     Assert(OutputPresets.SourceCodec(src,[h264],true)=="h264"&&OutputPresets.SourceCodec(src with{Codec="vp9"},[h264],true) is null,"Keep source codec only when encodable here");
     Assert(OutputPresets.ParseBitrate("3219186")==3_219_186&&OutputPresets.ParseBitrate("12M")==12_000_000&&OutputPresets.FindExact("quality") is null,"Removed presets cannot silently select a different bitrate");
-    var audio=new AudioInfo(0,"aac",2,48000,0,1,new Rational(1,48000));
-    Assert(OutputPresets.AudioBitrate(audio with{Bitrate=256000})==256000&&OutputPresets.AudioBitrate(audio with{Bitrate=384000})==256000&&OutputPresets.AudioBitrate(audio with{Bitrate=255999})==192000&&OutputPresets.AudioBitrate(audio with{Bitrate=128000})==192000&&OutputPresets.AudioBitrate(audio)==192000,"Per-track YouTube audio uses 256k or 192k, including boundary and unknown bitrate");
     var hq=EncoderPolicy.Arguments(h264 with{HighQualityTuning=true},19,"12M").ToArray();
     Assert(hq.Contains("p7")&&hq.Contains("fullres")&&!EncoderPolicy.Arguments(h264,19,"12M").Contains("-rc-lookahead")&&!EncoderPolicy.Arguments(hw,19,"12M").Contains("-rc-lookahead"),"Optional NVENC quality tuning is isolated from base and other backends");
 }

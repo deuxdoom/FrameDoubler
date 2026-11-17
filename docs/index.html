@@ -306,7 +306,7 @@ footer a { color: var(--muted); }
   <div class="wrap hero-grid">
     <div>
       <a class="news rise" href="#new"><b data-i18n="news.badge">새 버전 2.0.2</b><span data-i18n="news.text">세로 영상 변환 · 단축키 · 시작 화면</span><i aria-hidden="true">→</i></a>
-      <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">캡처 미리보기와 게임 녹화 파일 변환</p>
+      <p class="eyebrow rise" style="--i:1" data-i18n="hero.eyebrow">캡처 미리보기와 영상 파일 변환</p>
       <h1 class="rise" style="--i:2;margin-top:12px"><span data-i18n="hero.title1">게임 화면을</span><span class="shine" data-i18n="hero.title2">더 부드럽게</span></h1>
       <p class="lead rise" style="--i:3" data-i18n="hero.lead"><span class="s">캡처 카드를 연결해 게임 화면을 실시간으로 보세요.</span> <span class="s"><b>DLSS·VFX 프레임 생성</b>과 중복 제거를 적용합니다.</span> <span class="s">처리된 화면과 소리를 그대로 녹화할 수 있습니다.</span> <span class="s">녹화 파일은 RIFE로 부드럽게 변환합니다.</span></p>
       <div class="cta rise" style="--i:4">
@@ -354,7 +354,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <p class="eyebrow reveal" data-i18n="why.eyebrow">파일 변환 · 중복 프레임</p>
     <h2 class="reveal" data-i18n="why.title">60fps 파일 안에는 같은 그림이 두 번씩 들어 있습니다</h2>
-    <p class="lead reveal" style="margin-top:16px" data-i18n="why.lead1"><span class="s">콘솔 게임이 30fps로 동작하면, 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다.</span> <span class="s">파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps입니다.</span> <span class="s">유튜브에 올려도 60fps의 부드러움은 나오지 않습니다.</span></p>
+    <p class="lead reveal" style="margin-top:16px" data-i18n="why.lead1"><span class="s">콘솔 게임이 30fps로 동작하면, 캡처 카드는 같은 화면을 두 번씩 받아 60fps 파일로 저장합니다.</span> <span class="s">파일 정보에는 60fps라고 표시되지만 실제 움직임은 30fps입니다.</span> <span class="s">그대로 두면 60fps의 부드러움은 나오지 않습니다.</span></p>
     <div class="strip-box reveal" id="strip">
       <div class="strip-row">
         <span data-i18n="strip.original"><b>녹화 원본</b>움직임 30fps</span>
@@ -390,7 +390,7 @@ footer a { color: var(--muted); }
       <li class="reveal" style="--i:1"><h3 data-i18n="step2.title">실제 움직임 fps 추정</h3><p data-i18n="step2.text"><span class="s">프레임을 서로 비교하여 파일의 fps와 실제 움직임의 fps를 구별합니다.</span> <span class="s">60fps 파일 속의 30fps 움직임을 찾아냅니다.</span></p></li>
       <li class="reveal" style="--i:2"><h3 data-i18n="step3.title">중복 프레임 처리</h3><p data-i18n="step3.text"><span class="s">압축 때문에 조금씩 달라진 중복 프레임도 판정합니다.</span> <span class="s">프레임 드롭으로 3번, 4번 반복된 구간과 정지 화면도 구분합니다.</span></p></li>
       <li class="reveal" style="--i:3"><h3 data-i18n="step4.title">RIFE AI 보간</h3><p data-i18n="step4.text"><span class="s">남은 프레임 사이의 정확한 시각에 새 프레임을 만듭니다.</span> <span class="s">ncnn과 Vulkan으로 제조사와 관계없이 GPU에서 실행합니다.</span> <span class="s">장면이 바뀌는 순간에는 두 화면을 섞지 않습니다.</span></p></li>
-      <li class="reveal" style="--i:4"><h3 data-i18n="step5.title">인코딩</h3><p data-i18n="step5.text"><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">선택한 프리셋에 따라 원본 화질을 유지하거나 YouTube 권장 설정으로 만들고, 길이와 오디오 싱크를 지킵니다.</span></p></li>
+      <li class="reveal" style="--i:4"><h3 data-i18n="step5.title">인코딩</h3><p data-i18n="step5.text"><span class="s">NVENC, AMF, QSV, 소프트웨어 인코더 가운데 동작하는 것을 고릅니다.</span> <span class="s">원본의 해상도와 화면 모양을 유지하고, 길이와 오디오 싱크를 지킵니다.</span></p></li>
       <li class="reveal" style="--i:5"><h3 data-i18n="step6.title">출력 검증 (선택)</h3><p data-i18n="step6.text"><span class="s">처음·중간·끝 각 1분만 검사합니다(최대 3분, 겹침 병합).</span> <span class="s">전체 메타데이터도 확인하지만 검사 밖의 오류는 놓칠 수 있습니다.</span></p></li>
     </ol>
   </div>
@@ -420,7 +420,7 @@ footer a { color: var(--muted); }
       <article class="card reveal" style="--i:2"><svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M9 8l6 4-6 4z"/></svg><h3 data-i18n="card3.title">장면 전환 보호</h3><p data-i18n="card3.text"><span class="s">컷이 바뀌는 순간에는 보간하지 않습니다.</span> <span class="s">두 장면이 겹쳐 보이는 프레임이 생기지 않습니다.</span></p></article>
       <article class="card reveal" style="--i:3"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><h3 data-i18n="card4.title">제조사와 관계없는 GPU 가속</h3><p data-i18n="card4.text"><span class="s">NVIDIA, AMD, Intel의 Vulkan GPU를 지원 대상으로 합니다.</span> <span class="s">GPU를 쓸 수 없으면 CPU로 처리하고 느려진다고 알려 줍니다.</span></p></article>
       <article class="card reveal" style="--i:4"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg><h3 data-i18n="card5.title">동작하는 인코더만 선택</h3><p data-i18n="card5.text"><span class="s">NVENC, AMF, QSV와 소프트웨어 인코더로 짧게 인코딩해 봅니다.</span> <span class="s">성공한 인코더만 고르며, 설정에는 NVENC (GPU)·CPU처럼 쉽게 표시합니다.</span></p></article>
-      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">출력 프리셋</h3><p data-i18n="card6.text">원본 비트레이트를 유지하거나 fps에 비례해 늘리는 원본 프리셋, YouTube 4K(45Mbps)·1080p(10Mbps) 프리셋을 고릅니다. 원본 프리셋은 오디오를 그대로 넘깁니다.</p></article>
+      <article class="card reveal" style="--i:5"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg><h3 data-i18n="card6.title">출력 프리셋</h3><p data-i18n="card6.text">원본 비트레이트를 유지하거나 fps에 비례해 늘리는 두 프리셋 중에서 고릅니다. 세로·가로·HDR 영상 모두 원본 해상도와 화면 모양을 유지하고 오디오는 그대로 넘깁니다.</p></article>
       <article class="card reveal" style="--i:6"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><h3 data-i18n="card7.title">오디오 싱크와 색상 보존</h3><p data-i18n="card7.text"><span class="s">영상 길이를 프레임 단위로 맞춥니다.</span> <span class="s">오디오의 시작 시각과 색상 정보도 원본 그대로 유지합니다.</span> <span class="s">HDR 영상은 SDR로 변환합니다.</span></p></article>
       <article class="card reveal" style="--i:7"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="5" y="14" width="6" height="4"/></svg><h3 data-i18n="card8.title">고정 HUD 보호</h3><p data-i18n="card8.text"><span class="s">미니맵이나 자막처럼 움직이지 않는 영역을 지정할 수 있습니다.</span> <span class="s">그 영역의 화소는 원본 그대로 유지합니다.</span></p></article>
       <article class="card reveal" style="--i:8"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M10 2h4"/></svg><h3 data-i18n="card9.title">예상 소요 시간</h3><p data-i18n="card9.text">장치 실측과 완료 작업을 반영해 하나의 예상 소요 시간과 완료 예정 시각을 알려 줍니다. 추정 범위는 도움말에서 확인합니다.</p></article>
@@ -502,7 +502,7 @@ footer a { color: var(--muted); }
     "meta.description": "Windows capture card preview with DLSS/VFX frame generation, deduplication and MP4 recording, plus RIFE conversion for recorded files.",
     "nav.new": "2.0.2", "nav.why": "Why", "nav.how": "How it works", "nav.features": "Features", "nav.download": "Download",
     "news.badge": "New 2.0.2", "news.text": "Portrait videos · shortcuts · start page",
-    "hero.eyebrow": "Live capture preview and game recording conversion",
+    "hero.eyebrow": "Live capture preview and video file conversion",
     "hero.title1": "Your game, live", "hero.title2": "with smoother motion",
     "hero.lead": "<span class=\"s\">Connect a capture card and preview your game live.</span> <span class=\"s\">Apply <b>DLSS/VFX frame generation</b> and deduplication.</span> <span class=\"s\">Record the processed picture together with its sound.</span> <span class=\"s\">Convert recorded files with RIFE interpolation.</span>",
     "hero.download": "Download", "hero.why": "What makes it different", "ver.latest": "Latest",
@@ -520,7 +520,7 @@ footer a { color: var(--muted); }
     "new3.title": "Starts on file conversion", "new3.text": "A first launch opens the file conversion page; later the last page is remembered. The capture preview starts only when you press Start preview.",
     "why.eyebrow": "File conversion · duplicate frames", "why.title": "A 60fps file can hold every picture twice",
     "why.lead1": s("When a console game runs at 30fps, the capture card receives each picture twice and saves a 60fps file.",
-                   "The file says 60fps, but the motion is still 30fps.", "Uploading it to YouTube does not make it any smoother."),
+                   "The file says 60fps, but the motion is still 30fps.", "As it is, it never looks any smoother."),
     "strip.original": "<b>Original recording</b>30fps motion", "strip.output": "<b>FrameDoubler</b>60fps motion",
     "why.lead2": s("Typical interpolation tools simply double this file.",
                    "They interpolate between <b>two identical frames</b>, so nothing changes.",
@@ -540,7 +540,7 @@ footer a { color: var(--muted); }
     "step4.title": "RIFE AI interpolation",
     "step4.text": s("Creates new frames at the exact times between the remaining frames.", "Runs on any vendor’s GPU through ncnn and Vulkan.", "Never blends two pictures across a scene change."),
     "step5.title": "Encoding",
-    "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "Depending on the preset it keeps the source quality or follows YouTube’s recommendations, and keeps the length and audio sync."),
+    "step5.text": s("Picks a working encoder among NVENC, AMF, QSV and software encoders.", "It keeps the source resolution and picture shape, and keeps the length and audio sync."),
     "step6.title": "Output verification (optional)",
     "step6.text": s("Checks one minute at the start, middle and end (up to three minutes; overlaps merged).", "Global metadata is also checked, but errors outside the samples may be missed."),
     "results.eyebrow": "RIFE file conversion results", "results.title": "Tested on a real 4K game recording",
@@ -556,7 +556,7 @@ footer a { color: var(--muted); }
     "card3.title": "Scene change protection", "card3.text": s("Does not interpolate at a cut.", "No frame shows two scenes overlapping."),
     "card4.title": "GPU acceleration from any vendor", "card4.text": s("Runs on compatible NVIDIA, AMD and Intel Vulkan GPUs.", "Without a usable GPU it uses the CPU and tells you it will be slower."),
     "card5.title": "Only encoders that work", "card5.text": s("Runs a short test encode with NVENC, AMF, QSV and software encoders.", "Only encoders that succeed are offered, labelled simply as NVENC (GPU) or CPU."),
-    "card6.title": "Export presets", "card6.text": "Choose a source preset that keeps the bitrate or scales it with fps, or YouTube 4K (45 Mbps) and 1080p (10 Mbps). Source presets pass the audio through.",
+    "card6.title": "Export presets", "card6.text": "Choose between keeping the source bitrate or scaling it with fps. Portrait, landscape and HDR videos keep their resolution and picture shape, and the audio is passed through.",
     "card7.title": "Audio sync and colour preserved", "card7.text": s("Matches the video length frame by frame.", "Keeps the audio start time and colour information of the original.", "HDR video is converted to SDR."),
     "card8.title": "Static HUD protection", "card8.text": s("Mark areas that never move, such as a minimap or subtitles.", "Pixels in those areas stay exactly as in the original."),
     "card9.title": "Time estimate", "card9.text": "Device measurements and completed jobs give one estimated duration and a completion clock. The uncertainty range remains in the tooltip.",
